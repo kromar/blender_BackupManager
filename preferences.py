@@ -15,32 +15,66 @@
 # Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
 # ##### END GPL LICENSE BLOCK #####
+
     
-    
+import os
 import bpy
 from bpy.types import AddonPreferences
 from bpy.props import ( StringProperty, 
-                        BoolProperty, 
-                        FloatProperty,
+                        BoolProperty,
                         EnumProperty)
 
-# https://docs.blender.org/manual/en/latest/advanced/blender_directory_layout.html
-print(bpy.utils.user_resource('CONFIG'))
-print(bpy.utils.resource_path(type='USER', major=bpy.app.version[0], minor=bpy.app.version[1]))
-
-
-
-class PreferenceManagerPreferences(AddonPreferences):
+class ConfigManagerPreferences(AddonPreferences):
     bl_idname = __package__
-    
+
+    ############################################
+    #      Manager
+    ############################################
     config_path: StringProperty(
         name="config_path", 
         description="config_path", 
         subtype='DIR_PATH',
-        default=bpy.utils.user_resource('CONFIG') )
-   
+        default=bpy.utils.user_resource('CONFIG')) #Resource type in [‘DATAFILES’, ‘CONFIG’, ‘SCRIPTS’, ‘AUTOSAVE’].
+
+    user_resource_path: StringProperty(
+        name="user_resource_path", 
+        description="user_resource_path", 
+        subtype='DIR_PATH',
+        default=bpy.utils.resource_path(type='USER', major=bpy.app.version[0], minor=bpy.app.version[1]))
+    
+
+    version_paths: EnumProperty(
+            name="version_paths",
+            description="version_paths",
+            items='',
+            default='')  
+            
+    ############################################
+    #       UI
+    ############################################
 
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = True
-        layout.prop(self, 'config_path') 
+
+        
+        ############################################
+        #      Manager UI
+        ############################################
+        box = layout.box() 
+        box.label(text='Path Manager', icon='PREFERENCES')  
+        col  = box.column(align=False) 
+
+        #col.prop(self, 'config_path')         
+        col.prop(self, 'user_resource_path') 
+
+        col.operator("pm.check_versions", text="Download: ", icon='COLORSET_03_VEC').button_input = 1
+        
+        #col.prop(self, 'version_paths')
+
+       
+         
+        
+
+        
+        
