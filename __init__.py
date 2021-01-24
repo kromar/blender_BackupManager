@@ -20,7 +20,7 @@ import bpy
 import os
 import numpy
 from bpy.types import Operator, AddonPreferences
-from bpy.props import StringProperty, EnumProperty, FloatProperty
+from bpy.props import StringProperty, EnumProperty, BoolProperty
 
 bl_info = {
     "name": "Preference Manager",
@@ -107,7 +107,7 @@ class ConfigManagerPreferences(AddonPreferences):
         default=str(bpy.app.version[0]) + '.' + str(bpy.app.version[1]))
         
     backup_path: StringProperty(
-        name="Backup Location: ", 
+        name="Backup Location", 
         description="Backup Location", 
         subtype='DIR_PATH',
         default=bpy.app.tempdir)
@@ -118,8 +118,13 @@ class ConfigManagerPreferences(AddonPreferences):
 
     bl_versions: EnumProperty(
         items=list_populate, 
-        name="Verison: ", 
+        name="Backup Verison", 
         description="Choose the version to backup")
+
+    use_custom_version: BoolProperty(
+        name="Custom Version",
+        description="use_custom_version",
+        default=False)
 
     ############################################
     #       UI
@@ -136,28 +141,32 @@ class ConfigManagerPreferences(AddonPreferences):
         ############################################
         box = layout.box() 
         box.label(text='Global', icon='PREFERENCES')  
-        col  = box.column(align=False)     
+        col  = box.column(align=False)   
+        col.prop(self, 'use_custom_version')  
+
+        #if self.use_custom_version:
+            
+
         col.prop(self, 'custom_version')   
         #col.prop(self, 'custom_version')     
-        col.prop(self, 'backup_path')   
-        col.operator("pm.check_versions", text="Search Versions", icon='COLORSET_03_VEC').button_input = 1
+        col.operator("pm.check_versions", text="Search Backups", icon='COLORSET_03_VEC').button_input = 1
 
-        col  = layout.column(align=False) 
+        col  = layout.column(align=True) 
         row = col.row()
         box = row.box() 
         box.label(text='Backup from', icon='PREFERENCES')  
-        col  = box.column(align=False) 
-        #col.label(text="Current Blender Version: " + bpy.app.version_string)
-        col.prop(self, 'bl_versions')               
-        col.operator("pm.check_versions", text="Backup Preferences", icon='COLORSET_04_VEC').button_input = 2  
+        col  = box.column(align=True) 
+        #col.label(text="Current Blender Version: " + bpy.app.version_string)           
+        col.operator("pm.check_versions", text="Backup", icon='COLORSET_04_VEC').button_input = 2  
+        col.prop(self, 'bl_versions')    
 
         box = row.box() 
         box.label(text='Restore from', icon='PREFERENCES')  
-        col  = box.column(align=False) 
-        #col.label(text="Current Blender Version: " + bpy.app.version_string)
-        col.prop(self, 'bl_versions')             
-        col.operator("pm.check_versions", text="Restore Preferences", icon='COLORSET_01_VEC').button_input = 4  
-        
+        col  = box.column(align=True) 
+        #col.label(text="Current Blender Version: " + bpy.app.version_string)     
+        col.operator("pm.check_versions", text="Restore", icon='COLORSET_01_VEC').button_input = 4  
+        col.prop(self, 'bl_versions')    
+        col.prop(self, 'backup_path')   
 
        
          
