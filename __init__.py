@@ -100,6 +100,7 @@ class ConfigManagerPreferences(AddonPreferences):
         subtype='DIR_PATH',
         default=bpy.utils.user_resource('CONFIG')) #Resource type in [‘DATAFILES’, ‘CONFIG’, ‘SCRIPTS’, ‘AUTOSAVE’].
 
+    this_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
     custom_version: StringProperty(
         name="Current Version", 
         description="Current Blender Version", 
@@ -139,30 +140,29 @@ class ConfigManagerPreferences(AddonPreferences):
         ############################################
         #      Manager UI
         ############################################
-        box = layout.box() 
-        box.label(text='Global', icon='PREFERENCES')  
+        
+        box = layout.box()  
         col  = box.column(align=False)   
-        col.prop(self, 'use_custom_version')  
 
         #if self.use_custom_version:
             
+        col.prop(self, 'use_custom_version')  
 
         col.prop(self, 'custom_version')   
         #col.prop(self, 'custom_version')     
         col.operator("pm.check_versions", text="Search Backups", icon='COLORSET_03_VEC').button_input = 1
 
-        col  = layout.column(align=True) 
+
+        col  = layout.column(align=False) 
         row = col.row()
-        box = row.box() 
-        box.label(text='Backup from', icon='PREFERENCES')  
-        col  = box.column(align=True) 
+        box = row.box()   
+        col  = box.column(align=False) 
         #col.label(text="Current Blender Version: " + bpy.app.version_string)           
         col.operator("pm.check_versions", text="Backup", icon='COLORSET_04_VEC').button_input = 2  
         col.prop(self, 'bl_versions')    
 
-        box = row.box() 
-        box.label(text='Restore from', icon='PREFERENCES')  
-        col  = box.column(align=True) 
+        box = row.box()   
+        col  = box.column(align=False) 
         #col.label(text="Current Blender Version: " + bpy.app.version_string)     
         col.operator("pm.check_versions", text="Restore", icon='COLORSET_01_VEC').button_input = 4  
         col.prop(self, 'bl_versions')    
