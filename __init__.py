@@ -18,7 +18,7 @@
 
 import bpy
 import os
-import shutil
+from shutil import copytree, ignore_patterns, rmtree
 import distutils.dir_util
 import numpy
 from bpy.types import Operator, AddonPreferences
@@ -81,16 +81,16 @@ class OT_BackupManager(Operator):
             print("Source: ", source_path, "\nTarget: ", target_path) 
             if pref.clean_target_path and target_path:
                 try:
-                    shutil.rmtree(target_path)
+                    rmtree(target_path)
                     print("\nCleaned target path ", target_path)
                 except:
                     pass
             try: 
                 print("\nBackup to target path ", target_path)
-                shutil.copytree(source_path, target_path) #python 3.8 will support dirs_exist_ok=True
+                copytree(source_path, target_path, ignore=ignore_patterns('*.clbin')) #python 3.8 will support dirs_exist_ok=True
             except:
                 print("\nBackup failed")
-                distutils.dir_util.copy_tree(source_path, target_path)
+                distutils.dir_util.copy_tree(source_path, target_path, ignore='*.clbin')
                 
             print("\nBackup complete")
 
@@ -119,16 +119,16 @@ class OT_BackupManager(Operator):
             print("Source: ", source_path, "\nTarget: ", target_path)
             if pref.clean_target_path and target_path:
                 try:
-                    shutil.rmtree(target_path)
+                    rmtree(target_path)
                     print("\nCleaned target path ", target_path)
                 except:
                     pass
             try: 
                 print("\nRestore1 to target path ", target_path)
-                shutil.copytree(source_path, target_path) #python 3.8 will support dirs_exist_ok=True
+                copytree(source_path, target_path) #python 3.8 will support dirs_exist_ok=True
             except FileExistsError:
                 print("\nRestore2 to target path ", target_path)
-                shutil.copytree(source_path, target_path) #dirs_exist_ok=True)
+                copytree(source_path, target_path) #dirs_exist_ok=True)
 
         return {'FINISHED'}
 
