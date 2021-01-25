@@ -23,21 +23,21 @@ from bpy.types import Operator, AddonPreferences
 from bpy.props import StringProperty, EnumProperty, BoolProperty
 
 bl_info = {
-    "name": "Preference Manager",
+    "name": "Backup Manager",
     "description": "",
     "author": "Daniel Grauer",
     "version": (0, 1, 0),
     "blender": (2, 83, 0),
     "location": "Preferences",
-    "category": "!kromar",
-    "wiki_url": "https://github.com/kromar/blender_PreferenceManager",
-    "tracker_url": "https://github.com/kromar/blender_PreferenceManager/issues/new",
+    "category": "!System",
+    "wiki_url": "https://github.com/kromar/blender_BackupManager",
+    "tracker_url": "https://github.com/kromar/blender_BackupManager/issues/new",
 }
 
 version_list =[]
-class PM_OT_ConfigManager(Operator):
+class OT_BackupManager(Operator):
     ''' Look for a new Addon version on Github '''
-    bl_idname = "pm.check_versions"
+    bl_idname = "bm.check_versions"
     bl_label = "Blender Versions" 
     
     button_input: bpy.props.IntProperty()
@@ -88,7 +88,7 @@ class PM_OT_ConfigManager(Operator):
     
     
 
-class ConfigManagerPreferences(AddonPreferences):
+class BackupManagerPreferences(AddonPreferences):
     bl_idname = __package__
     
     ############################################
@@ -150,7 +150,7 @@ class ConfigManagerPreferences(AddonPreferences):
 
         col.prop(self, 'custom_version')   
         #col.prop(self, 'custom_version')     
-        col.operator("pm.check_versions", text="Search Backups", icon='COLORSET_03_VEC').button_input = 1
+        col.operator("bm.check_versions", text="Search Backups", icon='COLORSET_03_VEC').button_input = 1
 
 
         col  = layout.column(align=False) 
@@ -158,21 +158,21 @@ class ConfigManagerPreferences(AddonPreferences):
         box = row.box()   
         col  = box.column(align=False) 
         #col.label(text="Current Blender Version: " + bpy.app.version_string)           
-        col.operator("pm.check_versions", text="Backup", icon='COLORSET_04_VEC').button_input = 2  
+        col.operator("bm.check_versions", text="Backup", icon='COLORSET_04_VEC').button_input = 2  
         col.prop(self, 'bl_versions')    
 
         box = row.box()   
         col  = box.column(align=False) 
         #col.label(text="Current Blender Version: " + bpy.app.version_string)     
-        col.operator("pm.check_versions", text="Restore", icon='COLORSET_01_VEC').button_input = 4  
+        col.operator("bm.check_versions", text="Restore", icon='COLORSET_01_VEC').button_input = 4  
         col.prop(self, 'bl_versions')    
         col.prop(self, 'backup_path')   
 
        
          
 classes = (
-    PM_OT_ConfigManager,
-    ConfigManagerPreferences,
+    OT_BackupManager,
+    BackupManagerPreferences,
     )
 
 def register():    

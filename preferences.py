@@ -24,7 +24,7 @@ from bpy.props import ( StringProperty,
                         BoolProperty,
                         EnumProperty)
 
-class ConfigManagerPreferences(AddonPreferences):
+class BackupManagerPreferences(AddonPreferences):
     bl_idname = __package__
 
     ############################################
@@ -68,7 +68,7 @@ class ConfigManagerPreferences(AddonPreferences):
         #col.prop(self, 'config_path')         
         col.prop(self, 'user_resource_path') 
 
-        col.operator("pm.check_versions", text="Download: ", icon='COLORSET_03_VEC').button_input = 1
+        col.operator("bm.check_versions", text="Download: ", icon='COLORSET_03_VEC').button_input = 1
         
         #col.prop(self, 'version_paths')
 
