@@ -18,7 +18,7 @@
 
 import bpy
 import os
-from shutil import copytree, ignore_patterns, rmtree
+import shutil
 import distutils.dir_util
 import numpy
 from bpy.types import Operator, AddonPreferences
@@ -28,7 +28,7 @@ bl_info = {
     "name": "Backup Manager",
     "description": "",
     "author": "Daniel Grauer",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (2, 83, 0),
     "location": "Preferences",
     "category": "!System",
@@ -52,45 +52,68 @@ class OT_BackupManager(Operator):
     def find_versions(self, filepath):
         global version_list
         version_list.clear()  
-        path_preferences = f"{os.path.dirname(filepath)+'/'}".replace("/", "\\")  
+        path_preferences = f"{os.path.dirname(filepath)}"
         for v in os.listdir(path_preferences):
             version_list.append((v, v, ""))
         return version_list
     
 
-
     def backup_version(self, filepath):        
         pref = bpy.context.preferences.addons[__package__].preferences            
         backup_path = os.path.dirname(filepath)
-        if pref.custom_version:            
-            print("\nBacking up custom version ", pref.custom_version)
-        else:
-            if pref.bl_versions:
-                #backup selected version
-                print("\nBacking up selected version ", pref.bl_versions)
-                source_path = f"{backup_path + '/' +  pref.bl_versions + '/'}".replace("/", "\\")
-                target_path =  f"{pref.backup_path + pref.bl_versions + '/'}".replace("/", "\\")
-            else:
-                #backup current version
-                version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
-                print("\nBacking up current version ", version)
-                source_path = f"{backup_path + '/' + version + '/'}".replace("/", "\\") 
-                target_path =  f"{pref.backup_path + version + '/'}".replace("/", "\\")
-                 
 
-            print("Source: ", source_path, "\nTarget: ", target_path) 
-            if pref.clean_target_path and target_path:
-                try:
-                    rmtree(target_path)
-                    print("\nCleaned target path ", target_path)
-                except:
-                    pass
-            try: 
-                print("\nBackup to target path ", target_path)
-                copytree(source_path, target_path, ignore=ignore_patterns('*.clbin')) #python 3.8 will support dirs_exist_ok=True
+        if pref.bl_versions:
+            version = pref.bl_versions
+            print("\nBacking up selected version ", version)
+        else:
+            version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
+            print("\nBacking up current version ", version)
+
+        backup_list = []
+        if pref.backup_cache:
+            backup_list.append(os.path.join(version, 'cache'))    
+        if pref.backup_bookmarks:
+            backup_list.append(os.path.join(version, 'config', 'bookmarks.txt'))     
+        if pref.backup_recentfiles:
+            backup_list.append(version +'/config/recent-files.txt')        
+        if pref.backup_startup_blend:
+            backup_list.append(version +'/config/startup.blend')        
+        if pref.backup_userpref_blend:
+            backup_list.append(version +'/config/userpref.blend')       
+        if pref.backup_workspaces_blend:
+            backup_list.append(version +'/config/workspaces.blend')        
+        if pref.backup_datafile:
+            backup_list.append(version +'/datafiles/')        
+        if pref.backup_addons:
+            backup_list.append(version +'/scripts/addons/')        
+        if pref.backup_presets:
+            backup_list.append(version +'/scripts/presets/')
+
+        if pref.clean_target_path:
+            try:
+                shutil.rmtree(pref.backup_path + version)
+                print("\nCleaned target path ", pref.backup_path + version)
             except:
-                print("\nBackup failed")
-                distutils.dir_util.copy_tree(source_path, target_path, ignore='*.clbin')
+                pass
+
+
+        for i, target in enumerate(backup_list):
+            print(i,target )
+            source_path = os.path.join(backup_path, target).replace("\\", "/")
+            target_path =  os.path.join(pref.backup_path + target).replace("\\", "/")
+            print("Source: ", source_path, "\nTarget: ", target_path) 
+            
+            print("\nBackup to target path ", target_path)
+            if os.path.isdir(source_path):
+                print("Backup folder: \n", source_path, target_path)
+                shutil.copytree(source_path, target_path, symlinks=True)
+            else:
+                print("Backup copyfile: \n", source_path, target_path)
+                try:
+                    os.makedirs(os.path.dirname(target_path))
+                except: 
+                    pass
+                shutil.copy2(source_path, target_path)
                 
             print("\nBackup complete")
 
@@ -119,16 +142,16 @@ class OT_BackupManager(Operator):
             print("Source: ", source_path, "\nTarget: ", target_path)
             if pref.clean_target_path and target_path:
                 try:
-                    rmtree(target_path)
+                    shutil.rmtree(target_path)
                     print("\nCleaned target path ", target_path)
                 except:
                     pass
             try: 
                 print("\nRestore1 to target path ", target_path)
-                copytree(source_path, target_path) #python 3.8 will support dirs_exist_ok=True
+                shutil.copytree(source_path, target_path) #python 3.8 will support dirs_exist_ok=True
             except FileExistsError:
                 print("\nRestore2 to target path ", target_path)
-                copytree(source_path, target_path) #dirs_exist_ok=True)
+                shutil.copytree(source_path, target_path) #dirs_exist_ok=True)
 
         return {'FINISHED'}
 
@@ -137,7 +160,6 @@ class OT_BackupManager(Operator):
 
 
     def execute(self, context):     
-        pref = bpy.context.preferences.addons[__package__].preferences
         global version_list
 
         #print("self.button_input: ", self.button_input)        
@@ -201,7 +223,90 @@ class BackupManagerPreferences(AddonPreferences):
     use_custom_version: BoolProperty(
         name="Custom Version",
         description="use_custom_version",
+        default=True)
+
+
+    ## BACKUP
+        
+    backup_cache: BoolProperty(
+        name="cache",
+        description="backup_cache",
+        default=True)
+        
+    backup_bookmarks: BoolProperty(
+        name="bookmarks",
+        description="backup_bookmarks",
+        default=False)   
+    backup_recentfiles: BoolProperty(
+        name="recentfiles",
+        description="backup_recentfiles",
+        default=False) 
+    backup_startup_blend: BoolProperty(
+        name="startup.blend",
+        description="backup_startup_blend",
+        default=True)    
+    backup_userpref_blend: BoolProperty(
+        name="userpref.blend",
+        description="backup_userpref_blend",
+        default=True)   
+    backup_workspaces_blend: BoolProperty(
+        name="workspaces.blend",
+        description="backup_workspaces_blend",
+        default=True)  
+
+    backup_datafile: BoolProperty(
+        name="datafile",
+        description="backup_datafile",
+        default=True)        
+    backup_addons: BoolProperty(
+        name="addons",
+        description="backup_addons",
+        default=True)     
+    backup_presets: BoolProperty(
+        name="presets",
+        description="backup_presets",
+        default=True)
+
+
+    ## RESTORE
+    restore_cache: BoolProperty(
+        name="cache",
+        description="restore_cache",
         default=False)
+        
+    restore_bookmarks: BoolProperty(
+        name="bookmarks",
+        description="restore_bookmarks",
+        default=False)   
+    restore_recentfiles: BoolProperty(
+        name="recentfiles",
+        description="restore_recentfiles",
+        default=False) 
+    restore_startup_blend: BoolProperty(
+        name="startup.blend",
+        description="restore_startup_blend",
+        default=True)    
+    restore_userpref_blend: BoolProperty(
+        name="userpref.blend",
+        description="restore_userpref_blend",
+        default=True)   
+    restore_workspaces_blend: BoolProperty(
+        name="workspaces.blend",
+        description="restore_workspaces_blend",
+        default=True)  
+
+    restore_datafile: BoolProperty(
+        name="datafile",
+        description="restore_datafile",
+        default=True)        
+    restore_addons: BoolProperty(
+        name="addons",
+        description="restore_addons",
+        default=True)     
+    restore_presets: BoolProperty(
+        name="presets",
+        description="restore_presets",
+        default=True)    
 
     ############################################
     #       UI
@@ -225,7 +330,8 @@ class BackupManagerPreferences(AddonPreferences):
 
         col.label(text="Current Blender Version: " + self.current_version)   
         col.prop(self, 'use_custom_version')  
-        col.prop(self, 'clean_target_path') 
+        col.prop(self, 'clean_target_path')   
+        col.prop(self, 'backup_path')  
 
 
         col  = layout.column(align=False) 
@@ -235,20 +341,38 @@ class BackupManagerPreferences(AddonPreferences):
         #col.label(text="Current Blender Version: " + bpy.app.version_string)           
         col.operator("bm.check_versions", text="Backup", icon='COLORSET_04_VEC').button_input = 2          
         if self.use_custom_version:   
-            col.operator("bm.check_versions", text="Search Backups", icon='COLORSET_03_VEC').button_input = 1 
+            col.operator("bm.check_versions", text="Search Backups", icon='COLORSET_03_VEC').button_input = 1  
             col.prop(self, 'bl_versions')   
-            col.prop(self, 'custom_version')     
+            col.prop(self, 'custom_version')   
+           
+        col.prop(self, 'backup_cache') 
+        col.prop(self, 'backup_bookmarks') 
+        col.prop(self, 'backup_recentfiles') 
+        col.prop(self, 'backup_startup_blend') 
+        col.prop(self, 'backup_userpref_blend') 
+        col.prop(self, 'backup_workspaces_blend') 
+        col.prop(self, 'backup_datafile') 
+        col.prop(self, 'backup_addons') 
+        col.prop(self, 'backup_presets')  
 
         box = row.box()   
         col  = box.column(align=False) 
         #col.label(text="Current Blender Version: " + bpy.app.version_string)     
         col.operator("bm.check_versions", text="Restore", icon='COLORSET_01_VEC').button_input = 3 
-        if self.use_custom_version:     
-            col.operator("bm.check_versions", text="Search Backups", icon='COLORSET_03_VEC').button_input = 1
+        if self.use_custom_version:  
+            col.operator("bm.check_versions", text="Search Backups", icon='COLORSET_03_VEC').button_input = 1   
             col.prop(self, 'bl_versions')  
-            col.prop(self, 'custom_version')      
-        col.prop(self, 'backup_path')   
-
+            col.prop(self, 'custom_version')  
+            
+        col.prop(self, 'restore_cache') 
+        col.prop(self, 'restore_bookmarks') 
+        col.prop(self, 'restore_recentfiles') 
+        col.prop(self, 'restore_startup_blend') 
+        col.prop(self, 'restore_userpref_blend') 
+        col.prop(self, 'restore_workspaces_blend') 
+        col.prop(self, 'restore_datafile') 
+        col.prop(self, 'restore_addons') 
+        col.prop(self, 'restore_presets')  
        
          
 classes = (
