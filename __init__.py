@@ -27,7 +27,7 @@ bl_info = {
     "name": "Backup Manager",
     "description": "Backup and Restore your Blender configuration files",
     "author": "Daniel Grauer",
-    "version": (0, 5, 0),
+    "version": (0, 6, 0),
     "blender": (2, 83, 0),
     "location": "Preferences",
     "category": "!System",
@@ -92,38 +92,66 @@ class OT_BackupManager(Operator):
                 shutil.copy2(source_path, target_path)
         print(40*"-")
         return{'FINISHED'}
+    
+    def create_path_index(self, type=''):
+        pref = bpy.context.preferences.addons[__package__].preferences  
+        path_list = []
+        if type=='backup':
+            if pref.backup_cache:
+                path_list.append(os.path.join('cache'))    
+            if pref.backup_bookmarks:
+                path_list.append(os.path.join('config', 'bookmarks.txt'))     
+            if pref.backup_recentfiles:
+                path_list.append(os.path.join('config', 'recent-files.txt'))     
+            if pref.backup_startup_blend:
+                path_list.append(os.path.join('config', 'startup.blend'))       
+            if pref.backup_userpref_blend:
+                path_list.append(os.path.join('config', 'userpref.blend'))       
+            if pref.backup_workspaces_blend:
+                path_list.append(os.path.join('config', 'workspaces.blend'))         
+            if pref.backup_datafile:
+                path_list.append(os.path.join('datafiles'))        
+            if pref.backup_addons:
+                path_list.append(os.path.join('scripts', 'addons'))         
+            if pref.backup_presets:
+                path_list.append(os.path.join('scripts', 'presets'))
 
+        elif type=='restore':
+            if pref.restore_cache:
+                path_list.append(os.path.join('cache'))    
+            if pref.restore_bookmarks:
+                path_list.append(os.path.join('config', 'bookmarks.txt'))    
+            if pref.restore_recentfiles:
+                path_list.append(os.path.join('config', 'recent-files.txt'))      
+            if pref.restore_startup_blend:
+                path_list.append(os.path.join('config', 'startup.blend'))
+            if pref.restore_userpref_blend:
+                path_list.append(os.path.join('config', 'userpref.blend'))       
+            if pref.restore_workspaces_blend:
+                path_list.append(os.path.join('config', 'workspaces.blend'))       
+            if pref.restore_datafile:
+                path_list.append(os.path.join('datafiles'))        
+            if pref.restore_addons:
+                path_list.append(os.path.join('scripts', 'addons'))     
+            if pref.restore_presets:
+                path_list.append(os.path.join('scripts', 'presets'))
+        else:
+            print("wrong input type")
+
+        return path_list
 
     def backup_version(self, filepath):        
         pref = bpy.context.preferences.addons[__package__].preferences            
         backup_path = os.path.dirname(filepath)
-
         if pref.backup_versions:
             version = pref.backup_versions
             print("\nBacking up selected version ", version, "\n", 80*"=")
         else:
             version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
             print("\nBacking up current version ", version, "\n", 80*"=")
+        
+        path_list = self.create_path_index(type='backup')
 
-        path_list = []
-        if pref.backup_cache:
-            path_list.append(os.path.join(version, 'cache'))    
-        if pref.backup_bookmarks:
-            path_list.append(os.path.join(version, 'config', 'bookmarks.txt'))     
-        if pref.backup_recentfiles:
-            path_list.append(os.path.join(version, 'config', 'recent-files.txt'))     
-        if pref.backup_startup_blend:
-            path_list.append(os.path.join(version, 'config', 'startup.blend'))       
-        if pref.backup_userpref_blend:
-            path_list.append(os.path.join(version, 'config', 'userpref.blend'))       
-        if pref.backup_workspaces_blend:
-            path_list.append(os.path.join(version, 'config', 'workspaces.blend'))         
-        if pref.backup_datafile:
-            path_list.append(os.path.join(version, 'datafiles'))        
-        if pref.backup_addons:
-            path_list.append(os.path.join(version, 'scripts', 'addons'))         
-        if pref.backup_presets:
-            path_list.append(os.path.join(version, 'scripts', 'presets'))
 
         if pref.clean_backup_path:
             try:
@@ -134,11 +162,18 @@ class OT_BackupManager(Operator):
 
         for i, target in enumerate(path_list):
             print(i, target)
-            source_path = os.path.join(backup_path, target).replace("\\", "/")
-            target_path =  os.path.join(pref.backup_path + target).replace("\\", "/")                        
+            if pref.custom_path:
+                target_path = os.path.join(pref.backup_path, pref.custom_path, target).replace("\\", "/") 
+            else:                
+                target_path = os.path.join(pref.backup_path, version, target).replace("\\", "/") 
+            source_path = os.path.join(backup_path, version, target).replace("\\", "/")                       
             self.transfer_files(source_path, target_path)  
-            self.ShowReport(path_list, "Backup complete", 'COLORSET_07_VEC') 
             
+            if pref.custom_path:
+                self.ShowReport(path_list, "Backup complete from: " + version + " to: " +  pref.custom_path, 'COLORSET_07_VEC') 
+            else:
+                self.ShowReport(path_list, "Backup completefrom: " + version + " to: " + version, 'COLORSET_07_VEC')
+
         self.report({'INFO'}, "Backup Complete")            
 
         return {'FINISHED'}
@@ -155,26 +190,8 @@ class OT_BackupManager(Operator):
         else:
             version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
             print("\nRestoring up current version ", version)
-
-        path_list = []
-        if pref.restore_cache:
-            path_list.append(os.path.join(version, 'cache'))    
-        if pref.restore_bookmarks:
-            path_list.append(os.path.join(version, 'config', 'bookmarks.txt'))    
-        if pref.restore_recentfiles:
-            path_list.append(os.path.join(version, 'config', 'recent-files.txt'))      
-        if pref.restore_startup_blend:
-            path_list.append(os.path.join(version, 'config', 'startup.blend'))
-        if pref.restore_userpref_blend:
-            path_list.append(os.path.join(version, 'config', 'userpref.blend'))       
-        if pref.restore_workspaces_blend:
-            path_list.append(os.path.join(version, 'config', 'workspaces.blend'))       
-        if pref.restore_datafile:
-            path_list.append(os.path.join(version, 'datafiles'))        
-        if pref.restore_addons:
-            path_list.append(os.path.join(version, 'scripts', 'addons'))     
-        if pref.restore_presets:
-            path_list.append(os.path.join(version, 'scripts', 'presets'))
+        
+        path_list = self.create_path_index(type='restore')
         
         if pref.clean_restore_path:
             try:
@@ -185,11 +202,18 @@ class OT_BackupManager(Operator):
         
        
         for i, target in enumerate(path_list):
-            print(i, target)
-            target_path = os.path.join(restore_path, target).replace("\\", "/")
-            source_path =  os.path.join(pref.backup_path + target).replace("\\", "/") 
+            print(i, target)            
+            if pref.custom_path:
+                source_path =  os.path.join(pref.backup_path, pref.custom_path, target).replace("\\", "/") 
+            else:
+                source_path =  os.path.join(pref.backup_path, version, target).replace("\\", "/") 
+            target_path = os.path.join(restore_path, version, target).replace("\\", "/")
             self.transfer_files(source_path, target_path)
-            self.ShowReport(path_list, "Restore Complete", 'COLORSET_14_VEC')
+                   
+            if pref.custom_path:
+                self.ShowReport(path_list, "Restore Complete from: " + pref.custom_path + " to: " + version, 'COLORSET_14_VEC')
+            else:
+                self.ShowReport(path_list, "Restore Complete from: " + version + " to: " + version, 'COLORSET_14_VEC')
 
         self.report({'INFO'}, "Restore Complete") 
         return {'FINISHED'}
@@ -249,34 +273,12 @@ class BackupManagerPreferences(AddonPreferences):
         description="Current Blender Version", 
         subtype='NONE',
         default=str(bpy.app.version[0]) + '.' + str(bpy.app.version[1]))
-
-    custom_backup_version: StringProperty(
-        name="Custom Version", 
-        description="Custom backup path", 
-        subtype='NONE',
-        default='')
-        
-    custom_restore_version: StringProperty(
-        name="Custom Version", 
-        description="Custom restore path", 
-        subtype='NONE',
-        default='')
-        
+                
     backup_path: StringProperty(
         name="Backup Location", 
         description="Backup Location", 
         subtype='DIR_PATH',
         default="C:/Temp/backupmanager/") #bpy.app.tempdir)
-
-    clean_backup_path: BoolProperty(
-        name="Clean Backup",
-        description="delete before backup",
-        default=False)
-        
-    clean_restore_path: BoolProperty(
-        name="Clean Restore",
-        description="delete before restore",
-        default=False)
 
     custom_mode: BoolProperty(
         name="More Options",
@@ -285,22 +287,22 @@ class BackupManagerPreferences(AddonPreferences):
         update=None)    #TODO: search for backups when enabled
 
 
-    ## BACKUP
-        
+    ## BACKUP        
+    clean_backup_path: BoolProperty(
+        name="Clean Backup",
+        description="delete before backup",
+        default=False)
     def populate_backuplist(self, context):
         global backup_version_list   
         return backup_version_list
-
     backup_versions: EnumProperty(
         items=populate_backuplist, 
-        name="Backup Verison", 
+        name="Verison", 
         description="Choose the version to backup")
-
     backup_cache: BoolProperty(
         name="cache",
         description="backup_cache",
-        default=True)
-        
+        default=True)        
     backup_bookmarks: BoolProperty(
         name="bookmarks",
         description="backup_bookmarks",
@@ -321,7 +323,6 @@ class BackupManagerPreferences(AddonPreferences):
         name="workspaces.blend",
         description="backup_workspaces_blend",
         default=True)  
-
     backup_datafile: BoolProperty(
         name="datafile",
         description="backup_datafile",
@@ -335,23 +336,27 @@ class BackupManagerPreferences(AddonPreferences):
         description="backup_presets",
         default=True)
 
-
-    ## RESTORE
-    
-
+    ## RESTORE   
+    custom_path: StringProperty(
+        name="Custom", 
+        description="Custom version folder", 
+        subtype='NONE',
+        default='custom')
+    clean_restore_path: BoolProperty(
+        name="Clean Restore",
+        description="delete before restore",
+        default=False)
     def populate_restorelist(self, context):
         global restore_version_list
         return restore_version_list
     restore_versions: EnumProperty(
         items=populate_restorelist, 
-        name="Resotre Verison", 
+        name="Version", 
         description="Choose the version to Resotre")
-
     restore_cache: BoolProperty(
         name="cache",
         description="restore_cache",
-        default=False)
-        
+        default=False)        
     restore_bookmarks: BoolProperty(
         name="bookmarks",
         description="restore_bookmarks",
@@ -372,7 +377,6 @@ class BackupManagerPreferences(AddonPreferences):
         name="workspaces.blend",
         description="restore_workspaces_blend",
         default=True)  
-
     restore_datafile: BoolProperty(
         name="datafile",
         description="restore_datafile",
@@ -417,8 +421,7 @@ class BackupManagerPreferences(AddonPreferences):
             col.separator_spacer()              
             row2 = col.row() 
             row2.prop(self, 'backup_versions')  
-            row2.operator("bm.check_versions", text="Search").button_input = 2  
-            col.prop(self, 'custom_backup_version')   
+            row2.operator("bm.check_versions", text="Search").button_input = 2 
            
             col.prop(self, 'backup_cache') 
             col.prop(self, 'backup_bookmarks') 
@@ -436,10 +439,10 @@ class BackupManagerPreferences(AddonPreferences):
         if self.custom_mode:  
             col.prop(self, 'clean_restore_path') 
             col.separator_spacer()                    
-            row2 = col.row()   
+            row2 = col.row(align=True)   
             row2.prop(self, 'restore_versions')  
             row2.operator("bm.check_versions", text="Search").button_input = 4 
-            col.prop(self, 'custom_restore_version')  
+            col.prop(self, 'custom_path')  
 
             col.prop(self, 'restore_cache') 
             col.prop(self, 'restore_bookmarks') 
