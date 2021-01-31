@@ -458,11 +458,11 @@ class BackupManagerPreferences(AddonPreferences):
             col.label(text="Backup To: " + self.current_version)
         else:
             if self.custom_version:    
-                col.label(text="Restore From: " + OT_BackupManager.generate_version(self, input=1))
-                col.label(text="Restore To: " + self.custom_path)
+                col.label(text="Backup From: " + OT_BackupManager.generate_version(self, input=1))
+                col.label(text="Backup To: " + self.custom_path)
             else:
-                col.label(text="Restore From: " + OT_BackupManager.generate_version(self, input=1))
-                col.label(text="Restore To: " + OT_BackupManager.generate_version(self, input=3))
+                col.label(text="Backup From: " + OT_BackupManager.generate_version(self, input=1))
+                col.label(text="Backup To: " + OT_BackupManager.generate_version(self, input=3))
 
 
         box = row.box()   
