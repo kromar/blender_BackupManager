@@ -165,13 +165,31 @@ class OT_BackupManager(Operator):
         """ else: 
             version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])   
             return version """
+        
+
+    def construct_paths(self, path, target):   
+        pref = bpy.context.preferences.addons[__package__].preferences   
+        print("\n\nbackup_path: ", pref.backup_path)
+        if not pref.custom_mode:          
+            print("TEST 1")
+            source_path = os.path.join(path, pref.current_version, target).replace("\\", "/")  
+            target_path = os.path.join(pref.backup_path, pref.current_version, target).replace("\\", "/")
+        else:   
+            if not pref.custom_version:   
+                print("TEST 2")      
+                source_path = os.path.join(path, self.generate_version(input=1), target).replace("\\", "/")  
+                target_path = os.path.join(pref.backup_path, self.generate_version(input=3), target).replace("\\", "/")
+            else: 
+                print("TEST 3")  
+                source_path = os.path.join(path, self.generate_version(input=1), target).replace("\\", "/")  
+                target_path = os.path.join(pref.backup_path, pref.custom_path, target).replace("\\", "/") 
+
+        return source_path, target_path
 
 
     def backup_version(self, filepath, version):        
         pref = bpy.context.preferences.addons[__package__].preferences            
         backup_path = os.path.dirname(filepath)
-
-        
         path_list = self.create_path_index(type='backup')
 
 
@@ -182,19 +200,17 @@ class OT_BackupManager(Operator):
             except:                
                 print("\nfailed to clean path ", pref.backup_path + version)
 
+        
         for i, target in enumerate(path_list):
-            print(i, target)
-            if pref.custom_path and pref.custom_version:
-                target_path = os.path.join(pref.backup_path, pref.custom_path, target).replace("\\", "/") 
-            else:                
-                target_path = os.path.join(pref.backup_path, version, target).replace("\\", "/") 
-            source_path = os.path.join(backup_path, version, target).replace("\\", "/")                       
+            print(i, target) 
+
+            source_path, target_path = self.construct_paths(backup_path, target)
             self.transfer_files(source_path, target_path)  
             
             if pref.custom_path and pref.custom_version:
-                self.ShowReport(path_list, "Backup complete from: " + version + " to: " +  pref.custom_path, 'COLORSET_07_VEC') 
+                self.ShowReport(path_list, "Backup complete from: " + self.generate_version(input=1) + " to: " +  pref.custom_path, 'COLORSET_07_VEC') 
             else:
-                self.ShowReport(path_list, "Backup completefrom: " + version + " to: " + version, 'COLORSET_07_VEC')
+                self.ShowReport(path_list, "Backup completefrom: " + self.generate_version(input=1) + " to: " + self.generate_version(input=3), 'COLORSET_07_VEC')
 
         self.report({'INFO'}, "Backup Complete")            
 
@@ -204,8 +220,7 @@ class OT_BackupManager(Operator):
 
     def restore_version(self, filepath, version):        
         pref = bpy.context.preferences.addons[__package__].preferences            
-        restore_path = os.path.dirname(filepath)
-        
+        restore_path = os.path.dirname(filepath)        
         path_list = self.create_path_index(type='restore')
         
         if pref.clean_restore_path:
@@ -217,18 +232,14 @@ class OT_BackupManager(Operator):
         
        
         for i, target in enumerate(path_list):
-            print(i, target)            
-            if pref.custom_path and pref.custom_version:
-                source_path =  os.path.join(pref.backup_path, pref.custom_path, target).replace("\\", "/") 
-            else:
-                source_path =  os.path.join(pref.backup_path, version, target).replace("\\", "/") 
-            target_path = os.path.join(restore_path, version, target).replace("\\", "/")
+            print(i, target)                        
+            target_path, source_path  = self.construct_paths(restore_path, target) #invert paths for restore
             self.transfer_files(source_path, target_path)
                    
             if pref.custom_path and pref.custom_version:
-                self.ShowReport(path_list, "Restore Complete from: " + pref.custom_path + " to: " + version, 'COLORSET_14_VEC')
+                self.ShowReport(path_list, "Restore Complete from: " + pref.custom_path + " to: " + self.generate_version(input=1), 'COLORSET_14_VEC')
             else:
-                self.ShowReport(path_list, "Restore Complete from: " + version + " to: " + version, 'COLORSET_14_VEC')
+                self.ShowReport(path_list, "Restore Complete from: " + self.generate_version(input=3) + " to: " + self.generate_version(input=1), 'COLORSET_14_VEC')
 
         self.report({'INFO'}, "Restore Complete") 
         return {'FINISHED'}
@@ -359,9 +370,8 @@ class BackupManagerPreferences(AddonPreferences):
         description="backup_presets",
         default=True)
 
-    ## RESTORE   
 
-    
+    ## RESTORE   
     custom_version: BoolProperty(
         name="Custom Version",
         description="replace_version_with_dir",
@@ -445,18 +455,28 @@ class BackupManagerPreferences(AddonPreferences):
         col  = box.column(align=True)         
         if not self.custom_mode:
             col.label(text="Backup From:: " + self.current_version)
+            col.label(text="Backup To: " + self.current_version)
         else:
-            col.label(text="Backup From: " + OT_BackupManager.generate_version(self, input=1))
+            if self.custom_version:    
+                col.label(text="Restore From: " + OT_BackupManager.generate_version(self, input=1))
+                col.label(text="Restore To: " + self.custom_path)
+            else:
+                col.label(text="Restore From: " + OT_BackupManager.generate_version(self, input=1))
+                col.label(text="Restore To: " + OT_BackupManager.generate_version(self, input=3))
+
 
         box = row.box()   
         col  = box.column(align=True)          
         if not self.custom_mode:
             col.label(text="Backup To: " + self.current_version)
+            col.label(text="Restore To: " + OT_BackupManager.generate_version(self, input=1))
         else:
             if self.custom_version:    
-                col.label(text="Backup To: " + self.custom_path)
+                col.label(text="Restore From: " + self.custom_path)
+                col.label(text="Restore To: " + OT_BackupManager.generate_version(self, input=1))
             else:
-                col.label(text="Backup To: " + OT_BackupManager.generate_version(self, input=3))
+                col.label(text="Restore From: " + OT_BackupManager.generate_version(self, input=3))
+                col.label(text="Restore To: " + OT_BackupManager.generate_version(self, input=1))
 
         
 
