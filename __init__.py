@@ -35,9 +35,9 @@ bl_info = {
     "tracker_url": "https://github.com/kromar/blender_BackupManager/issues/new",
 }
 
-
-backup_version_list = []
-restore_version_list = []
+initial_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
+backup_version_list = [(initial_version, initial_version, '')]
+restore_version_list = [(initial_version, initial_version, '')]
 
 class OT_BackupManager(Operator):
     ''' Look for a new Addon version on Github '''
@@ -53,48 +53,50 @@ class OT_BackupManager(Operator):
 
     def find_versions(self, filepath):
         version_list = []
-        path_preferences = f"{os.path.dirname(filepath)}"
-        for v in os.listdir(path_preferences):
-            version_list.append((v, v, ""))
+        if filepath:
+            path_preferences = f"{os.path.dirname(filepath)}"
+            for v in os.listdir(path_preferences):
+                version_list.append((v, v, ""))
         return version_list
     
 
     def transfer_files(self, source_path, target_path):       
         pref = bpy.context.preferences.addons[__package__].preferences 
         
-        if os.path.isdir(source_path):  #input is folder path
-            try:     
-                print("target folder: ", target_path)  
-                print("copy folder: ", source_path)     
-                if not pref.test_mode:
-                    shutil.copytree(source_path, target_path, symlinks=True)
-            except:    
-                print("target folder exists, clean first: ", target_path)       
-                if not pref.test_mode:  
-                    #shutil.copy(source_path, target_path)    
-                    shutil.rmtree(os.path.join(target_path))
-                    shutil.copytree(source_path, target_path, symlinks=True)   
-        
-        else:   #input is file path
-            try:                    
-                if pref.test_mode:
-                    print("create target path: ", os.path.dirname(target_path))
-                else:
-                    print("create target path: ", os.path.dirname(target_path))
-                    os.makedirs(os.path.dirname(target_path))
-            except:                    
-                print("target folder already exists: ", os.path.dirname(target_path))
-
-            if pref.test_mode:
-                print("copy file: ", source_path)
-            else:
-                try:
-                    print("copy file: ", source_path)
-                    shutil.copy2(source_path, target_path)
+        if source_path:
+            if os.path.isdir(source_path):  #input is folder path
+                try:     
+                    print("target folder: ", target_path)  
+                    print("copy folder: ", source_path)     
+                    if not pref.test_mode:
+                        shutil.copytree(source_path, target_path, symlinks=True)
+                except:    
+                    print("target folder exists, clean first: ", target_path)       
+                    if not pref.test_mode:  
+                        #shutil.copy(source_path, target_path)    
+                        shutil.rmtree(os.path.join(target_path))
+                        shutil.copytree(source_path, target_path, symlinks=True)   
+            
+            else:   #input is file path
+                try:                    
+                    if pref.test_mode:
+                        print("create target path: ", os.path.dirname(target_path))
+                    else:
+                        print("create target path: ", os.path.dirname(target_path))
+                        os.makedirs(os.path.dirname(target_path))
                 except:                    
-                    print("no source file to copy: ", source_path)
+                    print("target folder already exists: ", os.path.dirname(target_path))
 
-        print(40*"-")
+                if pref.test_mode:
+                    print("copy file: ", source_path)
+                else:
+                    try:
+                        print("copy file: ", source_path)
+                        shutil.copy2(source_path, target_path)
+                    except:                    
+                        print("no source file to copy: ", source_path)
+
+            print(40*"-")
         return{'FINISHED'}
     
     def create_path_index(self, type=''):
@@ -144,15 +146,31 @@ class OT_BackupManager(Operator):
 
         return path_list
 
-    def backup_version(self, filepath):        
+    def generate_version(self, input):
+        pref = bpy.context.preferences.addons[__package__].preferences  
+        
+        if input==1: #backup
+            if pref.backup_versions:
+                version = pref.backup_versions     
+            else:
+                version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])       
+            return version
+
+        if input==3: #Restore
+            if pref.restore_versions:
+                version = pref.restore_versions 
+            else:
+                version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])   
+            return version
+        """ else: 
+            version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])   
+            return version """
+
+
+    def backup_version(self, filepath, version):        
         pref = bpy.context.preferences.addons[__package__].preferences            
         backup_path = os.path.dirname(filepath)
-        if pref.backup_versions:
-            version = pref.backup_versions
-            print("\nBacking up selected version ", version, "\n", 80*"=")
-        else:
-            version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
-            print("\nBacking up current version ", version, "\n", 80*"=")
+
         
         path_list = self.create_path_index(type='backup')
 
@@ -184,16 +202,9 @@ class OT_BackupManager(Operator):
 
 
 
-    def restore_version(self, filepath):        
+    def restore_version(self, filepath, version):        
         pref = bpy.context.preferences.addons[__package__].preferences            
         restore_path = os.path.dirname(filepath)
-
-        if pref.backup_versions:
-            version = pref.backup_versions
-            print("\nRestoring up selected version ", version)
-        else:
-            version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
-            print("\nRestoring up current version ", version)
         
         path_list = self.create_path_index(type='restore')
         
@@ -231,23 +242,28 @@ class OT_BackupManager(Operator):
 
 
     def execute(self, context): 
-        #print("self.button_input: ", self.button_input)        
-        if self.button_input == 1:
-            self.backup_version(bpy.utils.resource_path(type='USER'))   
-        if self.button_input == 2:
-            global backup_version_list
-            backup_version_list.clear() 
-            backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER'))
-            #print(backup_version_list)
+        #print("self.button_input: ", self.button_input)  
+        pref = bpy.context.preferences.addons[__package__].preferences       
+        if pref.backup_path:
+            if self.button_input == 1:
+                version = self.generate_version(self.button_input)
+                self.backup_version(bpy.utils.resource_path(type='USER'), version)   
+            if self.button_input == 2:
+                global backup_version_list
+                backup_version_list.clear() 
+                backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER'))
+                #print(backup_version_list)
 
-        if self.button_input == 3:
-            self.restore_version(bpy.utils.resource_path(type='USER'))   
-        if self.button_input == 4: 
-            global restore_version_list    
-            restore_version_list.clear()       
-            pref = bpy.context.preferences.addons[__package__].preferences  
-            restore_version_list = self.find_versions(pref.backup_path)
-            #print(restore_version_list)
+            if self.button_input == 3:
+                version = self.generate_version(self.button_input)
+                self.restore_version(bpy.utils.resource_path(type='USER'), version)   
+            if self.button_input == 4: 
+                global restore_version_list    
+                restore_version_list.clear()        
+                restore_version_list = self.find_versions(pref.backup_path)
+                #print(restore_version_list)
+        else:
+            self.ShowReport(["specify a Backup Location"] , "Backup Path missing", 'COLORSET_01_VEC')
 
         return {'FINISHED'}
     
@@ -267,10 +283,6 @@ class BackupManagerPreferences(AddonPreferences):
 
     this_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
     
-    test_mode: BoolProperty(
-        name="dry run",
-        description="run code without modifying any files on the drive.NOTE: this will not create or restore any backups",
-        default=True)    
 
     current_version: StringProperty(
         name="Current Version", 
@@ -282,7 +294,8 @@ class BackupManagerPreferences(AddonPreferences):
         name="Backup Location", 
         description="Backup Location", 
         subtype='DIR_PATH',
-        default="C:/Temp/backupmanager/") #bpy.app.tempdir)
+        #default="C:/Temp/backupmanager/") 
+        default=bpy.app.tempdir)
 
     custom_mode: BoolProperty(
         name="More Options",
@@ -290,23 +303,29 @@ class BackupManagerPreferences(AddonPreferences):
         default=True, 
         update=None)    #TODO: search for backups when enabled
 
+    test_mode: BoolProperty(
+        name="Dry-Run",
+        description="run code without modifying any files on the drive.NOTE: this will not create or restore any backups",
+        default=True)    
 
     ## BACKUP        
     clean_backup_path: BoolProperty(
         name="Clean Backup",
         description="delete before backup",
         default=False)
+        
     def populate_backuplist(self, context):
-        global backup_version_list   
+        global backup_version_list  
         return backup_version_list
     backup_versions: EnumProperty(
         items=populate_backuplist, 
         name="Verison", 
         description="Choose the version to backup")
+
     backup_cache: BoolProperty(
         name="cache",
         description="backup_cache",
-        default=True)        
+        default=False)        
     backup_bookmarks: BoolProperty(
         name="bookmarks",
         description="backup_bookmarks",
@@ -346,7 +365,7 @@ class BackupManagerPreferences(AddonPreferences):
     custom_version: BoolProperty(
         name="Custom Version",
         description="replace_version_with_dir",
-        default=True)  
+        default=False)  
     custom_path: StringProperty(
         name="Custom", 
         description="Custom version folder", 
@@ -356,6 +375,7 @@ class BackupManagerPreferences(AddonPreferences):
         name="Clean Restore",
         description="delete before restore",
         default=False)
+
     def populate_restorelist(self, context):
         global restore_version_list
         return restore_version_list
@@ -363,6 +383,7 @@ class BackupManagerPreferences(AddonPreferences):
         items=populate_restorelist, 
         name="Version", 
         description="Choose the version to Resotre")
+
     restore_cache: BoolProperty(
         name="cache",
         description="restore_cache",
@@ -404,7 +425,7 @@ class BackupManagerPreferences(AddonPreferences):
     #       UI
     ############################################
     
-
+    
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = True
@@ -413,13 +434,31 @@ class BackupManagerPreferences(AddonPreferences):
         #      Manager UI
         ############################################
         
-        box = layout.box()  
-        col  = box.column(align=True) 
-        col.label(text="Current Blender Version: " + self.current_version)
-        col.prop(self, 'custom_mode')  
+        col  = layout.column(align=False) 
         col.prop(self, 'backup_path')  
+        col.prop(self, 'custom_mode')  
         if self.custom_mode: 
-            col.prop(self, 'test_mode')  
+            col.prop(self, 'test_mode')              
+        col  = layout.column(align=True) 
+        row = col.row().split(factor=0.5, align=True)
+        box = row.box()   
+        col  = box.column(align=True)         
+        if not self.custom_mode:
+            col.label(text="Backup From:: " + self.current_version)
+        else:
+            col.label(text="Backup From: " + OT_BackupManager.generate_version(self, input=1))
+
+        box = row.box()   
+        col  = box.column(align=True)          
+        if not self.custom_mode:
+            col.label(text="Backup To: " + self.current_version)
+        else:
+            if self.custom_version:    
+                col.label(text="Backup To: " + self.custom_path)
+            else:
+                col.label(text="Backup To: " + OT_BackupManager.generate_version(self, input=3))
+
+        
 
         col  = layout.column(align=True) 
         row = col.row().split(factor=0.5, align=True)
@@ -427,9 +466,9 @@ class BackupManagerPreferences(AddonPreferences):
         col  = box.column(align=True)   
         col.operator("bm.check_versions", text="Backup", icon='COLORSET_07_VEC').button_input = 1          
         if self.custom_mode: 
-            col.prop(self, 'clean_backup_path')   
+            #col.prop(self, 'clean_backup_path')   
             col.separator_spacer()             
-            row2 = col.row() 
+            row2 = col.row(align=True) 
             row2.prop(self, 'backup_versions')  
             row2.operator("bm.check_versions", text="Search").button_input = 2 
            
@@ -448,7 +487,8 @@ class BackupManagerPreferences(AddonPreferences):
         col  = box.column(align=True)           
         col.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 3             
         if self.custom_mode:  
-            col.prop(self, 'clean_restore_path') 
+            #col.prop(self, 'clean_restore_path') 
+            col.separator_spacer()     
             col.prop(self, 'custom_version')  
             if self.custom_version:                
                 col.prop(self, 'custom_path')  
