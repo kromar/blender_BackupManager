@@ -88,8 +88,12 @@ class OT_BackupManager(Operator):
             if pref.test_mode:
                 print("copy file: ", source_path)
             else:
-                print("copy file: ", source_path)
-                shutil.copy2(source_path, target_path)
+                try:
+                    print("copy file: ", source_path)
+                    shutil.copy2(source_path, target_path)
+                except:                    
+                    print("no source file to copy: ", source_path)
+
         print(40*"-")
         return{'FINISHED'}
     
@@ -162,14 +166,14 @@ class OT_BackupManager(Operator):
 
         for i, target in enumerate(path_list):
             print(i, target)
-            if pref.custom_path:
+            if pref.custom_path and pref.custom_version:
                 target_path = os.path.join(pref.backup_path, pref.custom_path, target).replace("\\", "/") 
             else:                
                 target_path = os.path.join(pref.backup_path, version, target).replace("\\", "/") 
             source_path = os.path.join(backup_path, version, target).replace("\\", "/")                       
             self.transfer_files(source_path, target_path)  
             
-            if pref.custom_path:
+            if pref.custom_path and pref.custom_version:
                 self.ShowReport(path_list, "Backup complete from: " + version + " to: " +  pref.custom_path, 'COLORSET_07_VEC') 
             else:
                 self.ShowReport(path_list, "Backup completefrom: " + version + " to: " + version, 'COLORSET_07_VEC')
@@ -203,14 +207,14 @@ class OT_BackupManager(Operator):
        
         for i, target in enumerate(path_list):
             print(i, target)            
-            if pref.custom_path:
+            if pref.custom_path and pref.custom_version:
                 source_path =  os.path.join(pref.backup_path, pref.custom_path, target).replace("\\", "/") 
             else:
                 source_path =  os.path.join(pref.backup_path, version, target).replace("\\", "/") 
             target_path = os.path.join(restore_path, version, target).replace("\\", "/")
             self.transfer_files(source_path, target_path)
                    
-            if pref.custom_path:
+            if pref.custom_path and pref.custom_version:
                 self.ShowReport(path_list, "Restore Complete from: " + pref.custom_path + " to: " + version, 'COLORSET_14_VEC')
             else:
                 self.ShowReport(path_list, "Restore Complete from: " + version + " to: " + version, 'COLORSET_14_VEC')
@@ -337,6 +341,12 @@ class BackupManagerPreferences(AddonPreferences):
         default=True)
 
     ## RESTORE   
+
+    
+    custom_version: BoolProperty(
+        name="Custom Version",
+        description="replace_version_with_dir",
+        default=True)  
     custom_path: StringProperty(
         name="Custom", 
         description="Custom version folder", 
@@ -404,25 +414,26 @@ class BackupManagerPreferences(AddonPreferences):
         ############################################
         
         box = layout.box()  
-        col  = box.column(align=False)              
-
-        col.label(text="Current Blender Version: " + self.current_version)  
+        col  = box.column(align=True) 
+        col.label(text="Current Blender Version: " + self.current_version)
         col.prop(self, 'custom_mode')  
         col.prop(self, 'backup_path')  
-        col.prop(self, 'test_mode')  
+        if self.custom_mode: 
+            col.prop(self, 'test_mode')  
 
-        col  = layout.column(align=False) 
-        row = col.row()
+        col  = layout.column(align=True) 
+        row = col.row().split(factor=0.5, align=True)
         box = row.box()   
         col  = box.column(align=True)   
         col.operator("bm.check_versions", text="Backup", icon='COLORSET_07_VEC').button_input = 1          
         if self.custom_mode: 
             col.prop(self, 'clean_backup_path')   
-            col.separator_spacer()              
+            col.separator_spacer()             
             row2 = col.row() 
             row2.prop(self, 'backup_versions')  
             row2.operator("bm.check_versions", text="Search").button_input = 2 
            
+            col.separator_spacer()  
             col.prop(self, 'backup_cache') 
             col.prop(self, 'backup_bookmarks') 
             col.prop(self, 'backup_recentfiles') 
@@ -438,12 +449,15 @@ class BackupManagerPreferences(AddonPreferences):
         col.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 3             
         if self.custom_mode:  
             col.prop(self, 'clean_restore_path') 
-            col.separator_spacer()                    
-            row2 = col.row(align=True)   
-            row2.prop(self, 'restore_versions')  
-            row2.operator("bm.check_versions", text="Search").button_input = 4 
-            col.prop(self, 'custom_path')  
+            col.prop(self, 'custom_version')  
+            if self.custom_version:                
+                col.prop(self, 'custom_path')  
+            else:
+                row2 = col.row(align=True)   
+                row2.prop(self, 'restore_versions')  
+                row2.operator("bm.check_versions", text="Search").button_input = 4 
 
+            col.separator_spacer()  
             col.prop(self, 'restore_cache') 
             col.prop(self, 'restore_bookmarks') 
             col.prop(self, 'restore_recentfiles') 
