@@ -8,9 +8,10 @@ What is still planned:
 - selective backup and restore. Select specific parts to backup. for example presets
 - separate free from - to version selection so a version can be copied to anything you like and restored from any path to your version
 
-![image](https://user-images.githubusercontent.com/1472884/105773888-ed726e80-5f64-11eb-997b-bd9f20225b55.png)
+![image](https://user-images.githubusercontent.com/1472884/106449747-9698f780-6484-11eb-9cfd-7621d349808f.png)
 
-![image](https://user-images.githubusercontent.com/1472884/105774019-0e3ac400-5f65-11eb-8485-7956701c55a9.png)
+![image](https://user-images.githubusercontent.com/1472884/106450195-2474e280-6485-11eb-8180-8d22e9dfcb57.png)
+
+![image](https://user-images.githubusercontent.com/1472884/106450053-fabbbb80-6484-11eb-9be3-170c9945833d.png)
 
 
-![image](https://user-images.githubusercontent.com/1472884/105774081-23afee00-5f65-11eb-8b5a-223666db2a20.png)
