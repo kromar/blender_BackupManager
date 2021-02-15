@@ -448,13 +448,23 @@ class BackupManagerPreferences(AddonPreferences):
         col.prop(self, 'backup_path')  
         col.prop(self, 'custom_mode')  
         if self.custom_mode: 
-            col.prop(self, 'test_mode')              
+            col.prop(self, 'test_mode')
+
+        col  = layout.column(align=True) 
+        row = col.row()
+        box = row.box()   
+        col  = box.column(align=True) 
+        col.label(text="Blender Version: " + self.current_version)
+        col.label(text="Computer Name: " + os.getenv('COMPUTERNAME')) 
+
+
+
         col  = layout.column(align=True) 
         row = col.row().split(factor=0.5, align=True)
         box = row.box()   
         col  = box.column(align=True)         
         if not self.custom_mode:
-            col.label(text="Backup From:: " + self.current_version)
+            col.label(text="Backup From: " + self.current_version)
             col.label(text="Backup To: " + self.current_version)
         else:
             if self.custom_version:    
@@ -527,6 +537,7 @@ class BackupManagerPreferences(AddonPreferences):
             col.prop(self, 'restore_datafile') 
             col.prop(self, 'restore_addons') 
             col.prop(self, 'restore_presets')  
+
        
          
 classes = (
