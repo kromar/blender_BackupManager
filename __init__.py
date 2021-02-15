@@ -19,6 +19,7 @@
 import bpy
 import os
 import shutil
+import socket
 import numpy
 from bpy.types import Operator, AddonPreferences
 from bpy.props import StringProperty, EnumProperty, BoolProperty
@@ -455,10 +456,8 @@ class BackupManagerPreferences(AddonPreferences):
         box = row.box()   
         col  = box.column(align=True) 
         col.label(text="Blender Version: " + self.current_version)
-        col.label(text="Computer Name: " + os.getenv('COMPUTERNAME')) 
-
-
-
+        col.label(text="Computer Name: " + socket.getfqdn()) 
+        
         col  = layout.column(align=True) 
         row = col.row().split(factor=0.5, align=True)
         box = row.box()   
