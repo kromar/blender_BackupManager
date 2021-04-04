@@ -211,7 +211,7 @@ class OT_BackupManager(Operator):
             if pref.custom_path and pref.custom_version:
                 self.ShowReport(path_list, "Backup complete from: " + self.generate_version(input=1) + " to: " +  pref.custom_path, 'COLORSET_07_VEC') 
             else:
-                self.ShowReport(path_list, "Backup completefrom: " + self.generate_version(input=1) + " to: " + self.generate_version(input=3), 'COLORSET_07_VEC')
+                self.ShowReport(path_list, "Backup complete from: " + self.generate_version(input=1) + " to: " + self.generate_version(input=3), 'COLORSET_07_VEC')
 
         self.report({'INFO'}, "Backup Complete")            
 
@@ -260,6 +260,7 @@ class OT_BackupManager(Operator):
             if self.button_input == 1:
                 version = self.generate_version(self.button_input)
                 self.backup_version(bpy.utils.resource_path(type='USER'), version)   
+
             if self.button_input == 2:
                 global backup_version_list
                 backup_version_list.clear() 
@@ -268,7 +269,8 @@ class OT_BackupManager(Operator):
 
             if self.button_input == 3:
                 version = self.generate_version(self.button_input)
-                self.restore_version(bpy.utils.resource_path(type='USER'), version)   
+                self.restore_version(bpy.utils.resource_path(type='USER'), version)  
+
             if self.button_input == 4: 
                 global restore_version_list    
                 restore_version_list.clear()        
