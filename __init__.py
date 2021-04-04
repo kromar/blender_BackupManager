@@ -303,16 +303,21 @@ class BackupManagerPreferences(AddonPreferences):
         description="Current Blender Version", 
         subtype='NONE',
         default=str(bpy.app.version[0]) + '.' + str(bpy.app.version[1]))
-                
+
+    # when user specified a custom temp path use that one as default, otherwise use the app default
+    if bpy.context.preferences.filepaths.temporary_directory == None:
+        default_path = bpy.app.tempdir
+    else: 
+        default_path = bpy.context.preferences.filepaths.temporary_directory        
+
     backup_path: StringProperty(
         name="Backup Location", 
         description="Backup Location", 
         subtype='DIR_PATH',
-        #default="C:/Temp/backupmanager/") 
-        default=bpy.app.tempdir)
+        default=os.path.join(default_path , 'backupmanager/').replace("\\", "/"))
 
     custom_mode: BoolProperty(
-        name="More Options",
+        name="Custom Options",
         description="custom_mode",
         default=True, 
         update=None)    #TODO: search for backups when enabled
