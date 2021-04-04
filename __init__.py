@@ -318,8 +318,8 @@ class BackupManagerPreferences(AddonPreferences):
         update=None)    #TODO: search for backups when enabled
 
     test_mode: BoolProperty(
-        name="Dry-Run",
-        description="run code without modifying any files on the drive.NOTE: this will not create or restore any backups",
+        name="Test Mode",
+        description="Run code without modifying any files on the drive. NOTE: this will not create or restore any backups!",
         default=True)    
 
     ## BACKUP        
@@ -392,6 +392,7 @@ class BackupManagerPreferences(AddonPreferences):
     def populate_restorelist(self, context):
         global restore_version_list
         return restore_version_list
+
     restore_versions: EnumProperty(
         items=populate_restorelist, 
         name="Version", 
@@ -448,10 +449,12 @@ class BackupManagerPreferences(AddonPreferences):
         ############################################
         
         col  = layout.column(align=False) 
+        
+        col.prop(self, 'test_mode')        
+        col.separator_spacer()  
+
         col.prop(self, 'backup_path')  
         col.prop(self, 'custom_mode')  
-        if self.custom_mode: 
-            col.prop(self, 'test_mode')
 
         col  = layout.column(align=True) 
         row = col.row()
