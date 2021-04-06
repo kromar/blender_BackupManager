@@ -41,7 +41,7 @@ backup_version_list = [(initial_version, initial_version, '')]
 restore_version_list = [(initial_version, initial_version, '')]
 
 class OT_BackupManager(Operator):
-    ''' Look for a new Addon version on Github '''
+    ''' backup manager '''
     bl_idname = "bm.check_versions"
     bl_label = "Blender Versions" 
     
@@ -257,21 +257,21 @@ class OT_BackupManager(Operator):
         #print("self.button_input: ", self.button_input)  
         pref = bpy.context.preferences.addons[__package__].preferences       
         if pref.backup_path:
-            if self.button_input == 1:
+            if self.button_input == 1:  # execute backup
                 version = self.generate_version(self.button_input)
                 self.backup_version(bpy.utils.resource_path(type='USER'), version)   
 
-            if self.button_input == 2:
+            if self.button_input == 2:  # search for versions to backup
                 global backup_version_list
                 backup_version_list.clear() 
                 backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER'))
                 #print(backup_version_list)
 
-            if self.button_input == 3:
+            if self.button_input == 3:  # execute restore
                 version = self.generate_version(self.button_input)
                 self.restore_version(bpy.utils.resource_path(type='USER'), version)  
 
-            if self.button_input == 4: 
+            if self.button_input == 4:  # search for restorable versions
                 global restore_version_list    
                 restore_version_list.clear()        
                 restore_version_list = self.find_versions(pref.backup_path)
@@ -336,6 +336,7 @@ class BackupManagerPreferences(AddonPreferences):
     def populate_backuplist(self, context):
         global backup_version_list  
         return backup_version_list
+    
     backup_versions: EnumProperty(
         items=populate_backuplist, 
         name="Verison", 
