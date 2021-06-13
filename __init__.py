@@ -100,6 +100,7 @@ class OT_BackupManager(Operator):
             print(40*"-")
         return{'FINISHED'}
     
+
     def create_path_index(self, type=''):
         pref = bpy.context.preferences.addons[__package__].preferences  
         path_list = []
@@ -147,6 +148,7 @@ class OT_BackupManager(Operator):
 
         return path_list
 
+
     def generate_version(self, input):
         pref = bpy.context.preferences.addons[__package__].preferences  
         
@@ -171,17 +173,14 @@ class OT_BackupManager(Operator):
     def construct_paths(self, path, target):   
         pref = bpy.context.preferences.addons[__package__].preferences   
         print("\n\nbackup_path: ", pref.backup_path)
-        if not pref.custom_mode:          
-            print("TEST 1")
+        if not pref.custom_mode:
             source_path = os.path.join(path, pref.current_version, target).replace("\\", "/")  
             target_path = os.path.join(pref.backup_path, pref.current_version, target).replace("\\", "/")
         else:   
-            if not pref.custom_version:   
-                print("TEST 2")      
+            if not pref.custom_version:  
                 source_path = os.path.join(path, self.generate_version(input=1), target).replace("\\", "/")  
                 target_path = os.path.join(pref.backup_path, self.generate_version(input=3), target).replace("\\", "/")
             else: 
-                print("TEST 3")  
                 source_path = os.path.join(path, self.generate_version(input=1), target).replace("\\", "/")  
                 target_path = os.path.join(pref.backup_path, pref.custom_path, target).replace("\\", "/") 
 
@@ -192,7 +191,6 @@ class OT_BackupManager(Operator):
         pref = bpy.context.preferences.addons[__package__].preferences            
         backup_path = os.path.dirname(filepath)
         path_list = self.create_path_index(type='backup')
-
 
         if pref.clean_backup_path:
             try:
@@ -213,10 +211,8 @@ class OT_BackupManager(Operator):
             else:
                 self.ShowReport(path_list, "Backup complete from: " + self.generate_version(input=1) + " to: " + self.generate_version(input=3), 'COLORSET_07_VEC')
 
-        self.report({'INFO'}, "Backup Complete")            
-
+        self.report({'INFO'}, "Backup Complete")   
         return {'FINISHED'}
-
 
 
     def restore_version(self, filepath, version):        
@@ -296,6 +292,12 @@ class BackupManagerPreferences(AddonPreferences):
         default=bpy.utils.user_resource('CONFIG')) #Resource type in [‘DATAFILES’, ‘CONFIG’, ‘SCRIPTS’, ‘AUTOSAVE’].
 
     this_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
+    
+    system_name: StringProperty(
+        name="Computer Name", 
+        description="Current Computer Name", 
+        subtype='NONE',
+        default=str(socket.getfqdn()))
     
 
     current_version: StringProperty(
@@ -467,7 +469,7 @@ class BackupManagerPreferences(AddonPreferences):
         box = row.box()   
         col  = box.column(align=True) 
         col.label(text="Blender Version: " + self.current_version)
-        col.label(text="Computer Name: " + socket.getfqdn()) 
+        col.label(text="Computer Name: " + self.system_name) 
         
         col  = layout.column(align=True) 
         row = col.row().split(factor=0.5, align=True)
