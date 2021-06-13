@@ -28,7 +28,7 @@ bl_info = {
     "name": "Backup Manager",
     "description": "Backup and Restore your Blender configuration files",
     "author": "Daniel Grauer",
-    "version": (0, 8, 1),
+    "version": (0, 8, 2),
     "blender": (2, 83, 0),
     "location": "Preferences",
     "category": "!System",
