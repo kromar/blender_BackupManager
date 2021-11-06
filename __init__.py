@@ -55,9 +55,12 @@ class OT_BackupManager(Operator):
     def find_versions(self, filepath):
         version_list = []
         if filepath:
-            path_preferences = f"{os.path.dirname(filepath)}"
-            for v in os.listdir(path_preferences):
-                version_list.append((v, v, ""))
+            try:
+                path_preferences = os.path.dirname(filepath)
+                for v in os.listdir(path_preferences):
+                    version_list.append((v, v, ""))
+            except:
+                print("filepath invalid")
         return version_list
     
 
@@ -316,7 +319,7 @@ class BackupManagerPreferences(AddonPreferences):
         name="Backup Location", 
         description="Backup Location", 
         subtype='DIR_PATH',
-        default=os.path.join(default_path , 'backupmanager/').replace("\\", "/"))
+        default=os.path.join(default_path , '!backupmanager/').replace("\\", "/"))
 
     custom_mode: BoolProperty(
         name="Custom Options",
@@ -474,39 +477,34 @@ class BackupManagerPreferences(AddonPreferences):
         col  = layout.column(align=True) 
         row = col.row().split(factor=0.5, align=True)
         box = row.box()   
-        col  = box.column(align=True)         
+        col  = box.column(align=True)   
+        col.operator("bm.check_versions", text="Backup", icon='COLORSET_07_VEC').button_input = 1        
         if not self.custom_mode:
-            col.label(text="Backup From: " + self.current_version)
-            col.label(text="Backup To: " + self.current_version)
+            col.label(text=self.current_version + " >> " + self.current_version)
         else:
             if self.custom_version:    
-                col.label(text="Backup From: " + OT_BackupManager.generate_version(self, input=1))
-                col.label(text="Backup To: " + self.custom_path)
+                col.label(text=OT_BackupManager.generate_version(self, input=1) + " >> " + self.custom_path)
             else:
-                col.label(text="Backup From: " + OT_BackupManager.generate_version(self, input=1))
-                col.label(text="Backup To: " + OT_BackupManager.generate_version(self, input=3))
+                col.label(text= OT_BackupManager.generate_version(self, input=1) + " >> " + OT_BackupManager.generate_version(self, input=3))
 
 
         box = row.box()   
-        col  = box.column(align=True)          
+        col  = box.column(align=True)
+        col.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 3    
         if not self.custom_mode:
-            col.label(text="Backup To: " + self.current_version)
-            col.label(text="Restore To: " + OT_BackupManager.generate_version(self, input=1))
+            col.label(text=self.current_version + " >> " + OT_BackupManager.generate_version(self, input=1))
         else:
             if self.custom_version:    
-                col.label(text="Restore From: " + self.custom_path)
-                col.label(text="Restore To: " + OT_BackupManager.generate_version(self, input=1))
+                col.label(text=self.custom_path + " >> " + OT_BackupManager.generate_version(self, input=1))
             else:
-                col.label(text="Restore From: " + OT_BackupManager.generate_version(self, input=3))
-                col.label(text="Restore To: " + OT_BackupManager.generate_version(self, input=1))
+                col.label(text=OT_BackupManager.generate_version(self, input=3) + " >> " + OT_BackupManager.generate_version(self, input=1))
 
         
 
         col  = layout.column(align=True) 
         row = col.row().split(factor=0.5, align=True)
         box = row.box()   
-        col  = box.column(align=True)   
-        col.operator("bm.check_versions", text="Backup", icon='COLORSET_07_VEC').button_input = 1          
+        col  = box.column(align=True)           
         if self.custom_mode: 
             #col.prop(self, 'clean_backup_path')   
             col.separator_spacer()             
@@ -526,8 +524,7 @@ class BackupManagerPreferences(AddonPreferences):
             col.prop(self, 'backup_presets')  
 
         box = row.box()   
-        col  = box.column(align=True)           
-        col.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 3             
+        col  = box.column(align=True)                        
         if self.custom_mode:  
             #col.prop(self, 'clean_restore_path') 
             col.separator_spacer()     
