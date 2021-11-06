@@ -28,8 +28,8 @@ bl_info = {
     "name": "Backup Manager",
     "description": "Backup and Restore your Blender configuration files",
     "author": "Daniel Grauer",
-    "version": (0, 8, 2),
-    "blender": (2, 83, 0),
+    "version": (0, 9, 0),
+    "blender": (2, 93, 0),
     "location": "Preferences",
     "category": "!System",
     "wiki_url": "https://github.com/kromar/blender_BackupManager",
@@ -72,18 +72,18 @@ class OT_BackupManager(Operator):
                 try:     
                     print("target folder: ", target_path)  
                     print("copy folder: ", source_path)     
-                    if not pref.test_mode:
+                    if not pref.dry_run:
                         shutil.copytree(source_path, target_path, symlinks=True)
                 except:    
                     print("target folder exists, clean first: ", target_path)       
-                    if not pref.test_mode:  
+                    if not pref.dry_run:  
                         #shutil.copy(source_path, target_path)    
                         shutil.rmtree(os.path.join(target_path))
                         shutil.copytree(source_path, target_path, symlinks=True)   
             
             else:   #input is file path
                 try:                    
-                    if pref.test_mode:
+                    if pref.dry_run:
                         print("create target path: ", os.path.dirname(target_path))
                     else:
                         print("create target path: ", os.path.dirname(target_path))
@@ -91,7 +91,7 @@ class OT_BackupManager(Operator):
                 except:                    
                     print("target folder already exists: ", os.path.dirname(target_path))
 
-                if pref.test_mode:
+                if pref.dry_run:
                     print("copy file: ", source_path)
                 else:
                     try:
@@ -176,9 +176,9 @@ class OT_BackupManager(Operator):
     def construct_paths(self, path, target):   
         pref = bpy.context.preferences.addons[__package__].preferences   
         print("\n\nbackup_path: ", pref.backup_path)
-        if not pref.custom_mode:
-            source_path = os.path.join(path, pref.current_version, target).replace("\\", "/")  
-            target_path = os.path.join(pref.backup_path, pref.current_version, target).replace("\\", "/")
+        if not pref.advanced_mode:
+            source_path = os.path.join(path, pref.active_blender_version, target).replace("\\", "/")  
+            target_path = os.path.join(pref.backup_path, pref.active_blender_version, target).replace("\\", "/")
         else:   
             if not pref.custom_version:  
                 source_path = os.path.join(path, self.generate_version(input=1), target).replace("\\", "/")  
@@ -280,239 +280,120 @@ class OT_BackupManager(Operator):
 
         return {'FINISHED'}
     
-    
+
+preferences_tabs = [("BACKUP", "Backup", ""),
+                    ("RESTORE", "Restore", "")]
 
 class BackupManagerPreferences(AddonPreferences):
     bl_idname = __package__
-    
-    ############################################
-    #      Manager
-    ############################################
-    config_path: StringProperty(
-        name="config_path", 
-        description="config_path", 
-        subtype='DIR_PATH',
-        default=bpy.utils.user_resource('CONFIG')) #Resource type in [‘DATAFILES’, ‘CONFIG’, ‘SCRIPTS’, ‘AUTOSAVE’].
 
+    tabs: EnumProperty(name="Tabs", items=preferences_tabs, default="BACKUP")   
+    config_path: StringProperty( name="config_path", description="config_path", subtype='DIR_PATH', default=bpy.utils.user_resource('CONFIG')) #Resource type in [‘DATAFILES’, ‘CONFIG’, ‘SCRIPTS’, ‘AUTOSAVE’].
     this_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
+    system_id: StringProperty(name="ID", description="Current Computer Name", subtype='NONE', default=str(socket.getfqdn()))  
+    active_blender_version: StringProperty(name="Current Blender Version", description="Current Blender Version", subtype='NONE', default=str(bpy.app.version[0]) + '.' + str(bpy.app.version[1]))
     
-    system_name: StringProperty(
-        name="Computer Name", 
-        description="Current Computer Name", 
-        subtype='NONE',
-        default=str(socket.getfqdn()))
-    
-
-    current_version: StringProperty(
-        name="Current Version", 
-        description="Current Blender Version", 
-        subtype='NONE',
-        default=str(bpy.app.version[0]) + '.' + str(bpy.app.version[1]))
-
     # when user specified a custom temp path use that one as default, otherwise use the app default
     if bpy.context.preferences.filepaths.temporary_directory == None:
         default_path = bpy.app.tempdir
     else: 
-        default_path = bpy.context.preferences.filepaths.temporary_directory        
-
-    backup_path: StringProperty(
-        name="Backup Location", 
-        description="Backup Location", 
-        subtype='DIR_PATH',
-        default=os.path.join(default_path , '!backupmanager/').replace("\\", "/"))
-
-    custom_mode: BoolProperty(
-        name="Custom Options",
-        description="custom_mode",
-        default=True, 
-        update=None)    #TODO: search for backups when enabled
-
-    test_mode: BoolProperty(
-        name="Test Mode",
-        description="Run code without modifying any files on the drive. NOTE: this will not create or restore any backups!",
-        default=True)    
-
-    ## BACKUP        
-    clean_backup_path: BoolProperty(
-        name="Clean Backup",
-        description="delete before backup",
-        default=False)
-        
+        default_path = bpy.context.preferences.filepaths.temporary_directory 
+    
+    dry_run: BoolProperty(name="Dry Run", description="Run code without modifying any files on the drive. NOTE: this will not create or restore any backups!", default=True)    
+    backup_path: StringProperty(name="Backup Path", description="Backup Location", subtype='DIR_PATH', default=os.path.join(default_path , '!backupmanager/').replace("\\", "/"))
+    advanced_mode: BoolProperty(name="Advanced", description="Advanced custom backup and restore options", default=True, update=None)    #TODO: search for backups when enabled
+    
+    # BACKUP        
+    clean_backup_path: BoolProperty(name="Clean Backup", description="delete before backup", default=False)
     def populate_backuplist(self, context):
         global backup_version_list  
         return backup_version_list
-    
-    backup_versions: EnumProperty(
-        items=populate_backuplist, 
-        name="Verison", 
-        description="Choose the version to backup")
-
-    backup_cache: BoolProperty(
-        name="cache",
-        description="backup_cache",
-        default=False)        
-    backup_bookmarks: BoolProperty(
-        name="bookmarks",
-        description="backup_bookmarks",
-        default=False)   
-    backup_recentfiles: BoolProperty(
-        name="recentfiles",
-        description="backup_recentfiles",
-        default=False) 
-    backup_startup_blend: BoolProperty(
-        name="startup.blend",
-        description="backup_startup_blend",
-        default=True)    
-    backup_userpref_blend: BoolProperty(
-        name="userpref.blend",
-        description="backup_userpref_blend",
-        default=True)   
-    backup_workspaces_blend: BoolProperty(
-        name="workspaces.blend",
-        description="backup_workspaces_blend",
-        default=True)  
-    backup_datafile: BoolProperty(
-        name="datafile",
-        description="backup_datafile",
-        default=True)        
-    backup_addons: BoolProperty(
-        name="addons",
-        description="backup_addons",
-        default=True)     
-    backup_presets: BoolProperty(
-        name="presets",
-        description="backup_presets",
-        default=True)
-
+    backup_versions: EnumProperty( items=populate_backuplist, name="Verison", description="Choose the version to backup")
+    backup_cache: BoolProperty(name="cache", description="backup_cache", default=False)        
+    backup_bookmarks: BoolProperty(name="bookmarks", description="backup_bookmarks", default=False)   
+    backup_recentfiles: BoolProperty(name="recentfiles", description="backup_recentfiles", default=False) 
+    backup_startup_blend: BoolProperty( name="startup.blend", description="backup_startup_blend", default=True)    
+    backup_userpref_blend: BoolProperty(name="userpref.blend", description="backup_userpref_blend", default=True)   
+    backup_workspaces_blend: BoolProperty(name="workspaces.blend", description="backup_workspaces_blend", default=True)  
+    backup_datafile: BoolProperty( name="datafile", description="backup_datafile", default=True)        
+    backup_addons: BoolProperty(name="addons", description="backup_addons", default=True)     
+    backup_presets: BoolProperty(name="presets", description="backup_presets", default=True)
 
     ## RESTORE   
-    custom_version: BoolProperty(
-        name="Custom Version",
-        description="replace_version_with_dir",
-        default=False)  
-    custom_path: StringProperty(
-        name="Custom", 
-        description="Custom version folder", 
-        subtype='NONE',
-        default='custom')
-    clean_restore_path: BoolProperty(
-        name="Clean Restore",
-        description="delete before restore",
-        default=False)
-
+    custom_version: BoolProperty(name="Custom Version", description="replace_version_with_dir", default=False)  
+    custom_path: StringProperty(name="Custom", description="Custom version folder", subtype='NONE', default='custom')
+    clean_restore_path: BoolProperty(name="Clean Restore", description="delete before restore", default=False)
     def populate_restorelist(self, context):
         global restore_version_list
         return restore_version_list
+    restore_versions: EnumProperty(items=populate_restorelist, name="Version", description="Choose the version to Resotre")
+    restore_cache: BoolProperty(name="cache", description="restore_cache", default=False)        
+    restore_bookmarks: BoolProperty(name="bookmarks", description="restore_bookmarks", default=False)   
+    restore_recentfiles: BoolProperty(name="recentfiles", description="restore_recentfiles", default=False) 
+    restore_startup_blend: BoolProperty(name="startup.blend", description="restore_startup_blend",  default=True)    
+    restore_userpref_blend: BoolProperty(name="userpref.blend", description="restore_userpref_blend", default=True)   
+    restore_workspaces_blend: BoolProperty(name="workspaces.blend", description="restore_workspaces_blend", default=True)  
+    restore_datafile: BoolProperty(name="datafile", description="restore_datafile", default=True)        
+    restore_addons: BoolProperty(name="addons", description="restore_addons", default=True)     
+    restore_presets: BoolProperty(name="presets", description="restore_presets", default=True)    
 
-    restore_versions: EnumProperty(
-        items=populate_restorelist, 
-        name="Version", 
-        description="Choose the version to Resotre")
 
-    restore_cache: BoolProperty(
-        name="cache",
-        description="restore_cache",
-        default=False)        
-    restore_bookmarks: BoolProperty(
-        name="bookmarks",
-        description="restore_bookmarks",
-        default=False)   
-    restore_recentfiles: BoolProperty(
-        name="recentfiles",
-        description="restore_recentfiles",
-        default=False) 
-    restore_startup_blend: BoolProperty(
-        name="startup.blend",
-        description="restore_startup_blend",
-        default=True)    
-    restore_userpref_blend: BoolProperty(
-        name="userpref.blend",
-        description="restore_userpref_blend",
-        default=True)   
-    restore_workspaces_blend: BoolProperty(
-        name="workspaces.blend",
-        description="restore_workspaces_blend",
-        default=True)  
-    restore_datafile: BoolProperty(
-        name="datafile",
-        description="restore_datafile",
-        default=True)        
-    restore_addons: BoolProperty(
-        name="addons",
-        description="restore_addons",
-        default=True)     
-    restore_presets: BoolProperty(
-        name="presets",
-        description="restore_presets",
-        default=True)    
-
-    ############################################
-    #       UI
-    ############################################
-    
-    
+    # DRAW Preferences      
     def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
+        layout = self.layout        
+        box = layout.box() 
+        col  = box.column(align=False)         
+        col.use_property_split = True 
+        col.prop(self, 'backup_path') 
 
-        ############################################
-        #      Manager UI
-        ############################################
+        col  = box.column(align=False)         
+        col.use_property_split = True        
+        col.enabled = False
+        col.prop(self, 'system_id')
+        col.prop(self, 'active_blender_version')  
         
-        col  = layout.column(align=False) 
-        
-        col.prop(self, 'test_mode')        
-        col.separator_spacer()  
+        # TAB BAR
+        layout.use_property_split = False
+        column = layout.column(align=True)
+        row = column.row()
+        row.prop(self, "tabs", expand=True)
+        box = column.box()
+        if self.tabs == "BACKUP":
+            self.draw_backup(box)
+        elif self.tabs == "RESTORE":
+            self.draw_restore(box)
 
-        col.prop(self, 'backup_path')  
-        col.prop(self, 'custom_mode')  
 
-        col  = layout.column(align=True) 
-        row = col.row()
-        box = row.box()   
-        col  = box.column(align=True) 
-        col.label(text="Blender Version: " + self.current_version)
-        col.label(text="Computer Name: " + self.system_name) 
-        
-        col  = layout.column(align=True) 
+    def draw_backup(self, box):
+        """ col  = box.column(align=True) 
         row = col.row().split(factor=0.5, align=True)
-        box = row.box()   
-        col  = box.column(align=True)   
-        col.operator("bm.check_versions", text="Backup", icon='COLORSET_07_VEC').button_input = 1        
-        if not self.custom_mode:
-            col.label(text=self.current_version + " >> " + self.current_version)
+        box = row.box()  """
+        row  = box.row(align=False)    
+        row.alignment = 'CENTER'
+        if not self.advanced_mode:
+            row.label(text=self.active_blender_version + " >> " + self.active_blender_version)
         else:
             if self.custom_version:    
-                col.label(text=OT_BackupManager.generate_version(self, input=1) + " >> " + self.custom_path)
+                row.label(text=OT_BackupManager.generate_version(self, input=1) + " >> " + self.custom_path)
             else:
-                col.label(text= OT_BackupManager.generate_version(self, input=1) + " >> " + OT_BackupManager.generate_version(self, input=3))
-
-
-        box = row.box()   
-        col  = box.column(align=True)
-        col.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 3    
-        if not self.custom_mode:
-            col.label(text=self.current_version + " >> " + OT_BackupManager.generate_version(self, input=1))
-        else:
-            if self.custom_version:    
-                col.label(text=self.custom_path + " >> " + OT_BackupManager.generate_version(self, input=1))
-            else:
-                col.label(text=OT_BackupManager.generate_version(self, input=3) + " >> " + OT_BackupManager.generate_version(self, input=1))
-
+                row.label(text= OT_BackupManager.generate_version(self, input=1) + " >> " + OT_BackupManager.generate_version(self, input=3))
         
+        row  = box.row(align=False) 
+        row.operator("bm.check_versions", text="Backup", icon='COLORSET_07_VEC').button_input = 1 
+        row  = box.row(align=False)
+        row.prop(self, 'dry_run') 
+        row.prop(self, 'clean_backup_path')         
+        col = box.column()
+        col.prop(self, 'advanced_mode')
 
-        col  = layout.column(align=True) 
-        row = col.row().split(factor=0.5, align=True)
-        box = row.box()   
-        col  = box.column(align=True)           
-        if self.custom_mode: 
-            #col.prop(self, 'clean_backup_path')   
-            col.separator_spacer()             
+        if self.advanced_mode: 
+            box = box.box()
+            col = box.column() 
             row2 = col.row(align=True) 
             row2.prop(self, 'backup_versions')  
             row2.operator("bm.check_versions", text="Search").button_input = 2 
            
-            col.separator_spacer()  
+            col.separator_spacer()
             col.prop(self, 'backup_cache') 
             col.prop(self, 'backup_bookmarks') 
             col.prop(self, 'backup_recentfiles') 
@@ -522,12 +403,30 @@ class BackupManagerPreferences(AddonPreferences):
             col.prop(self, 'backup_datafile') 
             col.prop(self, 'backup_addons') 
             col.prop(self, 'backup_presets')  
+        
+        
+    def draw_restore(self, box):
+        row  = box.row(align=False)   
+        row.alignment = 'CENTER' 
+        if not self.advanced_mode:
+            row.label(text=self.active_blender_version + " >> " + OT_BackupManager.generate_version(self, input=1))
+        else:
+            if self.custom_version:    
+                row.label(text=self.custom_path + " >> " + OT_BackupManager.generate_version(self, input=1))
+            else:
+                row.label(text=OT_BackupManager.generate_version(self, input=3) + " >> " + OT_BackupManager.generate_version(self, input=1))
+       
+        row  = box.row(align=False) 
+        row.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 3            
+        row  = box.row(align=False)
+        row.prop(self, 'dry_run') 
+        row.prop(self, 'clean_restore_path')  
+        col = box.column()
+        col.prop(self, 'advanced_mode')    
 
-        box = row.box()   
-        col  = box.column(align=True)                        
-        if self.custom_mode:  
-            #col.prop(self, 'clean_restore_path') 
-            col.separator_spacer()     
+        if self.advanced_mode:  
+            box = box.box()
+            col = box.column()    
             col.prop(self, 'custom_version')  
             if self.custom_version:                
                 col.prop(self, 'custom_path')  
@@ -547,7 +446,6 @@ class BackupManagerPreferences(AddonPreferences):
             col.prop(self, 'restore_addons') 
             col.prop(self, 'restore_presets')  
 
-       
          
 classes = (
     OT_BackupManager,
