@@ -29,7 +29,7 @@ bl_info = {
     "name": "Backup Manager",
     "description": "Backup and Restore your Blender configuration files",
     "author": "Daniel Grauer",
-    "version": (0, 9, 1),
+    "version": (1, 0, 0),
     "blender": (2, 93, 0),
     "location": "Preferences",
     "category": "!System",
@@ -71,8 +71,8 @@ class OT_BackupManager(Operator):
         if source_path:
             if os.path.isdir(source_path):  #input is folder path
                 try:     
-                    print("target folder: ", target_path)  
-                    print("copy folder: ", source_path)     
+                    print("source: ", source_path)  
+                    print("target: ", target_path)     
                     if not pref.dry_run:
                         shutil.copytree(source_path, target_path, symlinks=True)
                 except:    
@@ -176,7 +176,7 @@ class OT_BackupManager(Operator):
 
     def construct_paths(self, path, target):   
         pref = bpy.context.preferences.addons[__package__].preferences   
-        print("\n\nbackup_path: ", pref.backup_path)
+        #print("\n\nbackup_path: ", pref.backup_path)
         if not pref.advanced_mode:
             source_path = os.path.join(path, pref.active_blender_version, target).replace("\\", "/")  
             target_path = os.path.join(pref.backup_path, pref.active_blender_version, target).replace("\\", "/")
@@ -256,25 +256,36 @@ class OT_BackupManager(Operator):
     def execute(self, context): 
         #print("self.button_input: ", self.button_input)  
         pref = bpy.context.preferences.addons[__package__].preferences       
-        if pref.backup_path:
+        if pref.backup_path:            
+            global backup_version_list
+            global restore_version_list  
             if self.button_input == 1:  # execute backup
                 version = self.generate_version(self.button_input)
                 self.backup_version(bpy.utils.resource_path(type='USER'), version)   
 
-            if self.button_input == 2:  # search for versions to backup
+            elif self.button_input == 2:  # search for versions to backup
                 version = self.generate_version(self.button_input)
                 self.restore_version(bpy.utils.resource_path(type='USER'), version) 
-
-            if self.button_input == 3:  # search for restorable versions                
-                global backup_version_list
+               
+            elif self.button_input == 3:  # search for backup versions 
                 backup_version_list.clear() 
                 backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER'))
-                #print(backup_version_list)
+                backup_version_list.sort(reverse=True)
 
-                global restore_version_list    
+                restore_version_list.clear()    
+                restore_version_list = set(self.find_versions(pref.backup_path) + backup_version_list)
+                restore_version_list = list(dict.fromkeys(restore_version_list))
+                restore_version_list.sort(reverse=True)
+            
+            elif self.button_input == 4:  # search for restorable versions 
+                backup_version_list.clear() 
+                backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER'))
+                backup_version_list.sort(reverse=True)
+  
                 restore_version_list.clear()        
                 restore_version_list = self.find_versions(pref.backup_path)
-                #print(restore_version_list)
+                restore_version_list.sort(reverse=True)           
+
         else:
             self.ShowReport(["specify a Backup Location"] , "Backup Path missing", 'COLORSET_01_VEC')
 
@@ -292,6 +303,7 @@ class BackupManagerPreferences(AddonPreferences):
     config_path: StringProperty( name="config_path", description="config_path", subtype='DIR_PATH', default=bpy.utils.user_resource('CONFIG')) #Resource type in [‘DATAFILES’, ‘CONFIG’, ‘SCRIPTS’, ‘AUTOSAVE’].
     this_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
     system_id: StringProperty(name="ID", description="Current Computer Name", subtype='NONE', default=str(socket.getfqdn()))  
+    use_system_id: BoolProperty(name="use_system_id", description="use_system_id", default=True)  
     active_blender_version: StringProperty(name="Current Blender Version", description="Current Blender Version", subtype='NONE', default=str(bpy.app.version[0]) + '.' + str(bpy.app.version[1]))
     
     # when user specified a custom temp path use that one as default, otherwise use the app default
@@ -346,16 +358,21 @@ class BackupManagerPreferences(AddonPreferences):
     def draw(self, context):
         layout = self.layout        
         box = layout.box() 
-        col  = box.column(align=False)         
-        col.use_property_split = True 
-        col.prop(self, 'backup_path') 
+        col  = box.column(align=False)  
         
-        col  = box.column(align=False)         
-        col.use_property_split = True        
+        col.use_property_split = True 
         col.enabled = False
         col.prop(self, 'system_id')
         col.prop(self, 'active_blender_version')  
+
+        col  = box.column(align=False)  
+        col.use_property_split = True 
+        col.prop(self, 'backup_path') 
+        col.prop(self, 'use_system_id')
         
+        col  = box.column(align=False)         
+        col.use_property_split = True        
+
         # TAB BAR
         layout.use_property_split = False
         col = layout.column(align=True) #.split(factor=0.5)  
@@ -396,12 +413,11 @@ class BackupManagerPreferences(AddonPreferences):
                 self.draw_backup_age(col, OT_BackupManager.generate_version(self, input=3))
 
         col.scale_y = 1
-        col.operator("bm.check_versions", text="Backup", icon='COLORSET_07_VEC').button_input = 1 
-        
-        col = row.column()
-        col.prop(self, 'dry_run') 
-        col.prop(self, 'clean_backup_path')  
-        col.prop(self, 'advanced_mode')
+        col.operator("bm.check_versions", text="Backup", icon='COLORSET_07_VEC').button_input = 1   
+        row = col.row()
+        row.prop(self, 'advanced_mode')    
+        row.prop(self, 'clean_backup_path')      
+        row.prop(self, 'dry_run') 
 
         # Advanced options
         if self.advanced_mode: 
@@ -434,20 +450,19 @@ class BackupManagerPreferences(AddonPreferences):
                 col.label(text=OT_BackupManager.generate_version(self, input=3) + " --> " + OT_BackupManager.generate_version(self, input=1))
                 self.draw_backup_age(col, OT_BackupManager.generate_version(self, input=3))
 
-        col.scale_y = 1
-        col.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 2            
+        col.scale_y = 1      
+        col.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 2  
+        row = col.row()
+        row.prop(self, 'advanced_mode')    
+        row.prop(self, 'clean_backup_path')      
+        row.prop(self, 'dry_run')       
                 
-        col = row.column()
-        col.prop(self, 'dry_run') 
-        col.prop(self, 'clean_backup_path')  
-        col.prop(self, 'advanced_mode')  
-
         # Advanced options
         if self.advanced_mode: 
             box2 = box.box()
             row = box2.row().split(factor=0.7, align=False)
             row.prop(self, 'restore_versions', text='Restore From') 
-            row.operator("bm.check_versions", text="Search").button_input = 3  
+            row.operator("bm.check_versions", text="Search").button_input = 4  
             
             row = box2.row().split(factor=0.691, align=False)            
             row.prop(self, 'backup_versions', text='Restore To')            
