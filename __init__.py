@@ -18,6 +18,7 @@
 
 import bpy
 import os
+from datetime import datetime
 import shutil
 import socket
 import numpy
@@ -28,7 +29,7 @@ bl_info = {
     "name": "Backup Manager",
     "description": "Backup and Restore your Blender configuration files",
     "author": "Daniel Grauer",
-    "version": (0, 9, 0),
+    "version": (0, 9, 1),
     "blender": (2, 93, 0),
     "location": "Preferences",
     "category": "!System",
@@ -341,25 +342,6 @@ class BackupManagerPreferences(AddonPreferences):
     #backup_time: StringProperty(name="Last Backup", description="Shows the last time the backup was modified", subtype='NONE', default=str(os.path.getmtime(backup_path)))  
     
 
-    def creation_date(self, path_to_file):
-        """
-        Try to get the date that a file was created, falling back to when it was
-        last modified if that isn't possible.
-        See http://stackoverflow.com/a/39501288/1709587 for explanation.
-        """
-        import os
-        import platform
-        if platform.system() == 'Windows':
-            return os.path.getctime(path_to_file)
-        else:
-            stat = os.stat(path_to_file)
-            try:
-                return stat.st_birthtime
-            except AttributeError:
-                # We're probably on Linux. No easy way to get creation dates here,
-                # so we'll settle for when its content was last modified.
-                return stat.st_mtime
-
     # DRAW Preferences      
     def draw(self, context):
         layout = self.layout        
@@ -368,17 +350,6 @@ class BackupManagerPreferences(AddonPreferences):
         col.use_property_split = True 
         col.prop(self, 'backup_path') 
         
-        import os, time, datetime
-        date = self.creation_date(self.backup_path)
-        modified = os.path.getmtime(self.backup_path)
-        print("Date modified:",datetime.datetime.fromtimestamp(modified))
-
-        try:
-            col.label(text="Last Backup: " + str(datetime.datetime.fromtimestamp(modified)))
-            col.label(text="test: " + str(modified))
-        except:
-            pass
-
         col  = box.column(align=False)         
         col.use_property_split = True        
         col.enabled = False
@@ -398,18 +369,33 @@ class BackupManagerPreferences(AddonPreferences):
             self.draw_restore(box)
 
 
+    def draw_backup_age(self, col, version):              
+        try:
+            date_file = os.path.getmtime(os.path.join(self.backup_path, version))
+            backup_date = datetime.fromtimestamp(date_file)
+            current_time = datetime.now()
+            backup_age = str(current_time - backup_date).split('.')[0]  
+            col.label(text= " Backup Age: " + str(version) + " (" + backup_age +")")
+        except:
+            pass
+
     def draw_backup(self, box):
         row  = box.row()     
         col = row.column()
+        
+        
         if not self.advanced_mode:
-            col.label(text=self.active_blender_version + " --> " + self.active_blender_version)
+            col.label(text=self.active_blender_version + " --> " + self.active_blender_version)            
+            self.draw_backup_age(col, self.active_blender_version)
         else:
             if self.custom_toggle:    
-                col.label(text=OT_BackupManager.generate_version(self, input=1) + " --> " + self.custom_path)
+                col.label(text=OT_BackupManager.generate_version(self, input=1) + " --> " + self.custom_path)           
+                self.draw_backup_age(col, self.custom_path)
             else:
-                col.label(text= OT_BackupManager.generate_version(self, input=1) + " --> " + OT_BackupManager.generate_version(self, input=3))
+                col.label(text= OT_BackupManager.generate_version(self, input=1) + " --> " + OT_BackupManager.generate_version(self, input=3))           
+                self.draw_backup_age(col, OT_BackupManager.generate_version(self, input=3))
 
-        col.scale_y = 1.5
+        col.scale_y = 1
         col.operator("bm.check_versions", text="Backup", icon='COLORSET_07_VEC').button_input = 1 
         
         col = row.column()
@@ -438,14 +424,17 @@ class BackupManagerPreferences(AddonPreferences):
         row  = box.row()  
         col = row.column()   
         if not self.advanced_mode:
-            col.label(text=self.active_blender_version + " --> " + OT_BackupManager.generate_version(self, input=1))
+            col.label(text=self.active_blender_version + " --> " + OT_BackupManager.generate_version(self, input=1))     
+            self.draw_backup_age(col, self.active_blender_version)
         else:
             if self.custom_toggle:    
-                col.label(text=self.custom_path + " --> " + OT_BackupManager.generate_version(self, input=1))
+                col.label(text=self.custom_path + " --> " + OT_BackupManager.generate_version(self, input=1))         
+                self.draw_backup_age(col, self.custom_path)
             else:
                 col.label(text=OT_BackupManager.generate_version(self, input=3) + " --> " + OT_BackupManager.generate_version(self, input=1))
-        
-        col.scale_y = 1.5
+                self.draw_backup_age(col, OT_BackupManager.generate_version(self, input=3))
+
+        col.scale_y = 1
         col.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 2            
                 
         col = row.column()
