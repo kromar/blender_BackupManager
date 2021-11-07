@@ -37,6 +37,11 @@ bl_info = {
     "tracker_url": "https://github.com/kromar/blender_BackupManager/issues/new",
 }
 
+def prefs():
+    user_preferences = bpy.context.preferences
+    return user_preferences.addons[__package__].preferences
+
+
 initial_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
 backup_version_list = [(initial_version, initial_version, '')]
 restore_version_list = [(initial_version, initial_version, '')]
@@ -65,26 +70,25 @@ class OT_BackupManager(Operator):
         return version_list
     
 
-    def transfer_files(self, source_path, target_path):       
-        pref = bpy.context.preferences.addons[__package__].preferences 
+    def transfer_files(self, source_path, target_path):        
         
         if source_path:
             if os.path.isdir(source_path):  #input is folder path
                 try:     
                     print("source: ", source_path)  
                     print("target: ", target_path)     
-                    if not pref.dry_run:
+                    if not prefs().dry_run:
                         shutil.copytree(source_path, target_path, symlinks=True)
                 except:    
                     print("target folder exists, clean first: ", target_path)       
-                    if not pref.dry_run:  
+                    if not prefs().dry_run:  
                         #shutil.copy(source_path, target_path)    
                         shutil.rmtree(os.path.join(target_path))
                         shutil.copytree(source_path, target_path, symlinks=True)   
             
             else:   #input is file path
                 try:                    
-                    if pref.dry_run:
+                    if prefs().dry_run:
                         print("create target path: ", os.path.dirname(target_path))
                     else:
                         print("create target path: ", os.path.dirname(target_path))
@@ -92,7 +96,7 @@ class OT_BackupManager(Operator):
                 except:                    
                     print("target folder already exists: ", os.path.dirname(target_path))
 
-                if pref.dry_run:
+                if prefs().dry_run:
                     print("copy file: ", source_path)
                 else:
                     try:
@@ -106,46 +110,45 @@ class OT_BackupManager(Operator):
     
 
     def create_path_index(self, type=''):
-        pref = bpy.context.preferences.addons[__package__].preferences  
         path_list = []
         if type=='backup':
-            if pref.backup_cache:
+            if prefs().backup_cache:
                 path_list.append(os.path.join('cache'))    
-            if pref.backup_bookmarks:
+            if prefs().backup_bookmarks:
                 path_list.append(os.path.join('config', 'bookmarks.txt'))     
-            if pref.backup_recentfiles:
+            if prefs().backup_recentfiles:
                 path_list.append(os.path.join('config', 'recent-files.txt'))     
-            if pref.backup_startup_blend:
+            if prefs().backup_startup_blend:
                 path_list.append(os.path.join('config', 'startup.blend'))       
-            if pref.backup_userpref_blend:
+            if prefs().backup_userpref_blend:
                 path_list.append(os.path.join('config', 'userpref.blend'))       
-            if pref.backup_workspaces_blend:
+            if prefs().backup_workspaces_blend:
                 path_list.append(os.path.join('config', 'workspaces.blend'))         
-            if pref.backup_datafile:
+            if prefs().backup_datafile:
                 path_list.append(os.path.join('datafiles'))        
-            if pref.backup_addons:
+            if prefs().backup_addons:
                 path_list.append(os.path.join('scripts', 'addons'))         
-            if pref.backup_presets:
+            if prefs().backup_presets:
                 path_list.append(os.path.join('scripts', 'presets'))
 
         elif type=='restore':
-            if pref.restore_cache:
+            if prefs().restore_cache:
                 path_list.append(os.path.join('cache'))    
-            if pref.restore_bookmarks:
+            if prefs().restore_bookmarks:
                 path_list.append(os.path.join('config', 'bookmarks.txt'))    
-            if pref.restore_recentfiles:
+            if prefs().restore_recentfiles:
                 path_list.append(os.path.join('config', 'recent-files.txt'))      
-            if pref.restore_startup_blend:
+            if prefs().restore_startup_blend:
                 path_list.append(os.path.join('config', 'startup.blend'))
-            if pref.restore_userpref_blend:
+            if prefs().restore_userpref_blend:
                 path_list.append(os.path.join('config', 'userpref.blend'))       
-            if pref.restore_workspaces_blend:
+            if prefs().restore_workspaces_blend:
                 path_list.append(os.path.join('config', 'workspaces.blend'))       
-            if pref.restore_datafile:
+            if prefs().restore_datafile:
                 path_list.append(os.path.join('datafiles'))        
-            if pref.restore_addons:
+            if prefs().restore_addons:
                 path_list.append(os.path.join('scripts', 'addons'))     
-            if pref.restore_presets:
+            if prefs().restore_presets:
                 path_list.append(os.path.join('scripts', 'presets'))
         else:
             print("wrong input type")
@@ -153,19 +156,17 @@ class OT_BackupManager(Operator):
         return path_list
 
 
-    def generate_version(self, input):
-        pref = bpy.context.preferences.addons[__package__].preferences  
-        
+    def generate_version(self, input):        
         if input==1: #backup
-            if pref.backup_versions:
-                version = pref.backup_versions     
+            if prefs().backup_versions:
+                version = prefs().backup_versions     
             else:
                 version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])       
             return version
 
         if input==3: #Restore
-            if pref.restore_versions:
-                version = pref.restore_versions 
+            if prefs().restore_versions:
+                version = prefs().restore_versions 
             else:
                 version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])   
             return version
@@ -174,34 +175,32 @@ class OT_BackupManager(Operator):
             return version """
         
 
-    def construct_paths(self, path, target):   
-        pref = bpy.context.preferences.addons[__package__].preferences   
-        #print("\n\nbackup_path: ", pref.backup_path)
-        if not pref.advanced_mode:
-            source_path = os.path.join(path, pref.active_blender_version, target).replace("\\", "/")  
-            target_path = os.path.join(pref.backup_path, pref.active_blender_version, target).replace("\\", "/")
+    def construct_paths(self, path, target):    
+        #print("\n\nbackup_path: ", prefs().backup_path)
+        if not prefs().advanced_mode:
+            source_path = os.path.join(path, prefs().active_blender_version, target).replace("\\", "/")  
+            target_path = os.path.join(prefs().backup_path, prefs().active_blender_version, target).replace("\\", "/")
         else:   
-            if not pref.custom_toggle:  
+            if not prefs().custom_toggle:  
                 source_path = os.path.join(path, self.generate_version(input=1), target).replace("\\", "/")  
-                target_path = os.path.join(pref.backup_path, self.generate_version(input=3), target).replace("\\", "/")
+                target_path = os.path.join(prefs().backup_path, self.generate_version(input=3), target).replace("\\", "/")
             else: 
                 source_path = os.path.join(path, self.generate_version(input=1), target).replace("\\", "/")  
-                target_path = os.path.join(pref.backup_path, pref.custom_path, target).replace("\\", "/") 
+                target_path = os.path.join(prefs().backup_path, prefs().custom_path, target).replace("\\", "/") 
 
         return source_path, target_path
 
 
-    def backup_version(self, filepath, version):        
-        pref = bpy.context.preferences.addons[__package__].preferences            
+    def backup_version(self, filepath, version):                  
         backup_path = os.path.dirname(filepath)
         path_list = self.create_path_index(type='backup')
 
-        if pref.clean_backup_path:
+        if prefs().clean_backup_path:
             try:
-                shutil.rmtree(pref.backup_path + version)
-                print("\nCleaned target path ", pref.backup_path + version)
+                shutil.rmtree(prefs().backup_path + version)
+                print("\nCleaned target path ", prefs().backup_path + version)
             except:                
-                print("\nfailed to clean path ", pref.backup_path + version)
+                print("\nfailed to clean path ", prefs().backup_path + version)
 
         
         for i, target in enumerate(path_list):
@@ -210,8 +209,8 @@ class OT_BackupManager(Operator):
             source_path, target_path = self.construct_paths(backup_path, target)
             self.transfer_files(source_path, target_path)  
             
-            if pref.custom_path and pref.custom_toggle:
-                self.ShowReport(path_list, "Backup complete from: " + self.generate_version(input=1) + " to: " +  pref.custom_path, 'COLORSET_07_VEC') 
+            if prefs().custom_path and prefs().custom_toggle:
+                self.ShowReport(path_list, "Backup complete from: " + self.generate_version(input=1) + " to: " +  prefs().custom_path, 'COLORSET_07_VEC') 
             else:
                 self.ShowReport(path_list, "Backup complete from: " + self.generate_version(input=1) + " to: " + self.generate_version(input=3), 'COLORSET_07_VEC')
 
@@ -219,17 +218,16 @@ class OT_BackupManager(Operator):
         return {'FINISHED'}
 
 
-    def restore_version(self, filepath, version):        
-        pref = bpy.context.preferences.addons[__package__].preferences            
+    def restore_version(self, filepath, version):                   
         restore_path = os.path.dirname(filepath)        
         path_list = self.create_path_index(type='restore')
         
-        if pref.clean_restore_path:
+        if prefs().clean_restore_path:
             try:
                 shutil.rmtree(os.path.join(restore_path, version))
                 print("\nCleaned target path ", os.path.join(restore_path, version))
             except:
-                print("\nfailed to clean path ", pref.backup_path + version)
+                print("\nfailed to clean path ", prefs().backup_path + version)
         
        
         for i, target in enumerate(path_list):
@@ -237,8 +235,8 @@ class OT_BackupManager(Operator):
             target_path, source_path  = self.construct_paths(restore_path, target) #invert paths for restore
             self.transfer_files(source_path, target_path)
                    
-            if pref.custom_path and pref.custom_toggle:
-                self.ShowReport(path_list, "Restore Complete from: " + pref.custom_path + " to: " + self.generate_version(input=1), 'COLORSET_14_VEC')
+            if prefs().custom_path and prefs().custom_toggle:
+                self.ShowReport(path_list, "Restore Complete from: " + prefs().custom_path + " to: " + self.generate_version(input=1), 'COLORSET_14_VEC')
             else:
                 self.ShowReport(path_list, "Restore Complete from: " + self.generate_version(input=3) + " to: " + self.generate_version(input=1), 'COLORSET_14_VEC')
 
@@ -254,9 +252,8 @@ class OT_BackupManager(Operator):
 
 
     def execute(self, context): 
-        #print("self.button_input: ", self.button_input)  
-        pref = bpy.context.preferences.addons[__package__].preferences       
-        if pref.backup_path:            
+        #print("self.button_input: ", self.button_input)        
+        if prefs().backup_path:            
             global backup_version_list
             global restore_version_list  
             if self.button_input == 1:  # execute backup
@@ -273,7 +270,7 @@ class OT_BackupManager(Operator):
                 backup_version_list.sort(reverse=True)
 
                 restore_version_list.clear()    
-                restore_version_list = set(self.find_versions(pref.backup_path) + backup_version_list)
+                restore_version_list = set(self.find_versions(prefs().backup_path) + backup_version_list)
                 restore_version_list = list(dict.fromkeys(restore_version_list))
                 restore_version_list.sort(reverse=True)
             
@@ -283,12 +280,11 @@ class OT_BackupManager(Operator):
                 backup_version_list.sort(reverse=True)
   
                 restore_version_list.clear()        
-                restore_version_list = self.find_versions(pref.backup_path)
+                restore_version_list = self.find_versions(prefs().backup_path)
                 restore_version_list.sort(reverse=True)           
 
         else:
-            self.ShowReport(["specify a Backup Location"] , "Backup Path missing", 'COLORSET_01_VEC')
-
+            self.ShowReport(["Specify a Backup Path"] , "Backup Path missing", 'COLORSET_01_VEC')
         return {'FINISHED'}
     
 
@@ -399,8 +395,7 @@ class BackupManagerPreferences(AddonPreferences):
     def draw_backup(self, box):
         row  = box.row()     
         col = row.column()
-        
-        
+
         if not self.advanced_mode:
             col.label(text=self.active_blender_version + " --> " + self.active_blender_version)            
             self.draw_backup_age(col, self.active_blender_version)
@@ -414,6 +409,7 @@ class BackupManagerPreferences(AddonPreferences):
 
         col.scale_y = 1
         col.operator("bm.check_versions", text="Backup", icon='COLORSET_07_VEC').button_input = 1   
+         
         row = col.row()
         row.prop(self, 'advanced_mode')    
         row.prop(self, 'clean_backup_path')      
@@ -450,7 +446,7 @@ class BackupManagerPreferences(AddonPreferences):
                 col.label(text=OT_BackupManager.generate_version(self, input=3) + " --> " + OT_BackupManager.generate_version(self, input=1))
                 self.draw_backup_age(col, OT_BackupManager.generate_version(self, input=3))
 
-        col.scale_y = 1      
+        col.scale_y = 1.5      
         col.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 2  
         row = col.row()
         row.prop(self, 'advanced_mode')    
