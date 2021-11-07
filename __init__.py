@@ -284,6 +284,7 @@ preferences_tabs = [("BACKUP", "Backup Options", ""),
                     ("RESTORE", "Restore Options", "")]
 
 class BackupManagerPreferences(AddonPreferences):
+
     bl_idname = __package__
 
     tabs: EnumProperty(name="Tabs", items=preferences_tabs, default="BACKUP")   
@@ -300,7 +301,7 @@ class BackupManagerPreferences(AddonPreferences):
     
     dry_run: BoolProperty(name="Dry Run", description="Run code without modifying any files on the drive. NOTE: this will not create or restore any backups!", default=True)    
     backup_path: StringProperty(name="Backup Path", description="Backup Location", subtype='DIR_PATH', default=os.path.join(default_path , '!backupmanager/').replace("\\", "/"))
-    advanced_mode: BoolProperty(name="Advanced", description="Advanced custom backup and restore options", default=True, update=None)    #TODO: search for backups when enabled
+    advanced_mode: BoolProperty(name="Advanced", description="Advanced custom backup and restore options", default=False, update=None)    #TODO: search for backups when enabled
     
     # BACKUP        
     clean_backup_path: BoolProperty(name="Clean Backup", description="delete before backup", default=False)
@@ -337,6 +338,28 @@ class BackupManagerPreferences(AddonPreferences):
     restore_presets: BoolProperty(name="presets", description="restore_presets", default=True)    
 
 
+    #backup_time: StringProperty(name="Last Backup", description="Shows the last time the backup was modified", subtype='NONE', default=str(os.path.getmtime(backup_path)))  
+    
+
+    def creation_date(self, path_to_file):
+        """
+        Try to get the date that a file was created, falling back to when it was
+        last modified if that isn't possible.
+        See http://stackoverflow.com/a/39501288/1709587 for explanation.
+        """
+        import os
+        import platform
+        if platform.system() == 'Windows':
+            return os.path.getctime(path_to_file)
+        else:
+            stat = os.stat(path_to_file)
+            try:
+                return stat.st_birthtime
+            except AttributeError:
+                # We're probably on Linux. No easy way to get creation dates here,
+                # so we'll settle for when its content was last modified.
+                return stat.st_mtime
+
     # DRAW Preferences      
     def draw(self, context):
         layout = self.layout        
@@ -344,6 +367,17 @@ class BackupManagerPreferences(AddonPreferences):
         col  = box.column(align=False)         
         col.use_property_split = True 
         col.prop(self, 'backup_path') 
+        
+        import os, time, datetime
+        date = self.creation_date(self.backup_path)
+        modified = os.path.getmtime(self.backup_path)
+        print("Date modified:",datetime.datetime.fromtimestamp(modified))
+
+        try:
+            col.label(text="Last Backup: " + str(datetime.datetime.fromtimestamp(modified)))
+            col.label(text="test: " + str(modified))
+        except:
+            pass
 
         col  = box.column(align=False)         
         col.use_property_split = True        
