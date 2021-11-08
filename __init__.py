@@ -177,6 +177,13 @@ class OT_BackupManager(Operator):
 
     def construct_paths(self, path, target):    
         #print("\n\nbackup_path: ", prefs().backup_path)
+        if prefs().use_system_id:
+            system_path  = os.path.join(prefs().backup_path, prefs().system_id)
+        else:
+            system_path = prefs().backup_path
+
+        print(system_path)
+
         if not prefs().advanced_mode:
             source_path = os.path.join(path, prefs().active_blender_version, target).replace("\\", "/")  
             target_path = os.path.join(prefs().backup_path, prefs().active_blender_version, target).replace("\\", "/")
@@ -446,7 +453,7 @@ class BackupManagerPreferences(AddonPreferences):
                 col.label(text=OT_BackupManager.generate_version(self, input=3) + " --> " + OT_BackupManager.generate_version(self, input=1))
                 self.draw_backup_age(col, OT_BackupManager.generate_version(self, input=3))
 
-        col.scale_y = 1.5      
+        col.scale_y = 1      
         col.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 2  
         row = col.row()
         row.prop(self, 'advanced_mode')    
