@@ -189,7 +189,7 @@ class OT_BackupManager(Operator):
                 target_path = os.path.join(backup_path, self.generate_version(input=2), target).replace("\\", "/")
             else: 
                 source_path = os.path.join(blender_path, self.generate_version(input=1), target).replace("\\", "/")  
-                target_path = os.path.join(backup_path, prefs().custom_path, target).replace("\\", "/") 
+                target_path = os.path.join(backup_path, prefs().custom_version, target).replace("\\", "/") 
 
         return source_path, target_path
 
@@ -208,8 +208,8 @@ class OT_BackupManager(Operator):
             print("backing up: ", target.split("\\"))
             source_path, target_path = self.construct_paths(filepath, target)
             self.transfer_files(source_path, target_path)              
-            if prefs().custom_path and prefs().custom_toggle:
-                self.ShowReport(path_list, "Backup complete from: " + self.generate_version(input=1) + " to: " +  prefs().custom_path, 'COLORSET_07_VEC') 
+            if prefs().custom_version and prefs().custom_toggle:
+                self.ShowReport(path_list, "Backup complete from: " + self.generate_version(input=1) + " to: " +  prefs().custom_version, 'COLORSET_07_VEC') 
             else:
                 self.ShowReport(path_list, "Backup complete from: " + self.generate_version(input=1) + " to: " + self.generate_version(input=2), 'COLORSET_07_VEC')
 
@@ -231,8 +231,8 @@ class OT_BackupManager(Operator):
             print("restoring: ", target.split("\\"))                  
             target_path, source_path  = self.construct_paths(filepath, target) #invert paths for restore
             self.transfer_files(source_path, target_path)
-            if prefs().custom_path and prefs().custom_toggle:
-                self.ShowReport(path_list, "Restore Complete from: " + prefs().custom_path + " to: " + self.generate_version(input=1), 'COLORSET_14_VEC')
+            if prefs().custom_version and prefs().custom_toggle:
+                self.ShowReport(path_list, "Restore Complete from: " + prefs().custom_version + " to: " + self.generate_version(input=1), 'COLORSET_14_VEC')
             else:
                 self.ShowReport(path_list, "Restore Complete from: " + self.generate_version(input=2) + " to: " + self.generate_version(input=1), 'COLORSET_14_VEC')
 
@@ -333,7 +333,7 @@ class BackupManagerPreferences(AddonPreferences):
 
     ## RESTORE   
     custom_toggle: BoolProperty(name="Custom", description="replace_version_with_dir", default=False)  
-    custom_path: StringProperty(name="Custom Path", description="Custom version folder", subtype='NONE', default='custom')
+    custom_version: StringProperty(name="Custom Path", description="Custom version folder", subtype='NONE', default='custom')
     clean_restore_path: BoolProperty(name="Clean Backup", description="Wipe target folder before creating backup", default=False)
     def populate_restorelist(self, context):
         global restore_version_list
@@ -392,6 +392,26 @@ class BackupManagerPreferences(AddonPreferences):
         except:
             pass
 
+    def draw_backup_size(self, col, version, path):
+        try:
+            #initialize the size
+            total_size = 0
+            
+            #use the walk() method to navigate through directory tree
+            for dirpath, dirnames, filenames in os.walk(path):
+                for i in filenames:
+                    
+                    #use join to concatenate all the components of path
+                    f = os.path.join(dirpath, i)
+                    
+                    #use getsize to generate size in bytes and add it to the total size
+                    total_size += os.path.getsize(f)
+            #print(round(total_size*0.000001, 2))
+            col.label(text= " Backup Size: " + str(version) + " (" + str(round(total_size*0.000001, 2)) +"MB)")
+        except:
+            pass
+
+
     def draw_backup(self, box):
         row  = box.row()     
         col = row.column()
@@ -399,10 +419,11 @@ class BackupManagerPreferences(AddonPreferences):
         if not self.advanced_mode:
             col.label(text=self.active_blender_version + " --> " + self.active_blender_version)            
             self.draw_backup_age(col, self.active_blender_version)
+            self.draw_backup_size(col, self.active_blender_version, os.path.join(prefs().backup_path, str(self.active_blender_version)))
         else:
             if self.custom_toggle:    
-                col.label(text=OT_BackupManager.generate_version(self, input=1) + " --> " + self.custom_path)           
-                self.draw_backup_age(col, self.custom_path)
+                col.label(text=OT_BackupManager.generate_version(self, input=1) + " --> " + self.custom_version)           
+                self.draw_backup_age(col, self.custom_version)
             else:
                 col.label(text= OT_BackupManager.generate_version(self, input=1) + " --> " + OT_BackupManager.generate_version(self, input=2))           
                 self.draw_backup_age(col, OT_BackupManager.generate_version(self, input=2))
@@ -425,7 +446,7 @@ class BackupManagerPreferences(AddonPreferences):
             #custom version
             row = box2.row().split(factor=0.7, align=False)           
             if self.custom_toggle:                
-                row.prop(self, 'custom_path', text='Backup To')  
+                row.prop(self, 'custom_version', text='Backup To')  
             else:
                 row.prop(self, 'restore_versions', text='Backup To')
             row.prop(self, 'custom_toggle')                          
@@ -440,8 +461,8 @@ class BackupManagerPreferences(AddonPreferences):
             self.draw_backup_age(col, self.active_blender_version)
         else:
             if self.custom_toggle:    
-                col.label(text=self.custom_path + " --> " + OT_BackupManager.generate_version(self, input=1))         
-                self.draw_backup_age(col, self.custom_path)
+                col.label(text=self.custom_version + " --> " + OT_BackupManager.generate_version(self, input=1))         
+                self.draw_backup_age(col, self.custom_version)
             else:
                 col.label(text=OT_BackupManager.generate_version(self, input=2) + " --> " + OT_BackupManager.generate_version(self, input=1))
                 self.draw_backup_age(col, OT_BackupManager.generate_version(self, input=2))
