@@ -94,23 +94,46 @@ class OT_BackupManager(Operator):
             path_index.append(os.path.join('scripts', 'presets'))
         return path_index
 
-    def generate_version(self, input):        
-        if input=='backup':
+
+    def generate_version(self, input): 
+        if input=='BACKUP':
             if prefs().backup_versions:
                 version = prefs().backup_versions     
             else:
                 version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])       
             return version
 
-        if input=='restore':
+        if input=='RESTORE':
             if prefs().restore_versions:
                 version = prefs().restore_versions 
             else:
                 version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])   
             return version
 
+
+    def generate_paths(self, blender_path, target): 
+           
+        if prefs().use_system_id:
+            backup_path  = os.path.join(prefs().backup_path, prefs().system_id)
+        else:
+            backup_path = prefs().backup_path
+
+        if not prefs().advanced_mode:
+            source_path = os.path.join(blender_path, prefs().active_blender_version, target).replace("\\", "/")  
+            target_path = os.path.join(backup_path, prefs().active_blender_version, target).replace("\\", "/")
+        else:   
+            if not prefs().custom_toggle:  
+                source_path = os.path.join(blender_path, self.generate_version(input='BACKUP'), target).replace("\\", "/")  
+                target_path = os.path.join(backup_path, self.generate_version(input='RESTORE'), target).replace("\\", "/")
+            else: 
+                source_path = os.path.join(blender_path, self.generate_version(input='BACKUP'), target).replace("\\", "/")  
+                target_path = os.path.join(backup_path, prefs().custom_version, target).replace("\\", "/") 
+
+        return source_path, target_path
             
+
     def transfer_files(self, source_path, target_path):   
+        """ transfer the files from the source to the target directory  """
         try:
             if os.path.isdir(target_path):  #input is folder path
                 print("isdir: ", os.path.isdir(source_path))
@@ -152,26 +175,6 @@ class OT_BackupManager(Operator):
         return{'FINISHED'}
     
 
-    def construct_paths(self, blender_path, target):    
-        if prefs().use_system_id:
-            backup_path  = os.path.join(prefs().backup_path, prefs().system_id)
-        else:
-            backup_path = prefs().backup_path
-
-        if not prefs().advanced_mode:
-            source_path = os.path.join(blender_path, prefs().active_blender_version, target).replace("\\", "/")  
-            target_path = os.path.join(backup_path, prefs().active_blender_version, target).replace("\\", "/")
-        else:   
-            if not prefs().custom_toggle:  
-                source_path = os.path.join(blender_path, self.generate_version(input='backup'), target).replace("\\", "/")  
-                target_path = os.path.join(backup_path, self.generate_version(input='restore'), target).replace("\\", "/")
-            else: 
-                source_path = os.path.join(blender_path, self.generate_version(input='backup'), target).replace("\\", "/")  
-                target_path = os.path.join(backup_path, prefs().custom_version, target).replace("\\", "/") 
-
-        return source_path, target_path
-
-
     def run_backup(self, filepath, version): 
         filepath = os.path.dirname(filepath)
         
@@ -187,13 +190,14 @@ class OT_BackupManager(Operator):
         path_index = self.create_path_index()
         for i, target in enumerate(path_index):
             print("backing up: ", target.split("\\"))
-            source_path, target_path = self.construct_paths(filepath, target)
+            
+            source_path, target_path = self.generate_paths(filepath, target)
             self.transfer_files(source_path, target_path)        
 
             if prefs().custom_version and prefs().custom_toggle:
-                self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='backup') + " to: " +  prefs().custom_version, 'COLORSET_07_VEC') 
+                self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " +  prefs().custom_version, 'COLORSET_07_VEC') 
             else:
-                self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='backup') + " to: " + self.generate_version(input='restore'), 'COLORSET_07_VEC')
+                self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " + self.generate_version(input='RESTORE'), 'COLORSET_07_VEC')
 
         self.report({'INFO'}, "Backup Complete")   
         return {'FINISHED'}
@@ -212,13 +216,13 @@ class OT_BackupManager(Operator):
         path_index = self.create_path_index()  
         for i, target in enumerate(path_index):
             print("restoring: ", target.split("\\"))                  
-            target_path, source_path  = self.construct_paths(filepath, target) #invert paths for restore
+            target_path, source_path  = self.generate_paths(filepath, target) #invert paths for restore
             self.transfer_files(source_path, target_path)
 
             if prefs().custom_version and prefs().custom_toggle:
-                self.ShowReport(path_index, "Restore Complete from: " + prefs().custom_version + " to: " + self.generate_version(input='backup'), 'COLORSET_14_VEC')
+                self.ShowReport(path_index, "Restore Complete from: " + prefs().custom_version + " to: " + self.generate_version(input='BACKUP'), 'COLORSET_14_VEC')
             else:
-                self.ShowReport(path_index, "Restore Complete from: " + self.generate_version(input='restore') + " to: " + self.generate_version(input='backup'), 'COLORSET_14_VEC')
+                self.ShowReport(path_index, "Restore Complete from: " + self.generate_version(input='RESTORE') + " to: " + self.generate_version(input='BACKUP'), 'COLORSET_14_VEC')
 
         self.report({'INFO'}, "Restore Complete") 
         return {'FINISHED'}
@@ -411,11 +415,11 @@ class BackupManagerPreferences(AddonPreferences):
             self.draw_backup_size(col, self.active_blender_version, os.path.join(prefs().backup_path, str(self.active_blender_version)))
         else:
             if self.custom_toggle:    
-                col.label(text=OT_BackupManager.generate_version(self, input='backup') + " --> " + self.custom_version)           
+                col.label(text=OT_BackupManager.generate_version(self, input='BACKUP') + " --> " + self.custom_version)           
                 self.draw_backup_age(col, self.custom_version)
             else:
-                col.label(text= OT_BackupManager.generate_version(self, input='backup') + " --> " + OT_BackupManager.generate_version(self, input='restore'))           
-                self.draw_backup_age(col, OT_BackupManager.generate_version(self, input='restore'))
+                col.label(text= OT_BackupManager.generate_version(self, input='BACKUP') + " --> " + OT_BackupManager.generate_version(self, input='RESTORE'))           
+                self.draw_backup_age(col, OT_BackupManager.generate_version(self, input='RESTORE'))
 
         col = row.column()
         col.scale_y = 3
@@ -447,15 +451,15 @@ class BackupManagerPreferences(AddonPreferences):
         
         col = row.column()
         if not self.advanced_mode:
-            col.label(text=self.active_blender_version + " --> " + OT_BackupManager.generate_version(self, input='backup'))     
+            col.label(text=self.active_blender_version + " --> " + OT_BackupManager.generate_version(self, input='BACKUP'))     
             self.draw_backup_age(col, self.active_blender_version)
         else:
             if self.custom_toggle:    
-                col.label(text=self.custom_version + " --> " + OT_BackupManager.generate_version(self, input='backup'))         
+                col.label(text=self.custom_version + " --> " + OT_BackupManager.generate_version(self, input='BACKUP'))         
                 self.draw_backup_age(col, self.custom_version)
             else:
-                col.label(text=OT_BackupManager.generate_version(self, input='restore') + " --> " + OT_BackupManager.generate_version(self, input='backup'))
-                self.draw_backup_age(col, OT_BackupManager.generate_version(self, input='restore'))
+                col.label(text=OT_BackupManager.generate_version(self, input='RESTORE') + " --> " + OT_BackupManager.generate_version(self, input='BACKUP'))
+                self.draw_backup_age(col, OT_BackupManager.generate_version(self, input='RESTORE'))
   
         col = row.column()
         col.scale_y = 3   
