@@ -72,37 +72,38 @@ class OT_BackupManager(Operator):
 
     def transfer_files(self, source_path, target_path):   
         try:
-            if os.path.isdir(source_path):  #input is folder path
+            if os.path.isdir(target_path):  #input is folder path
+                print("isdir: ", os.path.isdir(source_path))
                 try:     
                     print("source: ", source_path)  
-                    print("target: ", target_path)     
+                    print("target: ", target_path) 
                     if not prefs().dry_run:
-                        shutil.copytree(source_path, target_path, symlinks=True)
-                except:    
-                    print("target folder exists, clean first: ", target_path)       
-                    if not prefs().dry_run:  
+                        print("target path: ", os.path.dirname(target_path)) 
                         #shutil.copy(source_path, target_path)    
-                        shutil.rmtree(os.path.join(target_path))
-                        shutil.copytree(source_path, target_path, symlinks=True)   
+                        shutil.rmtree(target_path)                       
+                        #os.makedirs(target_path)
+                        shutil.copytree(source_path, target_path)
+                    else:
+                        print("dry")
+                except:  
+                    print("failed file transfer")
             
             else:   #input is file path
-                try:                    
-                    if prefs().dry_run:
-                        print("create target path: ", os.path.dirname(target_path))
-                    else:
-                        print("create target path: ", os.path.dirname(target_path))
+                print("isdir: ", os.path.isdir(source_path))
+                try:      
+                    print("create target path: ", os.path.dirname(target_path))              
+                    if not prefs().dry_run:
                         os.makedirs(os.path.dirname(target_path))
+                        print("created target path: ", os.path.dirname(target_path))
                 except:                    
                     print("target folder already exists: ", os.path.dirname(target_path))
 
-                if prefs().dry_run:
-                    print("copy file1: ", source_path)
-                else:
-                    try:
-                        print("copy file2: ", source_path)
+                try:          
+                    print("copy source files: ", source_path)          
+                    if not prefs().dry_run:
                         shutil.copy2(source_path, target_path)
-                    except:                    
-                        print("no source file to copy: ", source_path)
+                except:                    
+                    print("no source files to copy: ", source_path)
 
             print(40*"-")
         except:
@@ -111,51 +112,29 @@ class OT_BackupManager(Operator):
         return{'FINISHED'}
     
 
-    def create_path_index(self, type=''):
-        path_list = []
-        if type=='backup':
-            if prefs().backup_cache:
-                path_list.append(os.path.join('cache'))    
-            if prefs().backup_bookmarks:
-                path_list.append(os.path.join('config', 'bookmarks.txt'))     
-            if prefs().backup_recentfiles:
-                path_list.append(os.path.join('config', 'recent-files.txt'))     
-            if prefs().backup_startup_blend:
-                path_list.append(os.path.join('config', 'startup.blend'))       
-            if prefs().backup_userpref_blend:
-                path_list.append(os.path.join('config', 'userpref.blend'))       
-            if prefs().backup_workspaces_blend:
-                path_list.append(os.path.join('config', 'workspaces.blend'))         
-            if prefs().backup_datafile:
-                path_list.append(os.path.join('datafiles'))        
-            if prefs().backup_addons:
-                path_list.append(os.path.join('scripts', 'addons'))         
-            if prefs().backup_presets:
-                path_list.append(os.path.join('scripts', 'presets'))
+    def create_path_index(self):
+        path_index = []
+        
+        if prefs().backup_cache or prefs().restore_cache:
+            path_index.append(os.path.join('cache'))    
+        if prefs().backup_bookmarks or prefs().restore_bookmarks:
+            path_index.append(os.path.join('config', 'bookmarks.txt'))     
+        if prefs().backup_recentfiles or prefs().restore_recentfiles:
+            path_index.append(os.path.join('config', 'recent-files.txt'))     
+        if prefs().backup_startup_blend or prefs().restore_startup_blend:
+            path_index.append(os.path.join('config', 'startup.blend'))       
+        if prefs().backup_userpref_blend or prefs().restore_userpref_blend:
+            path_index.append(os.path.join('config', 'userpref.blend'))       
+        if prefs().backup_workspaces_blend or prefs().restore_workspaces_blend:
+            path_index.append(os.path.join('config', 'workspaces.blend'))         
+        if prefs().backup_datafile or prefs().restore_datafile:
+            path_index.append(os.path.join('datafiles'))        
+        if prefs().backup_addons or prefs().restore_addons:
+            path_index.append(os.path.join('scripts', 'addons'))         
+        if prefs().backup_presets or prefs().restore_presets:
+            path_index.append(os.path.join('scripts', 'presets'))
 
-        elif type=='restore':
-            if prefs().restore_cache:
-                path_list.append(os.path.join('cache'))    
-            if prefs().restore_bookmarks:
-                path_list.append(os.path.join('config', 'bookmarks.txt'))    
-            if prefs().restore_recentfiles:
-                path_list.append(os.path.join('config', 'recent-files.txt'))      
-            if prefs().restore_startup_blend:
-                path_list.append(os.path.join('config', 'startup.blend'))
-            if prefs().restore_userpref_blend:
-                path_list.append(os.path.join('config', 'userpref.blend'))       
-            if prefs().restore_workspaces_blend:
-                path_list.append(os.path.join('config', 'workspaces.blend'))       
-            if prefs().restore_datafile:
-                path_list.append(os.path.join('datafiles'))        
-            if prefs().restore_addons:
-                path_list.append(os.path.join('scripts', 'addons'))     
-            if prefs().restore_presets:
-                path_list.append(os.path.join('scripts', 'presets'))
-        else:
-            print("wrong input type")
-
-        return path_list
+        return path_index
 
 
     def generate_version(self, input):        
@@ -196,45 +175,51 @@ class OT_BackupManager(Operator):
 
     def run_backup(self, filepath, version): 
         filepath = os.path.dirname(filepath)
-        path_list = self.create_path_index(type='backup')
+        
+        # clean
         if prefs().clean_backup_path:
             try:
-                shutil.rmtree(prefs().backup_path + version)
-                print("\nCleaned target path ", prefs().backup_path + version)
+                shutil.rmtree(os.path.join(prefs().backup_path, version))
+                print("\nCleaned target path ", os.path.join(prefs().backup_path, version))
             except:                
-                print("\nfailed to clean path ", prefs().backup_path + version)
+                print("\nfailed to clean path ", os.path.join(prefs().backup_path, version))
         
-        for i, target in enumerate(path_list):
+        # backup
+        path_index = self.create_path_index()
+        for i, target in enumerate(path_index):
             print("backing up: ", target.split("\\"))
             source_path, target_path = self.construct_paths(filepath, target)
-            self.transfer_files(source_path, target_path)              
+            self.transfer_files(source_path, target_path)        
+
             if prefs().custom_version and prefs().custom_toggle:
-                self.ShowReport(path_list, "Backup complete from: " + self.generate_version(input=1) + " to: " +  prefs().custom_version, 'COLORSET_07_VEC') 
+                self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input=1) + " to: " +  prefs().custom_version, 'COLORSET_07_VEC') 
             else:
-                self.ShowReport(path_list, "Backup complete from: " + self.generate_version(input=1) + " to: " + self.generate_version(input=2), 'COLORSET_07_VEC')
+                self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input=1) + " to: " + self.generate_version(input=2), 'COLORSET_07_VEC')
 
         self.report({'INFO'}, "Backup Complete")   
         return {'FINISHED'}
 
 
     def run_restore(self, filepath, version):                   
-        filepath = os.path.dirname(filepath)        
-        path_list = self.create_path_index(type='restore')        
+        filepath = os.path.dirname(filepath)
+        
         if prefs().clean_restore_path:
             try:
                 shutil.rmtree(os.path.join(filepath, version))
                 print("\nCleaned target path ", os.path.join(filepath, version))
             except:
-                print("\nfailed to clean path ", prefs().backup_path + version)        
+                print("\nfailed to clean path ", os.path.join(filepath, version))     
        
-        for i, target in enumerate(path_list):
+        path_index = self.create_path_index()  
+        for i, target in enumerate(path_index):
             print("restoring: ", target.split("\\"))                  
             target_path, source_path  = self.construct_paths(filepath, target) #invert paths for restore
             self.transfer_files(source_path, target_path)
+
             if prefs().custom_version and prefs().custom_toggle:
-                self.ShowReport(path_list, "Restore Complete from: " + prefs().custom_version + " to: " + self.generate_version(input=1), 'COLORSET_14_VEC')
+                self.ShowReport(path_index, "Restore Complete from: " + prefs().custom_version + " to: " + self.generate_version(input=1), 'COLORSET_14_VEC')
             else:
-                self.ShowReport(path_list, "Restore Complete from: " + self.generate_version(input=2) + " to: " + self.generate_version(input=1), 'COLORSET_14_VEC')
+                self.ShowReport(path_index, "Restore Complete from: " + self.generate_version(input=2) + " to: " + self.generate_version(input=1), 'COLORSET_14_VEC')
 
         self.report({'INFO'}, "Restore Complete") 
         return {'FINISHED'}
@@ -512,11 +497,7 @@ classes = (
 
 
 def register():    
-    for c in classes:
-        try:
-            bpy.utils.register_class(c)   
-        except:
-            print(c, " already loaded")
+    [bpy.utils.register_class(c) for c in classes]
 
 def unregister():
     [bpy.utils.unregister_class(c) for c in classes]
