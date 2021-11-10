@@ -111,23 +111,22 @@ class OT_BackupManager(Operator):
             return version
 
 
-    def generate_paths(self, blender_path, target): 
-           
+    def generate_paths(self, roaming_path, path_index): 
         if prefs().use_system_id:
             backup_path  = os.path.join(prefs().backup_path, prefs().system_id)
         else:
             backup_path = prefs().backup_path
 
         if not prefs().advanced_mode:
-            source_path = os.path.join(blender_path, prefs().active_blender_version, target).replace("\\", "/")  
-            target_path = os.path.join(backup_path, prefs().active_blender_version, target).replace("\\", "/")
+            source_path = os.path.join(roaming_path, prefs().active_blender_version, path_index).replace("\\", "/")  
+            target_path = os.path.join(backup_path, prefs().active_blender_version, path_index).replace("\\", "/")
         else:   
             if not prefs().custom_toggle:  
-                source_path = os.path.join(blender_path, self.generate_version(input='BACKUP'), target).replace("\\", "/")  
-                target_path = os.path.join(backup_path, self.generate_version(input='RESTORE'), target).replace("\\", "/")
+                source_path = os.path.join(roaming_path, self.generate_version(input='BACKUP'), path_index).replace("\\", "/")  
+                target_path = os.path.join(backup_path, self.generate_version(input='RESTORE'), path_index).replace("\\", "/")
             else: 
-                source_path = os.path.join(blender_path, self.generate_version(input='BACKUP'), target).replace("\\", "/")  
-                target_path = os.path.join(backup_path, prefs().custom_version, target).replace("\\", "/") 
+                source_path = os.path.join(roaming_path, self.generate_version(input='BACKUP'), path_index).replace("\\", "/")  
+                target_path = os.path.join(backup_path, prefs().custom_version, path_index).replace("\\", "/") 
 
         return source_path, target_path
             
@@ -376,15 +375,15 @@ class BackupManagerPreferences(AddonPreferences):
             backup_date = datetime.fromtimestamp(date_file)
             current_time = datetime.now()
             backup_age = str(current_time - backup_date).split('.')[0]  
-            col.label(text= " Backup Age: " + str(version) + " (" + backup_age +")")
+            col.label(text= "Backup Age: " + backup_age)
         except:
+            col.label(text= "New Backup")
             pass
 
-    def draw_backup_size(self, col, version, path):
+    def draw_backup_size(self, col, path):
         try:
             #initialize the size
-            total_size = 0
-            
+            size = 0            
             #use the walk() method to navigate through directory tree
             for dirpath, dirnames, filenames in os.walk(path):
                 for i in filenames:
@@ -393,9 +392,9 @@ class BackupManagerPreferences(AddonPreferences):
                     f = os.path.join(dirpath, i)
                     
                     #use getsize to generate size in bytes and add it to the total size
-                    total_size += os.path.getsize(f)
+                    size += os.path.getsize(f)
             #print(round(total_size*0.000001, 2))
-            col.label(text= " Backup Size: " + str(version) + " (" + str(round(total_size*0.000001, 2)) +"MB)")
+            col.label(text= "Backup Size: " + str(round(size * 0.000001, 2)) +" MB")
         except:
             pass
 
@@ -411,15 +410,18 @@ class BackupManagerPreferences(AddonPreferences):
         col = row.column()
         if not self.advanced_mode:
             col.label(text=self.active_blender_version + " --> " + self.active_blender_version)            
-            self.draw_backup_age(col, self.active_blender_version)
-            self.draw_backup_size(col, self.active_blender_version, os.path.join(prefs().backup_path, str(self.active_blender_version)))
+            self.draw_backup_age(col, self.active_blender_version)            
+            self.draw_backup_size(col, os.path.join(prefs().backup_path, str(self.active_blender_version)))
         else:
             if self.custom_toggle:    
                 col.label(text=OT_BackupManager.generate_version(self, input='BACKUP') + " --> " + self.custom_version)           
                 self.draw_backup_age(col, self.custom_version)
+                self.draw_backup_size(col, os.path.join(prefs().backup_path, self.custom_version))
             else:
                 col.label(text= OT_BackupManager.generate_version(self, input='BACKUP') + " --> " + OT_BackupManager.generate_version(self, input='RESTORE'))           
                 self.draw_backup_age(col, OT_BackupManager.generate_version(self, input='RESTORE'))
+                self.draw_backup_size(col, os.path.join(prefs().backup_path, str(OT_BackupManager.generate_version(self, input='RESTORE'))))
+                
 
         col = row.column()
         col.scale_y = 3
@@ -453,13 +455,16 @@ class BackupManagerPreferences(AddonPreferences):
         if not self.advanced_mode:
             col.label(text=self.active_blender_version + " --> " + OT_BackupManager.generate_version(self, input='BACKUP'))     
             self.draw_backup_age(col, self.active_blender_version)
+            self.draw_backup_size(col, os.path.join(prefs().backup_path, str(self.active_blender_version)))
         else:
             if self.custom_toggle:    
                 col.label(text=self.custom_version + " --> " + OT_BackupManager.generate_version(self, input='BACKUP'))         
                 self.draw_backup_age(col, self.custom_version)
+                self.draw_backup_size(col, os.path.join(prefs().backup_path, self.custom_version))
             else:
                 col.label(text=OT_BackupManager.generate_version(self, input='RESTORE') + " --> " + OT_BackupManager.generate_version(self, input='BACKUP'))
                 self.draw_backup_age(col, OT_BackupManager.generate_version(self, input='RESTORE'))
+                self.draw_backup_size(col, os.path.join(prefs().backup_path, str(OT_BackupManager.generate_version(self, input='RESTORE'))))
   
         col = row.column()
         col.scale_y = 3   
