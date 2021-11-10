@@ -408,11 +408,24 @@ class BackupManagerPreferences(AddonPreferences):
         col.prop(self, 'advanced_mode')   
 
         col = row.column()
+        col.scale_y = 3
+        col.operator("bm.check_versions", text="Backup", icon='COLORSET_07_VEC').button_input = 'BACKUP'   
+
+        box1 = row.box()
+        col = box1.column()
         if not self.advanced_mode:
-            col.label(text=self.active_blender_version + " --> " + self.active_blender_version)            
-            self.draw_backup_age(col, self.active_blender_version)            
+            col.label(text = "From: " + self.active_blender_version)            
+            #self.draw_backup_age(col, self.active_blender_version) 
+            col.separator(factor=3.7)    
+            self.draw_backup_size(col, os.path.join(prefs().backup_path, str(self.active_blender_version)))
+                   
+            box = row.box() 
+            col = box.column()  
+            col.label(text = "To: " + self.active_blender_version)            
+            self.draw_backup_age(col, self.active_blender_version)    
             self.draw_backup_size(col, os.path.join(prefs().backup_path, str(self.active_blender_version)))
         else:
+             
             if self.custom_toggle:    
                 col.label(text=OT_BackupManager.generate_version(self, input='BACKUP') + " --> " + self.custom_version)           
                 self.draw_backup_age(col, self.custom_version)
@@ -422,10 +435,6 @@ class BackupManagerPreferences(AddonPreferences):
                 self.draw_backup_age(col, OT_BackupManager.generate_version(self, input='RESTORE'))
                 self.draw_backup_size(col, os.path.join(prefs().backup_path, str(OT_BackupManager.generate_version(self, input='RESTORE'))))
                 
-
-        col = row.column()
-        col.scale_y = 3
-        col.operator("bm.check_versions", text="Backup", icon='COLORSET_07_VEC').button_input = 'BACKUP'   
  
         # Advanced options
         if self.advanced_mode: 
@@ -452,6 +461,10 @@ class BackupManagerPreferences(AddonPreferences):
         col.prop(self, 'advanced_mode')  
         
         col = row.column()
+        col.scale_y = 3   
+        col.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 'RESTORE'
+
+        col = row.column()
         if not self.advanced_mode:
             col.label(text=self.active_blender_version + " --> " + OT_BackupManager.generate_version(self, input='BACKUP'))     
             self.draw_backup_age(col, self.active_blender_version)
@@ -466,9 +479,6 @@ class BackupManagerPreferences(AddonPreferences):
                 self.draw_backup_age(col, OT_BackupManager.generate_version(self, input='RESTORE'))
                 self.draw_backup_size(col, os.path.join(prefs().backup_path, str(OT_BackupManager.generate_version(self, input='RESTORE'))))
   
-        col = row.column()
-        col.scale_y = 3   
-        col.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 'RESTORE'
                 
         # Advanced options
         if self.advanced_mode: 
