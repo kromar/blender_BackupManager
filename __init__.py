@@ -440,7 +440,7 @@ class BackupManagerPreferences(AddonPreferences):
         if self.advanced_mode: 
             box2 = box.box()
             row = box2.row().split(factor=0.7, align=False)
-            row.prop(self, 'backup_versions', text='Backup From') 
+            row.prop(self, 'backup_versions', text='Backup From', expand = False) 
             row.operator("bm.check_versions", text="Search").button_input = 'SEARCH_BACKUP' 
 
             #custom version
@@ -448,7 +448,7 @@ class BackupManagerPreferences(AddonPreferences):
             if self.custom_toggle:                
                 row.prop(self, 'custom_version', text='Backup To')  
             else:
-                row.prop(self, 'restore_versions', text='Backup To')
+                row.prop(self, 'restore_versions', text='Backup To', expand = False)
             row.prop(self, 'custom_toggle')                          
             self.draw_selection(box)
        
