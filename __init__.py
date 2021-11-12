@@ -255,8 +255,7 @@ class OT_BackupManager(Operator):
         if prefs().backup_path:            
             global backup_version_list
             global restore_version_list  
-            if self.button_input == 'BACKUP':  # backup
-                
+            if self.button_input == 'BACKUP':
                 if not prefs().advanced_mode:            
                     source_path = os.path.join(prefs().blender_user_path).replace("\\", "/")
                     target_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")
@@ -268,17 +267,10 @@ class OT_BackupManager(Operator):
                         source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP')).replace("\\", "/")
                         target_path = os.path.join(prefs().backup_path, OT_BackupManager.generate_version(self, input='RESTORE')).replace("\\", "/")
  
-                print("run: \n", source_path, "\n", target_path)
-
-
-                #version = self.generate_version(self.button_input)
                 self.run_backup(source_path, target_path)  
 
 
-
-            elif self.button_input == 'RESTORE':  # restore  
-
-
+            elif self.button_input == 'RESTORE':
                 if not prefs().advanced_mode:            
                     source_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")
                     target_path = os.path.join(prefs().blender_user_path).replace("\\", "/")
@@ -286,38 +278,11 @@ class OT_BackupManager(Operator):
                     source_path = os.path.join(prefs().backup_path, OT_BackupManager.generate_version(self, input='RESTORE')).replace("\\", "/")
                     target_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP')).replace("\\", "/")
  
-                print("run: \n", source_path, "\n", target_path)
-
-
-                #version = self.generate_version(self.button_input)
-                self.run_restore(source_path, target_path) 
-
-
-
-
-
-               
-            elif self.button_input == 'SEARCH_BACKUP':  # search for backup versions 
-                backup_version_list.clear() 
-                backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER'))
-                backup_version_list.sort(reverse=True)
-
-                restore_version_list.clear()    
-                restore_version_list = set(self.find_versions(prefs().backup_path) + backup_version_list)
-                restore_version_list = list(dict.fromkeys(restore_version_list))
-                restore_version_list.sort(reverse=True)
-            
-            elif self.button_input == 'SEARCH_RESTORE':  # search for restorable versions 
-                backup_version_list.clear() 
-                backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER'))
-                backup_version_list.sort(reverse=True)
-  
-                restore_version_list.clear()        
-                restore_version_list = self.find_versions(prefs().backup_path)
-                restore_version_list.sort(reverse=True)           
+                self.run_restore(source_path, target_path)            
 
         else:
             self.ShowReport(["Specify a Backup Path"] , "Backup Path missing", 'COLORSET_01_VEC')
+
         return {'FINISHED'}
     
 
@@ -511,7 +476,6 @@ class BackupManagerPreferences(AddonPreferences):
             col = box3.column()
             row = col.row()
             row.alignment = 'RIGHT'
-            #row.operator("bm.run_backup_manager", text="Search").button_input = 'SEARCH_BACKUP' 
             row.prop(self, 'custom_toggle')
             row = box3.row().split(align=False)
             row.prop(self, 'backup_versions', text='Backup From', expand = True) 
@@ -567,7 +531,6 @@ class BackupManagerPreferences(AddonPreferences):
             box3 = box.box()
             col = box3.column()
             row = col.row()
-            #row.operator("bm.run_backup_manager", text="Search").button_input = 'SEARCH_RESTORE'
             row = box3.row().split(align=False)
             row.prop(self, 'restore_versions', text='Restore From', expand = True)                    
             row.prop(self, 'backup_versions', text='Restore To', expand = True)
