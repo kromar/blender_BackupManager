@@ -29,7 +29,7 @@ bl_info = {
     "name": "Backup Manager",
     "description": "Backup and Restore your Blender configuration files",
     "author": "Daniel Grauer",
-    "version": (1, 0, 0),
+    "version": (1, 1, 0),
     "blender": (2, 93, 0),
     "location": "Preferences",
     "category": "!System",
@@ -419,7 +419,6 @@ class BackupManagerPreferences(AddonPreferences):
         row  = box.row() 
         box1 = row.box() 
         col = box1.column()
-        
         if not self.advanced_mode:            
             path = self.blender_user_path
             col.label(text = "From: " + path)            
@@ -431,8 +430,7 @@ class BackupManagerPreferences(AddonPreferences):
             path =  os.path.join(prefs().backup_path, str(self.active_blender_version))
             col.label(text = "To: " + path)            
             self.draw_backup_age(col, path)    
-            self.draw_backup_size(col, path)            
-        
+            self.draw_backup_size(col, path)  
         else:             
             if self.custom_toggle:    
                 path = os.path.join(self.blender_user_path.strip(self.active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP'))
@@ -466,11 +464,9 @@ class BackupManagerPreferences(AddonPreferences):
             col = box3.column()
             row = col.row()
             row.operator("bm.check_versions", text="Search").button_input = 'SEARCH_BACKUP' 
-            row.prop(self, 'custom_toggle')     
-
+            row.prop(self, 'custom_toggle') 
             row = box3.row().split(align=False)
             row.prop(self, 'backup_versions', text='Backup From', expand = True) 
-                   
             if self.custom_toggle:                
                 row.prop(self, 'custom_version', text='Backup To')  
             else:
@@ -478,42 +474,53 @@ class BackupManagerPreferences(AddonPreferences):
             
          
     def draw_restore(self, box):
-        row  = box.row()          
+        row  = box.row() 
+        col = row.column()
+        col.scale_y = 3
+        col.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 'RESTORE'
+
         col = row.column()  
         col.prop(self, 'dry_run')      
         col.prop(self, 'clean_backup_path')   
         col.prop(self, 'advanced_mode')  
         
-        col = row.column()
-        col.scale_y = 3.6
-        col.operator("bm.check_versions", text="Restore", icon='COLORSET_14_VEC').button_input = 'RESTORE'
+        row  = box.row() 
+        box1 = row.box() 
+        col = box1.column()
+        if not self.advanced_mode:            
+            path = os.path.join(prefs().backup_path, str(self.active_blender_version))
+            col.label(text = "From: " + path)            
+            self.draw_backup_age(col, path) 
+            self.draw_backup_size(col, path)            
+                   
+            box = row.box() 
+            col = box.column()  
+            path =  self.blender_user_path
+            col.label(text = "To: " + path)            
+            self.draw_backup_age(col, path)    
+            self.draw_backup_size(col, path)  
 
-        col = row.column()
-        if not self.advanced_mode:
-            col.label(text=self.active_blender_version + " --> " + OT_BackupManager.generate_version(self, input='BACKUP'))     
-            self.draw_backup_age(col, self.active_blender_version)
-            self.draw_backup_size(col, os.path.join(prefs().backup_path, str(self.active_blender_version)))
-        else:
-            if self.custom_toggle:    
-                col.label(text=self.custom_version + " --> " + OT_BackupManager.generate_version(self, input='BACKUP'))         
-                self.draw_backup_age(col, self.custom_version)
-                self.draw_backup_size(col, os.path.join(prefs().backup_path, self.custom_version))
-            else:
-                col.label(text=OT_BackupManager.generate_version(self, input='RESTORE') + " --> " + OT_BackupManager.generate_version(self, input='BACKUP'))
-                self.draw_backup_age(col, OT_BackupManager.generate_version(self, input='RESTORE'))
-                self.draw_backup_size(col, os.path.join(prefs().backup_path, str(OT_BackupManager.generate_version(self, input='RESTORE'))))
-  
+        else:        
+            path = os.path.join(prefs().backup_path, OT_BackupManager.generate_version(self, input='RESTORE'))
+            col.label(text = "From: " + path)
+            self.draw_backup_age(col, path)
+            self.draw_backup_size(col, path)
+            
+            box2 = row.box() 
+            col = box2.column()  
+            path =  os.path.join(self.blender_user_path.strip(self.active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP'))
+            col.label(text = "To: " + path)  
+            self.draw_backup_age(col, path)
+            self.draw_backup_size(col, path)
 
             self.draw_selection(box)
             # Advanced options
             box3 = box.box()
             col = box3.column()
             row = col.row()
-            row.operator("bm.check_versions", text="Search").button_input = 'SEARCH_RESTORE'    
-
+            row.operator("bm.check_versions", text="Search").button_input = 'SEARCH_RESTORE'
             row = box3.row().split(align=False)
-            row.prop(self, 'restore_versions', text='Restore From', expand = True) 
-                   
+            row.prop(self, 'restore_versions', text='Restore From', expand = True)                    
             row.prop(self, 'backup_versions', text='Restore To', expand = True)
 
  
