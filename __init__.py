@@ -274,25 +274,20 @@ preferences_tabs = [("BACKUP", "Backup Options", ""),
                     ("RESTORE", "Restore Options", "")]
 
 class BackupManagerPreferences(AddonPreferences):
-
     bl_idname = __package__
-
-    def update_backup_list(self, context):
-        bpy.ops.bm.check_versions(button_input='SEARCH_BACKUP')
-    
-    """ def update_restore_list(self, context):
-        bpy.ops.bm.check_versions(button_input='SEARCH_RESTORE') """
-
-
+    def update_version_list(self, context):
+        bpy.ops.bm.check_versions(button_input='SEARCH_' + self.tabs)
 
     blender_user_path: bpy.props.StringProperty(default=bpy.utils.resource_path(type='USER'))
-    tabs: EnumProperty(name="Tabs", items=preferences_tabs, default="BACKUP", update=update_backup_list)   
+    tabs: EnumProperty(name="Tabs", items=preferences_tabs, default="BACKUP", update=update_version_list)   
     config_path: StringProperty( name="config_path", description="config_path", subtype='DIR_PATH', default=bpy.utils.user_resource('CONFIG')) #Resource type in [‘DATAFILES’, ‘CONFIG’, ‘SCRIPTS’, ‘AUTOSAVE’].
     this_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
     system_id: StringProperty(name="ID", description="Current Computer Name", subtype='NONE', default=str(socket.getfqdn()))  
     use_system_id: BoolProperty(name="use_system_id", description="use_system_id", default=False)  
     active_blender_version: StringProperty(name="Current Blender Version", description="Current Blender Version", subtype='NONE', default=str(bpy.app.version[0]) + '.' + str(bpy.app.version[1]))
     
+
+
     # when user specified a custom temp path use that one as default, otherwise use the app default
     if bpy.context.preferences.filepaths.temporary_directory == None:
         default_path = bpy.app.tempdir
@@ -307,7 +302,7 @@ class BackupManagerPreferences(AddonPreferences):
         path = os.path.join(default_path , '!backupmanager')    #.replace("\\", "/") """
 
     backup_path: StringProperty(name="Backup Path", description="Backup Location", subtype='DIR_PATH', default=os.path.join(default_path , '!backupmanager/').replace("\\", "/"))
-    advanced_mode: BoolProperty(name="Advanced", description="Advanced backup and restore options", default=False, update=None)    #TODO: search for backups when enabled
+    advanced_mode: BoolProperty(name="Advanced", description="Advanced backup and restore options", default=False, update=update_version_list)    #TODO: search for backups when enabled
     
     # BACKUP        
     clean_backup_path: BoolProperty(name="Clean Backup", description="delete before backup", default=False)
@@ -326,7 +321,7 @@ class BackupManagerPreferences(AddonPreferences):
     backup_presets: BoolProperty(name="presets", description="backup_presets", default=True)
 
     ## RESTORE   
-    custom_toggle: BoolProperty(name="Custom", description="replace_version_with_dir", default=False)  
+    custom_toggle: BoolProperty(name="Custom Backup Version", description="define your custom backup version path", default=False)  
     custom_version: StringProperty(name="Custom Path", description="Custom version folder", subtype='NONE', default='custom')
     clean_restore_path: BoolProperty(name="Clean Backup", description="Wipe target folder before creating backup", default=False)
     def populate_restorelist(self, context):
@@ -463,14 +458,16 @@ class BackupManagerPreferences(AddonPreferences):
             box3 = box.box()
             col = box3.column()
             row = col.row()
-            row.operator("bm.check_versions", text="Search").button_input = 'SEARCH_BACKUP' 
-            row.prop(self, 'custom_toggle') 
+            row.alignment = 'RIGHT'
+            #row.operator("bm.check_versions", text="Search").button_input = 'SEARCH_BACKUP' 
+            row.prop(self, 'custom_toggle')
             row = box3.row().split(align=False)
             row.prop(self, 'backup_versions', text='Backup From', expand = True) 
             if self.custom_toggle:                
                 row.prop(self, 'custom_version', text='Backup To')  
             else:
                 row.prop(self, 'restore_versions', text='Backup To', expand = True)
+
             
          
     def draw_restore(self, box):
@@ -518,7 +515,7 @@ class BackupManagerPreferences(AddonPreferences):
             box3 = box.box()
             col = box3.column()
             row = col.row()
-            row.operator("bm.check_versions", text="Search").button_input = 'SEARCH_RESTORE'
+            #row.operator("bm.check_versions", text="Search").button_input = 'SEARCH_RESTORE'
             row = box3.row().split(align=False)
             row.prop(self, 'restore_versions', text='Restore From', expand = True)                    
             row.prop(self, 'backup_versions', text='Restore To', expand = True)
