@@ -255,7 +255,8 @@ class OT_BackupManager(Operator):
         if prefs().backup_path:            
             global backup_version_list
             global restore_version_list  
-            if self.button_input == 'BACKUP':
+            if self.button_input == 'BACKUP':  # backup
+                
                 if not prefs().advanced_mode:            
                     source_path = os.path.join(prefs().blender_user_path).replace("\\", "/")
                     target_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")
@@ -267,10 +268,17 @@ class OT_BackupManager(Operator):
                         source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP')).replace("\\", "/")
                         target_path = os.path.join(prefs().backup_path, OT_BackupManager.generate_version(self, input='RESTORE')).replace("\\", "/")
  
+                print("run: \n", source_path, "\n", target_path)
+
+
+                #version = self.generate_version(self.button_input)
                 self.run_backup(source_path, target_path)  
 
 
-            elif self.button_input == 'RESTORE':
+
+            elif self.button_input == 'RESTORE':  # restore  
+
+
                 if not prefs().advanced_mode:            
                     source_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")
                     target_path = os.path.join(prefs().blender_user_path).replace("\\", "/")
@@ -278,11 +286,38 @@ class OT_BackupManager(Operator):
                     source_path = os.path.join(prefs().backup_path, OT_BackupManager.generate_version(self, input='RESTORE')).replace("\\", "/")
                     target_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP')).replace("\\", "/")
  
-                self.run_restore(source_path, target_path)            
+                print("run: \n", source_path, "\n", target_path)
+
+
+                #version = self.generate_version(self.button_input)
+                self.run_restore(source_path, target_path) 
+
+
+
+
+
+               
+            elif self.button_input == 'SEARCH_BACKUP':  # search for backup versions 
+                backup_version_list.clear() 
+                backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER'))
+                backup_version_list.sort(reverse=True)
+
+                restore_version_list.clear()    
+                restore_version_list = set(self.find_versions(prefs().backup_path) + backup_version_list)
+                restore_version_list = list(dict.fromkeys(restore_version_list))
+                restore_version_list.sort(reverse=True)
+            
+            elif self.button_input == 'SEARCH_RESTORE':  # search for restorable versions 
+                backup_version_list.clear() 
+                backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER'))
+                backup_version_list.sort(reverse=True)
+  
+                restore_version_list.clear()        
+                restore_version_list = self.find_versions(prefs().backup_path)
+                restore_version_list.sort(reverse=True)           
 
         else:
             self.ShowReport(["Specify a Backup Path"] , "Backup Path missing", 'COLORSET_01_VEC')
-
         return {'FINISHED'}
     
 
@@ -395,9 +430,9 @@ class BackupManagerPreferences(AddonPreferences):
             backup_date = datetime.fromtimestamp(date_file)
             current_time = datetime.now()
             backup_age = str(current_time - backup_date).split('.')[0]  
-            col.label(text= "Age: " + backup_age)
+            col.label(text= "Last update: " + backup_age)
         except:
-            col.label(text= "Age: missing")
+            col.label(text= "no data")
 
     def draw_backup_size(self, col, path):
         try:
@@ -407,8 +442,7 @@ class BackupManagerPreferences(AddonPreferences):
             for dirpath, dirnames, filenames in os.walk(path):
                 for i in filenames:                  
                     #use join to concatenate all the components of path
-                    f = os.path.join(dirpath, i).replace("\\", "/")                    
-                    #print(f)  
+                    f = os.path.join(dirpath, i).replace("\\", "/")
                     #use getsize to generate size in bytes and add it to the total size
                     size += os.path.getsize(f)
             #print(path, "\nsize: ", round(size*0.000001, 2))
@@ -476,6 +510,7 @@ class BackupManagerPreferences(AddonPreferences):
             col = box3.column()
             row = col.row()
             row.alignment = 'RIGHT'
+            #row.operator("bm.run_backup_manager", text="Search").button_input = 'SEARCH_BACKUP' 
             row.prop(self, 'custom_toggle')
             row = box3.row().split(align=False)
             row.prop(self, 'backup_versions', text='Backup From', expand = True) 
@@ -531,6 +566,7 @@ class BackupManagerPreferences(AddonPreferences):
             box3 = box.box()
             col = box3.column()
             row = col.row()
+            #row.operator("bm.run_backup_manager", text="Search").button_input = 'SEARCH_RESTORE'
             row = box3.row().split(align=False)
             row.prop(self, 'restore_versions', text='Restore From', expand = True)                    
             row.prop(self, 'backup_versions', text='Restore To', expand = True)
