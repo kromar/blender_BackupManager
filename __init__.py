@@ -138,7 +138,9 @@ class OT_BackupManager(Operator):
         #print("targt_path: ", os.path.join(target_path, target_files)) 
 
         source = os.path.join(source_path, target_files)#.replace("\\", "/")
-        target = os.path.join(target_path, target_files)#.replace("\\", "/")  
+        target = os.path.join(target_path, target_files)#.replace("\\", "/")       
+        print("source: ",  source)
+        print("target: ", target) 
     
     
         """ try:
@@ -160,9 +162,7 @@ class OT_BackupManager(Operator):
 
 
         # trasnfer folders
-        if os.path.isdir(source):              
-            #print("source 1: ",  source)
-            #print("target 1: ", target) 
+        if os.path.isdir(source):         
             
             if not prefs().dry_run:
                 try:
@@ -170,9 +170,7 @@ class OT_BackupManager(Operator):
                 except:
                     pass
             else:
-                print("dry run, no files modified")    
-   
-
+                print("dry run, no files modified")
         # trasnfer file content
         else:             
             #print("source 2: ",  source)
@@ -199,8 +197,7 @@ class OT_BackupManager(Operator):
         return{'FINISHED'}
     
 
-    def run_backup(self, source_path, target_path): 
-        
+    def run_backup(self, source_path, target_path):         
         if prefs().clean_backup_path:
             try:
                 shutil.rmtree(target_path)
@@ -212,8 +209,7 @@ class OT_BackupManager(Operator):
         path_index = self.create_path_index()
         for i, target_files in enumerate(path_index):
             print("backing up: ", target_files.split("\\"))
-            self.transfer_files(source_path, target_path, target_files)    
-            #print("target: ", target_files)   
+            self.transfer_files(source_path, target_path, target_files)     
 
             if prefs().custom_version and prefs().custom_toggle:
                 self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " +  prefs().custom_version, 'COLORSET_07_VEC') 
@@ -224,49 +220,19 @@ class OT_BackupManager(Operator):
         return {'FINISHED'}
     
 
-    def OLD_run_backup(self, filepath, version): 
-        filepath = os.path.dirname(filepath)
-        
-        # clean
+    
+    def run_restore(self, source_path, target_path):   
         if prefs().clean_backup_path:
             try:
-                shutil.rmtree(os.path.join(prefs().backup_path, version))
-                print("\nCleaned target path ", os.path.join(prefs().backup_path, version))
+                shutil.rmtree(target_path)
+                print("\nCleaned target path ", target_path)
             except:                
-                print("\nfailed to clean path ", os.path.join(prefs().backup_path, version))
-        
-        # backup
-        path_index = self.create_path_index()
-        for i, target in enumerate(path_index):
-            print("backing up: ", target.split("\\"))
-            
-            source_path, target_path = self.generate_paths(filepath, target)
-            self.transfer_files(source_path, target_path)        
-
-            if prefs().custom_version and prefs().custom_toggle:
-                self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " +  prefs().custom_version, 'COLORSET_07_VEC') 
-            else:
-                self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " + self.generate_version(input='RESTORE'), 'COLORSET_07_VEC')
-
-        self.report({'INFO'}, "Backup Complete")   
-        return {'FINISHED'}
-
-
-    def run_restore(self, filepath, version):                   
-        filepath = os.path.dirname(filepath)
-        
-        if prefs().clean_restore_path:
-            try:
-                shutil.rmtree(os.path.join(filepath, version))
-                print("\nCleaned target path ", os.path.join(filepath, version))
-            except:
-                print("\nfailed to clean path ", os.path.join(filepath, version))     
+                print("\nFailed to clean path ", target_path)   
        
         path_index = self.create_path_index()  
-        for i, target in enumerate(path_index):
-            print("restoring: ", target.split("\\"))                  
-            target_path, source_path  = self.generate_paths(filepath, target) #invert paths for restore
-            self.transfer_files(source_path, target_path)
+        for i, target_files in enumerate(path_index):
+            print("restoring: ", target_files.split("\\"))       
+            self.transfer_files(source_path, target_path, target_files)  
 
             if prefs().custom_version and prefs().custom_toggle:
                 self.ShowReport(path_index, "Restore Complete from: " + prefs().custom_version + " to: " + self.generate_version(input='BACKUP'), 'COLORSET_14_VEC')
@@ -310,9 +276,26 @@ class OT_BackupManager(Operator):
 
 
 
-            elif self.button_input == 'RESTORE':  # restore
-                version = self.generate_version(self.button_input)
-                self.run_restore(bpy.utils.resource_path(type='USER'), version) 
+            elif self.button_input == 'RESTORE':  # restore  
+
+
+                if not prefs().advanced_mode:            
+                    source_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")
+                    target_path = os.path.join(prefs().blender_user_path).replace("\\", "/")
+                else:             
+                    source_path = os.path.join(prefs().backup_path, OT_BackupManager.generate_version(self, input='RESTORE')).replace("\\", "/")
+                    target_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP')).replace("\\", "/")
+ 
+                print("run: \n", source_path, "\n", target_path)
+
+
+                #version = self.generate_version(self.button_input)
+                self.run_restore(source_path, target_path) 
+
+
+
+
+
                
             elif self.button_input == 'SEARCH_BACKUP':  # search for backup versions 
                 backup_version_list.clear() 
