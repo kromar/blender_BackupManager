@@ -134,11 +134,8 @@ class OT_BackupManager(Operator):
 
     def transfer_files(self, source_path, target_path, target_files):   
         """ transfer the files from the source to the target directory  """
-        #print("source_path: ",  os.path.join(source_path, target_files))
-        #print("targt_path: ", os.path.join(target_path, target_files)) 
-
-        source = os.path.join(source_path, target_files)#.replace("\\", "/")
-        target = os.path.join(target_path, target_files)#.replace("\\", "/")       
+        source = os.path.join(source_path, target_files).replace("\\", "/")
+        target = os.path.join(target_path, target_files).replace("\\", "/")       
         print("source: ",  source)
         print("target: ", target) 
     
@@ -158,12 +155,8 @@ class OT_BackupManager(Operator):
             else:
                 print('Directory not copied. Error: %s' % e) """
 
-
-
-
         # trasnfer folders
-        if os.path.isdir(source):         
-            
+        if os.path.isdir(source): 
             if not prefs().dry_run:
                 try:
                     shutil.copytree(source, target)
@@ -173,9 +166,6 @@ class OT_BackupManager(Operator):
                 print("dry run, no files modified")
         # trasnfer file content
         else:             
-            #print("source 2: ",  source)
-            #print("target 2: ", target)     
-           
             try:      
                 target_dir = os.path.dirname(target)       
                 print("create target path: ", target_dir)   
@@ -191,7 +181,6 @@ class OT_BackupManager(Operator):
                     shutil.copy2(source, target)
             except:                    
                 print("no source files to copy: ", source)
-
         print(40*"-")
 
         return{'FINISHED'}
@@ -217,8 +206,7 @@ class OT_BackupManager(Operator):
                 self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " + self.generate_version(input='RESTORE'), 'COLORSET_07_VEC')
 
         self.report({'INFO'}, "Backup Complete")   
-        return {'FINISHED'}
-    
+        return {'FINISHED'}    
 
     
     def run_restore(self, source_path, target_path):   
@@ -255,8 +243,7 @@ class OT_BackupManager(Operator):
         if prefs().backup_path:            
             global backup_version_list
             global restore_version_list  
-            if self.button_input == 'BACKUP':  # backup
-                
+            if self.button_input == 'BACKUP':         
                 if not prefs().advanced_mode:            
                     source_path = os.path.join(prefs().blender_user_path).replace("\\", "/")
                     target_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")
@@ -268,17 +255,9 @@ class OT_BackupManager(Operator):
                         source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP')).replace("\\", "/")
                         target_path = os.path.join(prefs().backup_path, OT_BackupManager.generate_version(self, input='RESTORE')).replace("\\", "/")
  
-                print("run: \n", source_path, "\n", target_path)
-
-
-                #version = self.generate_version(self.button_input)
                 self.run_backup(source_path, target_path)  
 
-
-
-            elif self.button_input == 'RESTORE':  # restore  
-
-
+            elif self.button_input == 'RESTORE':
                 if not prefs().advanced_mode:            
                     source_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")
                     target_path = os.path.join(prefs().blender_user_path).replace("\\", "/")
@@ -286,18 +265,9 @@ class OT_BackupManager(Operator):
                     source_path = os.path.join(prefs().backup_path, OT_BackupManager.generate_version(self, input='RESTORE')).replace("\\", "/")
                     target_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP')).replace("\\", "/")
  
-                print("run: \n", source_path, "\n", target_path)
-
-
-                #version = self.generate_version(self.button_input)
                 self.run_restore(source_path, target_path) 
-
-
-
-
-
                
-            elif self.button_input == 'SEARCH_BACKUP':  # search for backup versions 
+            elif self.button_input == 'SEARCH_BACKUP':
                 backup_version_list.clear() 
                 backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER'))
                 backup_version_list.sort(reverse=True)
@@ -307,7 +277,7 @@ class OT_BackupManager(Operator):
                 restore_version_list = list(dict.fromkeys(restore_version_list))
                 restore_version_list.sort(reverse=True)
             
-            elif self.button_input == 'SEARCH_RESTORE':  # search for restorable versions 
+            elif self.button_input == 'SEARCH_RESTORE': 
                 backup_version_list.clear() 
                 backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER'))
                 backup_version_list.sort(reverse=True)
