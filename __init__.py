@@ -80,65 +80,41 @@ class OT_BackupManager(Operator):
             self.ignore_backup.append('bookmarks.txt')
         if not prefs().restore_bookmarks:
             self.ignore_restore.append('bookmarks.txt')
-
         if not prefs().backup_recentfiles:
             self.ignore_backup.append('recent-files.txt')
         if not prefs().restore_recentfiles:
-            self.ignore_restore.append('recent-files.txt')
-            
+            self.ignore_restore.append('recent-files.txt')   
+                     
         if not prefs().backup_startup_blend:
             self.ignore_backup.append('startup.blend')
         if not prefs().restore_startup_blend:
-            self.ignore_restore.append('startup.blend')
-            
+            self.ignore_restore.append('startup.blend')            
         if not prefs().backup_userpref_blend:
             self.ignore_backup.append('userpref.blend')
         if not prefs().restore_userpref_blend:
-            self.ignore_restore.append('userpref.blend')
-            
+            self.ignore_restore.append('userpref.blend')            
         if not prefs().backup_workspaces_blend:
             self.ignore_backup.append('workspaces.blend')
         if not prefs().restore_workspaces_blend:
-            self.ignore_restore.append('workspaces.blend')
-            
+            self.ignore_restore.append('workspaces.blend')  
+
         if not prefs().backup_cache:
             self.ignore_backup.append('cache')
         if not prefs().restore_cache:
             self.ignore_restore.append('cache')
-
         if not prefs().backup_datafile:
             self.ignore_backup.append('datafiles')
         if not prefs().restore_datafile:
             self.ignore_restore.append('datafiles')
-
         if not prefs().backup_addons:
             self.ignore_backup.append('addons')
         if not prefs().restore_addons:
             self.ignore_restore.append('addons')
-
         if not prefs().backup_presets:
             self.ignore_backup.append('presets')
         if not prefs().restore_presets:
             self.ignore_restore.append('presets')
 
-
-    def generate_version(self, input): 
-        if input=='BACKUP':
-            if prefs().backup_versions:
-                version = prefs().backup_versions     
-            else:
-                version = prefs().active_blender_version  
-            #print(version)
-            return version
-
-        if input=='RESTORE':
-            if prefs().restore_versions:
-                version = prefs().restore_versions 
-            else:
-                version = prefs().active_blender_version  
-            #print(version) 
-            return version
-           
 
     def transfer_files(self, source_path, target_path):      
         print("source: ",  source_path)
@@ -152,7 +128,6 @@ class OT_BackupManager(Operator):
                     pass
             else:
                 print("dry run, no files modified")
-
         print(40*"-")
         return{'FINISHED'}
     
@@ -217,11 +192,11 @@ class OT_BackupManager(Operator):
                     target_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")
                 else:             
                     if prefs().custom_toggle:
-                        source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP')).replace("\\", "/")
+                        source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")
                         target_path = os.path.join(prefs().backup_path, str(prefs().custom_version)).replace("\\", "/")
                     else:                
-                        source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP')).replace("\\", "/")
-                        target_path = os.path.join(prefs().backup_path, OT_BackupManager.generate_version(self, input='RESTORE')).replace("\\", "/")
+                        source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")
+                        target_path = os.path.join(prefs().backup_path, prefs().restore_versions).replace("\\", "/")
  
                 self.run_backup(source_path, target_path)  
 
@@ -230,8 +205,8 @@ class OT_BackupManager(Operator):
                     source_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")
                     target_path = os.path.join(prefs().blender_user_path).replace("\\", "/")
                 else:             
-                    source_path = os.path.join(prefs().backup_path, OT_BackupManager.generate_version(self, input='RESTORE')).replace("\\", "/")
-                    target_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP')).replace("\\", "/")
+                    source_path = os.path.join(prefs().backup_path, prefs().restore_versions).replace("\\", "/")
+                    target_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")
  
                 self.run_restore(source_path, target_path) 
                
@@ -301,8 +276,8 @@ class BackupManagerPreferences(AddonPreferences):
         return backup_version_list
     backup_versions: EnumProperty( items=populate_backuplist, name="Backup", description="Choose the version to backup")
     backup_cache: BoolProperty(name="cache", description="backup_cache", default=False)      
-    backup_bookmarks: BoolProperty(name="bookmarks", description="backup_bookmarks", default=False)   
-    backup_recentfiles: BoolProperty(name="recentfiles", description="backup_recentfiles", default=False) 
+    backup_bookmarks: BoolProperty(name="bookmarks", description="backup_bookmarks", default=True)   
+    backup_recentfiles: BoolProperty(name="recentfiles", description="backup_recentfiles", default=True) 
     backup_startup_blend: BoolProperty( name="startup.blend", description="backup_startup_blend", default=True)    
     backup_userpref_blend: BoolProperty(name="userpref.blend", description="backup_userpref_blend", default=True)   
     backup_workspaces_blend: BoolProperty(name="workspaces.blend", description="backup_workspaces_blend", default=True)  
@@ -319,8 +294,8 @@ class BackupManagerPreferences(AddonPreferences):
         return restore_version_list
     restore_versions: EnumProperty(items=populate_restorelist, name="Restore", description="Choose the version to Resotre")
     restore_cache: BoolProperty(name="cache", description="restore_cache", default=False)   
-    restore_bookmarks: BoolProperty(name="bookmarks", description="restore_bookmarks", default=False)   
-    restore_recentfiles: BoolProperty(name="recentfiles", description="restore_recentfiles", default=False) 
+    restore_bookmarks: BoolProperty(name="bookmarks", description="restore_bookmarks", default=True)   
+    restore_recentfiles: BoolProperty(name="recentfiles", description="restore_recentfiles", default=True) 
     restore_startup_blend: BoolProperty(name="startup.blend", description="restore_startup_blend",  default=True)    
     restore_userpref_blend: BoolProperty(name="userpref.blend", description="restore_userpref_blend", default=True)   
     restore_workspaces_blend: BoolProperty(name="workspaces.blend", description="restore_workspaces_blend", default=True)  
@@ -417,7 +392,7 @@ class BackupManagerPreferences(AddonPreferences):
             self.draw_backup_size(col, path)  
         else:             
             if self.custom_toggle:    
-                path = os.path.join(self.blender_user_path.strip(self.active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP'))
+                path = os.path.join(self.blender_user_path.strip(self.active_blender_version),  prefs().backup_versions)
                 col.label(text = "From: " + path) 
                 self.draw_backup_age(col, path)
                 self.draw_backup_size(col, path)
@@ -430,14 +405,14 @@ class BackupManagerPreferences(AddonPreferences):
                 self.draw_backup_size(col, path)                
 
             else:                
-                path = os.path.join(self.blender_user_path.strip(self.active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP'))
+                path = os.path.join(self.blender_user_path.strip(self.active_blender_version),  prefs().backup_versions)
                 col.label(text = "From: " + path)
                 self.draw_backup_age(col, path)
                 self.draw_backup_size(col, path)
                 
                 box2 = row.box() 
                 col = box2.column()  
-                path =  os.path.join(self.backup_path, OT_BackupManager.generate_version(self, input='RESTORE'))
+                path =  os.path.join(self.backup_path, prefs().restore_versions)
                 col.label(text = "To: " + path)  
                 self.draw_backup_age(col, path)
                 self.draw_backup_size(col, path)
@@ -487,14 +462,14 @@ class BackupManagerPreferences(AddonPreferences):
             self.draw_backup_size(col, path)  
 
         else:        
-            path = os.path.join(prefs().backup_path, OT_BackupManager.generate_version(self, input='RESTORE'))
+            path = os.path.join(prefs().backup_path, prefs().restore_versions)
             col.label(text = "From: " + path)
             self.draw_backup_age(col, path)
             self.draw_backup_size(col, path)
             
             box2 = row.box() 
             col = box2.column()  
-            path =  os.path.join(self.blender_user_path.strip(self.active_blender_version), OT_BackupManager.generate_version(self, input='BACKUP'))
+            path =  os.path.join(self.blender_user_path.strip(self.active_blender_version),  prefs().backup_versions)
             col.label(text = "To: " + path)  
             self.draw_backup_age(col, path)
             self.draw_backup_size(col, path)
