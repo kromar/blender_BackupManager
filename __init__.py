@@ -51,7 +51,8 @@ class OT_BackupManager(Operator):
     bl_idname = "bm.run_backup_manager"
     bl_label = "Blender Versions"     
     button_input: bpy.props.StringProperty()
-
+    ignore_backup = []
+    ignore_restore = []
 
     def max_list_value(self, list):
         i = numpy.argmax(list)
@@ -71,27 +72,54 @@ class OT_BackupManager(Operator):
         return version_list
     
     
-    def create_path_index(self):
-        path_index = []
-        if prefs().backup_cache or prefs().restore_cache:
-            path_index.append(os.path.join('cache'))
-        if prefs().backup_bookmarks or prefs().restore_bookmarks:
-            path_index.append(os.path.join('config', 'bookmarks.txt'))
-        if prefs().backup_recentfiles or prefs().restore_recentfiles:
-            path_index.append(os.path.join('config', 'recent-files.txt'))
-        if prefs().backup_startup_blend or prefs().restore_startup_blend:
-            path_index.append(os.path.join('config', 'startup.blend'))
-        if prefs().backup_userpref_blend or prefs().restore_userpref_blend:
-            path_index.append(os.path.join('config', 'userpref.blend'))
-        if prefs().backup_workspaces_blend or prefs().restore_workspaces_blend:
-            path_index.append(os.path.join('config', 'workspaces.blend'))
-        if prefs().backup_datafile or prefs().restore_datafile:
-            path_index.append(os.path.join('datafiles'))
-        if prefs().backup_addons or prefs().restore_addons:
-            path_index.append(os.path.join('scripts', 'addons'))
-        if prefs().backup_presets or prefs().restore_presets:
-            path_index.append(os.path.join('scripts', 'presets'))
-        return path_index
+    def create_ignore_pattern(self):
+        self.ignore_backup.clear()
+        self.ignore_restore.clear()
+
+        if not prefs().backup_bookmarks:
+            self.ignore_backup.append('bookmarks.txt')
+        if not prefs().restore_bookmarks:
+            self.ignore_restore.append('bookmarks.txt')
+
+        if not prefs().backup_recentfiles:
+            self.ignore_backup.append('recent-files.txt')
+        if not prefs().restore_recentfiles:
+            self.ignore_restore.append('recent-files.txt')
+            
+        if not prefs().backup_startup_blend:
+            self.ignore_backup.append('startup.blend')
+        if not prefs().restore_startup_blend:
+            self.ignore_restore.append('startup.blend')
+            
+        if not prefs().backup_userpref_blend:
+            self.ignore_backup.append('userpref.blend')
+        if not prefs().restore_userpref_blend:
+            self.ignore_restore.append('userpref.blend')
+            
+        if not prefs().backup_workspaces_blend:
+            self.ignore_backup.append('workspaces.blend')
+        if not prefs().restore_workspaces_blend:
+            self.ignore_restore.append('workspaces.blend')
+            
+        if not prefs().backup_cache:
+            self.ignore_backup.append('cache')
+        if not prefs().restore_cache:
+            self.ignore_restore.append('cache')
+
+        if not prefs().backup_datafile:
+            self.ignore_backup.append('datafiles')
+        if not prefs().restore_datafile:
+            self.ignore_restore.append('datafiles')
+
+        if not prefs().backup_addons:
+            self.ignore_backup.append('addons')
+        if not prefs().restore_addons:
+            self.ignore_restore.append('addons')
+
+        if not prefs().backup_presets:
+            self.ignore_backup.append('presets')
+        if not prefs().restore_presets:
+            self.ignore_restore.append('presets')
 
 
     def generate_version(self, input): 
@@ -110,86 +138,22 @@ class OT_BackupManager(Operator):
                 version = prefs().active_blender_version  
             #print(version) 
             return version
+           
 
-
-    def generate_paths(self, roaming_path, path_index): 
-        if prefs().use_system_id:
-            backup_path  = os.path.join(prefs().backup_path, prefs().system_id)
-        else:
-            backup_path = prefs().backup_path
-
-        if not prefs().advanced_mode:
-            source_path = os.path.join(roaming_path, prefs().active_blender_version, path_index).replace("\\", "/")  
-            target_path = os.path.join(backup_path, prefs().active_blender_version, path_index).replace("\\", "/")
-        else:   
-            if not prefs().custom_toggle:  
-                source_path = os.path.join(roaming_path, self.generate_version(input='BACKUP'), path_index).replace("\\", "/")  
-                target_path = os.path.join(backup_path, self.generate_version(input='RESTORE'), path_index).replace("\\", "/")
-            else: 
-                source_path = os.path.join(roaming_path, self.generate_version(input='BACKUP'), path_index).replace("\\", "/")  
-                target_path = os.path.join(backup_path, prefs().custom_version, path_index).replace("\\", "/") 
-
-        return source_path, target_path
-            
-
-    def transfer_files(self, source_path, target_path, target_files):   
-        """ transfer the files from the source to the target directory  """
-        source = os.path.join(source_path, target_files).replace("\\", "/")
-        target = os.path.join(target_path, target_files).replace("\\", "/")       
-        print("source: ",  source)
-        print("target: ", target) 
+    def transfer_files(self, source_path, target_path):      
+        print("source: ",  source_path)
+        print("target: ", target_path)
     
-    
-        """ try:
-            shutil.copytree(src, dest, ignore=ignore_function('specificfile.file'))
-        # Directories are the same
-        except shutil.Error as e:
-            print('Directory not copied. Error: %s' % e)
-
-        # Any error saying that the directory doesn't exist
-        except OSError as e:
-            print('Directory not copied. Error: %s' % e)
-            # If the error was caused because the source wasn't a directory
-            if e.errno == errno.ENOTDIR:
-                shutil.copy(src, dest)
-            else:
-                print('Directory not copied. Error: %s' % e) """
-        
-        ignore_files = [
-                os.path.join(source, 'config', 'bookmarks.txt'),
-                os.path.join(source, 'config','recent-files.txt'),
-                os.path.join(source, 'config','startup.blend'),
-                os.path.join(source, 'config','userpref.blend'),
-                os.path.join(source, 'config','workspaces.blend')]
-
-        # trasnfer folders
-        if os.path.isdir(source): 
+        if os.path.isdir(source_path): 
             if not prefs().dry_run:
                 try:
-                    shutil.copytree(source, target, ignore=None)
+                    shutil.copytree(source_path, target_path, ignore=shutil.ignore_patterns(*self.ignore_backup))
                 except:
                     pass
             else:
                 print("dry run, no files modified")
-        # trasnfer file content
-        else:             
-            try:      
-                target_dir = os.path.dirname(target)       
-                print("create target path: ", target_dir)   
-                if not prefs().dry_run:
-                    os.makedirs(target_dir)
-                    print("created target path: ", target_dir)
-            except:                    
-                print("target folder already exists: ", target_dir)
 
-            try:          
-                print("copy source files: ", target)          
-                if not prefs().dry_run:
-                    shutil.copy2(source, target)
-            except:                    
-                print("no source files to copy: ", source)
         print(40*"-")
-
         return{'FINISHED'}
     
 
@@ -202,16 +166,15 @@ class OT_BackupManager(Operator):
                 print("\nFailed to clean path ", target_path)
 
         # backup
-        path_index = self.create_path_index()
-        for i, target_files in enumerate(path_index):
-            print("backing up: ", target_files.split("\\"))
-            self.transfer_files(source_path, target_path, target_files)     
+        self.create_ignore_pattern()
+        self.transfer_files(source_path, target_path)     
 
-            if prefs().custom_version and prefs().custom_toggle:
-                self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " +  prefs().custom_version, 'COLORSET_07_VEC') 
-            else:
-                self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " + self.generate_version(input='RESTORE'), 'COLORSET_07_VEC')
-
+        """ 
+        if prefs().custom_version and prefs().custom_toggle:
+            self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " +  prefs().custom_version, 'COLORSET_07_VEC') 
+        else:
+            self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " + self.generate_version(input='RESTORE'), 'COLORSET_07_VEC')
+        #"""
         self.report({'INFO'}, "Backup Complete")   
         return {'FINISHED'}    
 
@@ -224,16 +187,14 @@ class OT_BackupManager(Operator):
             except:                
                 print("\nFailed to clean path ", target_path)   
        
-        path_index = self.create_path_index()  
-        for i, target_files in enumerate(path_index):
-            print("restoring: ", target_files.split("\\"))       
-            self.transfer_files(source_path, target_path, target_files)  
+        self.create_ignore_pattern()      
+        self.transfer_files(source_path, target_path)  
 
-            if prefs().custom_version and prefs().custom_toggle:
-                self.ShowReport(path_index, "Restore Complete from: " + prefs().custom_version + " to: " + self.generate_version(input='BACKUP'), 'COLORSET_14_VEC')
-            else:
-                self.ShowReport(path_index, "Restore Complete from: " + self.generate_version(input='RESTORE') + " to: " + self.generate_version(input='BACKUP'), 'COLORSET_14_VEC')
-
+        """ if prefs().custom_version and prefs().custom_toggle:
+            self.ShowReport(path_index, "Restore Complete from: " + prefs().custom_version + " to: " + self.generate_version(input='BACKUP'), 'COLORSET_14_VEC')
+        else:
+            self.ShowReport(path_index, "Restore Complete from: " + self.generate_version(input='RESTORE') + " to: " + self.generate_version(input='BACKUP'), 'COLORSET_14_VEC')
+        #"""
         self.report({'INFO'}, "Restore Complete") 
         return {'FINISHED'}
 
@@ -339,7 +300,7 @@ class BackupManagerPreferences(AddonPreferences):
         global backup_version_list  
         return backup_version_list
     backup_versions: EnumProperty( items=populate_backuplist, name="Backup", description="Choose the version to backup")
-    backup_cache: BoolProperty(name="cache", description="backup_cache", default=False)        
+    backup_cache: BoolProperty(name="cache", description="backup_cache", default=False)      
     backup_bookmarks: BoolProperty(name="bookmarks", description="backup_bookmarks", default=False)   
     backup_recentfiles: BoolProperty(name="recentfiles", description="backup_recentfiles", default=False) 
     backup_startup_blend: BoolProperty( name="startup.blend", description="backup_startup_blend", default=True)    
@@ -357,7 +318,7 @@ class BackupManagerPreferences(AddonPreferences):
         global restore_version_list
         return restore_version_list
     restore_versions: EnumProperty(items=populate_restorelist, name="Restore", description="Choose the version to Resotre")
-    restore_cache: BoolProperty(name="cache", description="restore_cache", default=False)        
+    restore_cache: BoolProperty(name="cache", description="restore_cache", default=False)   
     restore_bookmarks: BoolProperty(name="bookmarks", description="restore_bookmarks", default=False)   
     restore_recentfiles: BoolProperty(name="recentfiles", description="restore_recentfiles", default=False) 
     restore_startup_blend: BoolProperty(name="startup.blend", description="restore_startup_blend",  default=True)    
@@ -549,7 +510,8 @@ class BackupManagerPreferences(AddonPreferences):
             row.prop(self, 'backup_versions', text='Restore To', expand = True)
 
  
-    def draw_selection(self, box):        
+    def draw_selection(self, box):     
+        if  self.tabs == 'BACKUP':  
             box = box.box()
             row = box.row()            
             col = row.column() 
@@ -565,7 +527,26 @@ class BackupManagerPreferences(AddonPreferences):
             col = row.column()  
             col.prop(self, 'backup_cache') 
             col.prop(self, 'backup_bookmarks') 
-            col.prop(self, 'backup_recentfiles') 
+            col.prop(self, 'backup_recentfiles')   
+        
+        elif  self.tabs == 'RESTORE':  
+            box = box.box()
+            row = box.row()            
+            col = row.column() 
+            col.prop(self, 'restore_addons') 
+            col.prop(self, 'restore_presets')  
+            col.prop(self, 'restore_datafile') 
+
+            col = row.column()  
+            col.prop(self, 'restore_startup_blend') 
+            col.prop(self, 'restore_userpref_blend') 
+            col.prop(self, 'restore_workspaces_blend') 
+            
+            col = row.column()  
+            col.prop(self, 'restore_cache') 
+            col.prop(self, 'restore_bookmarks') 
+            col.prop(self, 'restore_recentfiles') 
+        
 
 
 classes = (
