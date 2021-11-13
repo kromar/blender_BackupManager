@@ -260,7 +260,7 @@ class BackupManagerPreferences(AddonPreferences):
     active_blender_version: StringProperty(name="Current Blender Version", description="Current Blender Version", subtype='NONE', default=this_version)
     dry_run: BoolProperty(name="Dry Run", description="Run code without modifying any files on the drive. NOTE: this will not create or restore any backups!", default=False)    
     advanced_mode: BoolProperty(name="Advanced", description="Advanced backup and restore options", default=False, update=update_version_list)
-    expand_version_selection: BoolProperty(name="expand_version_selection", description="expand_version_selection", default=False, update=update_version_list)
+    expand_version_selection: BoolProperty(name="Expanded Version Selection", description="Switch between dropdown and expanded version layout", default=True, update=update_version_list)
     # BACKUP        
     clean_path: BoolProperty(name="Clean Backup", description="delete before backup", default=False)
     def populate_backuplist(self, context):
