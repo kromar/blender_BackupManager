@@ -241,9 +241,14 @@ preferences_tabs = [("BACKUP", "Backup Options", ""),
 
 class BackupManagerPreferences(AddonPreferences):
     bl_idname = __package__
+    
+    version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
+
     def update_version_list(self, context):
         bpy.ops.bm.run_backup_manager(button_input='SEARCH_' + self.tabs)
-    
+        
+
+    # when user specified a custom temp path use that one as default, otherwise use the app default
     if bpy.context.preferences.filepaths.temporary_directory == None:
         default_path = bpy.app.tempdir
     else: 
@@ -256,7 +261,6 @@ class BackupManagerPreferences(AddonPreferences):
             default_path = os.path.join(self.default_path , '!backupmanager/')
             
         print(default_path)
-
     backup_path: StringProperty(name="Backup Path", description="Backup Location", subtype='DIR_PATH', default=os.path.join(default_path , '!backupmanager/'), update=update_version_list)
     blender_user_path: bpy.props.StringProperty(default=bpy.utils.resource_path(type='USER'))
     tabs: EnumProperty(name="Tabs", items=preferences_tabs, default="BACKUP", update=update_version_list)   
@@ -264,9 +268,7 @@ class BackupManagerPreferences(AddonPreferences):
     this_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
     system_id: StringProperty(name="ID", description="Current Computer Name", subtype='NONE', default=str(socket.getfqdn()))  
     use_system_id: BoolProperty(name="use_system_id", description="use_system_id", update=update_system_id, default=False)  
-    active_blender_version: StringProperty(name="Current Blender Version", description="Current Blender Version", subtype='NONE', default=str(bpy.app.version[0]) + '.' + str(bpy.app.version[1]))
-    
-    # when user specified a custom temp path use that one as default, otherwise use the app default
+    active_blender_version: StringProperty(name="Current Blender Version", description="Current Blender Version", subtype='NONE', default=version)
     dry_run: BoolProperty(name="Dry Run", description="Run code without modifying any files on the drive. NOTE: this will not create or restore any backups!", default=False)    
     advanced_mode: BoolProperty(name="Advanced", description="Advanced backup and restore options", default=False, update=update_version_list)
     
@@ -275,7 +277,7 @@ class BackupManagerPreferences(AddonPreferences):
     def populate_backuplist(self, context):
         global backup_version_list  
         return backup_version_list
-    backup_versions: EnumProperty( items=populate_backuplist, name="Backup", description="Choose the version to backup")
+    backup_versions: EnumProperty(items=populate_backuplist, name="Backup", description="Choose the version to backup")
     backup_cache: BoolProperty(name="cache", description="backup_cache", default=False)      
     backup_bookmarks: BoolProperty(name="bookmarks", description="backup_bookmarks", default=True)   
     backup_recentfiles: BoolProperty(name="recentfiles", description="backup_recentfiles", default=True) 
@@ -290,9 +292,10 @@ class BackupManagerPreferences(AddonPreferences):
     custom_toggle: BoolProperty(name="Custom Backup Version", description="define your custom backup version path", default=False)  
     custom_version: StringProperty(name="Custom Path", description="Custom version folder", subtype='NONE', default='custom')
     clean_restore_path: BoolProperty(name="Clean Backup", description="Wipe target folder before creating backup", default=False)
+    
     def populate_restorelist(self, context):
         global restore_version_list
-        return restore_version_list
+        return restore_version_list        
     restore_versions: EnumProperty(items=populate_restorelist, name="Restore", description="Choose the version to Resotre")
     restore_cache: BoolProperty(name="cache", description="restore_cache", default=False)   
     restore_bookmarks: BoolProperty(name="bookmarks", description="restore_bookmarks", default=True)   
@@ -432,7 +435,6 @@ class BackupManagerPreferences(AddonPreferences):
                 row.prop(self, 'custom_version', text='Backup To')  
             else:
                 row.prop(self, 'restore_versions', text='Backup To', expand = True)
-
             
          
     def draw_restore(self, box):
