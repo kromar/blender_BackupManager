@@ -351,7 +351,7 @@ class BackupManagerPreferences(AddonPreferences):
                     #use getsize to generate size in bytes and add it to the total size
                     size += os.path.getsize(f)
             #print(path, "\nsize: ", round(size*0.000001, 2))
-            col.label(text= "Size: " + str(round(size * 0.000001, 2)) +" MB")
+            col.label(text= "Size: " + str(round(size * 0.000001, 2)) +" MB  (" + "{:,}".format(size) + " bytes)")
         except:
             pass
 
@@ -360,7 +360,7 @@ class BackupManagerPreferences(AddonPreferences):
         row  = box.row()  
         col = row.column()
         col.scale_y = 3        
-        col.operator("bm.run_backup_manager", text="Backup", icon='COLORSET_07_VEC').button_input = 'BACKUP' 
+        col.operator("bm.run_backup_manager", text="Backup", icon='COLORSET_03_VEC').button_input = 'BACKUP' 
 
         col = row.column()  
         col.prop(self, 'dry_run')  
@@ -375,7 +375,7 @@ class BackupManagerPreferences(AddonPreferences):
         col = box1.column()
         if not self.advanced_mode:            
             path = self.blender_user_path
-            col.label(text = "Backup From:")   
+            col.label(text = "Backup From:", icon='COLORSET_03_VEC')   
             col.label(text = path)          
             self.draw_backup_age(col, path) 
             self.draw_backup_size(col, path)            
@@ -383,14 +383,14 @@ class BackupManagerPreferences(AddonPreferences):
             box = row.box() 
             col = box.column()  
             path =  os.path.join(self.backup_path, str(self.active_blender_version))
-            col.label(text = "Backup To:")   
+            col.label(text = "Backup To:", icon='COLORSET_01_VEC')   
             col.label(text = path)          
             self.draw_backup_age(col, path)    
             self.draw_backup_size(col, path)  
         else:   
             if self.custom_version_toggle:    
                 path = os.path.join(self.blender_user_path.strip(self.active_blender_version),  prefs().backup_versions)
-                col.label(text = "Backup From:")   
+                col.label(text = "Backup From:", icon='COLORSET_03_VEC') 
                 col.label(text = path)       
                 self.draw_backup_age(col, path)
                 self.draw_backup_size(col, path)
@@ -398,14 +398,14 @@ class BackupManagerPreferences(AddonPreferences):
                 box2 = row.box() 
                 col = box2.column()  
                 path = os.path.join(self.backup_path, str(self.custom_version))
-                col.label(text = "Backup To:")  
+                col.label(text = "Backup To:", icon='COLORSET_01_VEC')   
                 col.label(text = path)     
                 self.draw_backup_age(col, path)    
                 self.draw_backup_size(col, path)                
 
             else:                
                 path = os.path.join(self.blender_user_path.strip(self.active_blender_version),  prefs().backup_versions)
-                col.label(text = "Backup From:")   
+                col.label(text = "Backup From:", icon='COLORSET_03_VEC') 
                 col.label(text = path)       
                 self.draw_backup_age(col, path)
                 self.draw_backup_size(col, path)
@@ -413,7 +413,7 @@ class BackupManagerPreferences(AddonPreferences):
                 box2 = row.box() 
                 col = box2.column()  
                 path =  os.path.join(self.backup_path, prefs().restore_versions)
-                col.label(text = "Backup To:")  
+                col.label(text = "Backup To:", icon='COLORSET_01_VEC')   
                 col.label(text = path)
                 self.draw_backup_age(col, path)
                 self.draw_backup_size(col, path)
@@ -435,22 +435,21 @@ class BackupManagerPreferences(AddonPreferences):
         row  = box.row() 
         col = row.column()
         col.scale_y = 3
-        col.operator("bm.run_backup_manager", text="Restore", icon='COLORSET_14_VEC').button_input = 'RESTORE'
+        col.operator("bm.run_backup_manager", text="Restore", icon='COLORSET_01_VEC').button_input = 'RESTORE'
 
         col = row.column()  
         col.prop(self, 'dry_run')      
         col.prop(self, 'clean_path')   
         col.prop(self, 'advanced_mode')  
         if self.advanced_mode:
-            col.prop(self, 'expand_version_selection') 
-            col.prop(self, 'custom_version_toggle')    
+            col.prop(self, 'expand_version_selection')  
         
         row  = box.row() 
         box1 = row.box() 
         col = box1.column()
         if not self.advanced_mode:            
             path = os.path.join(prefs().backup_path, str(self.active_blender_version))
-            col.label(text = "Restore From:")   
+            col.label(text = "Restore From:", icon='COLORSET_01_VEC')   
             col.label(text = path)                  
             self.draw_backup_age(col, path) 
             self.draw_backup_size(col, path)            
@@ -458,14 +457,14 @@ class BackupManagerPreferences(AddonPreferences):
             box = row.box() 
             col = box.column()  
             path =  self.blender_user_path
-            col.label(text = "Restore To:")   
+            col.label(text = "Restore To:", icon='COLORSET_03_VEC')   
             col.label(text = path)              
             self.draw_backup_age(col, path)    
             self.draw_backup_size(col, path)  
 
         else:        
             path = os.path.join(prefs().backup_path, prefs().restore_versions)
-            col.label(text = "Restore From:")   
+            col.label(text = "Restore From:", icon='COLORSET_01_VEC')   
             col.label(text = path)    
             self.draw_backup_age(col, path)
             self.draw_backup_size(col, path)
@@ -473,7 +472,7 @@ class BackupManagerPreferences(AddonPreferences):
             box2 = row.box() 
             col = box2.column()  
             path =  os.path.join(self.blender_user_path.strip(self.active_blender_version),  prefs().backup_versions)
-            col.label(text = "Restore To:")   
+            col.label(text = "Restore To:", icon='COLORSET_03_VEC')   
             col.label(text = path)    
             self.draw_backup_age(col, path)
             self.draw_backup_size(col, path)
