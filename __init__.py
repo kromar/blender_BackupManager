@@ -154,12 +154,19 @@ class OT_BackupManager(Operator):
                 shutil.copy(src, dest)
             else:
                 print('Directory not copied. Error: %s' % e) """
+        
+        ignore_files = [
+                os.path.join(source, 'config', 'bookmarks.txt'),
+                os.path.join(source, 'config','recent-files.txt'),
+                os.path.join(source, 'config','startup.blend'),
+                os.path.join(source, 'config','userpref.blend'),
+                os.path.join(source, 'config','workspaces.blend')]
 
         # trasnfer folders
         if os.path.isdir(source): 
             if not prefs().dry_run:
                 try:
-                    shutil.copytree(source, target)
+                    shutil.copytree(source, target, ignore=None)
                 except:
                     pass
             else:
