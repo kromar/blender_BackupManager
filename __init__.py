@@ -84,7 +84,7 @@ class OT_BackupManager(Operator):
             self.ignore_backup.append('recent-files.txt')
         if not prefs().restore_recentfiles:
             self.ignore_restore.append('recent-files.txt')   
-                     
+
         if not prefs().backup_startup_blend:
             self.ignore_backup.append('startup.blend')
         if not prefs().restore_startup_blend:
@@ -256,7 +256,7 @@ class BackupManagerPreferences(AddonPreferences):
         print(default_path)
 
 
-    backup_path: StringProperty(name="Backup Path", description="Backup Location", subtype='DIR_PATH', default=os.path.join(default_path , '!backupmanager/'))
+    backup_path: StringProperty(name="Backup Path", description="Backup Location", subtype='DIR_PATH', default=os.path.join(default_path , '!backupmanager/'), update=update_version_list)
     blender_user_path: bpy.props.StringProperty(default=bpy.utils.resource_path(type='USER'))
     tabs: EnumProperty(name="Tabs", items=preferences_tabs, default="BACKUP", update=update_version_list)   
     config_path: StringProperty( name="config_path", description="config_path", subtype='DIR_PATH', default=bpy.utils.user_resource('CONFIG')) #Resource type in [‘DATAFILES’, ‘CONFIG’, ‘SCRIPTS’, ‘AUTOSAVE’].
