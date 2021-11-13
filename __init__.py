@@ -114,35 +114,47 @@ class OT_BackupManager(Operator):
             self.ignore_backup.append('presets')
         if not prefs().restore_presets:
             self.ignore_restore.append('presets')
+    
+
+    def recursive_overwrite(self, src, dest, ignore=None):
+        if os.path.isdir(src):
+            if not os.path.isdir(dest):
+                os.makedirs(dest)
+            files = os.listdir(src)
+            if ignore is not None:
+                ignored = ignore(src, files)
+            else:
+                ignored = set()
+            for f in files:
+                if f not in ignored:
+                    self.recursive_overwrite(os.path.join(src, f), 
+                                        os.path.join(dest, f), 
+                                        ignore)
+        else:
+            shutil.copyfile(src, dest)
 
 
-    def transfer_files(self, source_path, target_path):      
+    def run_backup(self, source_path, target_path):         
+        if prefs().clean_path:
+            if os.path.exists(target_path):
+                os.system('rmdir /S /Q "{}"'.format(target_path))
+                #shutil.rmtree(target_path, onerror = self.handler)
+                print("\nCleaned path: ", target_path)
+            else:                
+                print("\nFailed to clean path: ", target_path)
+
+        # backup
+        self.create_ignore_pattern()
+        #self.transfer_files(source_path, target_path)   
         print("source: ",  source_path)
         print("target: ", target_path)
     
         if os.path.isdir(source_path): 
             if not prefs().dry_run:
-                try:
-                    shutil.copytree(source_path, target_path, ignore=shutil.ignore_patterns(*self.ignore_backup))
-                except:
-                    pass
+                self.recursive_overwrite(source_path, target_path,  ignore = shutil.ignore_patterns(*self.ignore_backup))                
             else:
                 print("dry run, no files modified")
-        print(40*"-")
-        return{'FINISHED'}
-    
 
-    def run_backup(self, source_path, target_path):         
-        if prefs().clean_backup_path:
-            try:
-                shutil.rmtree(target_path)
-                print("\nCleaned target path ", target_path)
-            except:                
-                print("\nFailed to clean path ", target_path)
-
-        # backup
-        self.create_ignore_pattern()
-        self.transfer_files(source_path, target_path)     
 
         """ 
         if prefs().custom_version and prefs().custom_toggle:
@@ -150,28 +162,9 @@ class OT_BackupManager(Operator):
         else:
             self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " + self.generate_version(input='RESTORE'), 'COLORSET_07_VEC')
         #"""
+        print(40*"-")
         self.report({'INFO'}, "Backup Complete")   
         return {'FINISHED'}    
-
-    
-    def run_restore(self, source_path, target_path):   
-        if prefs().clean_backup_path:
-            try:
-                shutil.rmtree(target_path)
-                print("\nCleaned target path ", target_path)
-            except:                
-                print("\nFailed to clean path ", target_path)   
-       
-        self.create_ignore_pattern()      
-        self.transfer_files(source_path, target_path)  
-
-        """ if prefs().custom_version and prefs().custom_toggle:
-            self.ShowReport(path_index, "Restore Complete from: " + prefs().custom_version + " to: " + self.generate_version(input='BACKUP'), 'COLORSET_14_VEC')
-        else:
-            self.ShowReport(path_index, "Restore Complete from: " + self.generate_version(input='RESTORE') + " to: " + self.generate_version(input='BACKUP'), 'COLORSET_14_VEC')
-        #"""
-        self.report({'INFO'}, "Restore Complete") 
-        return {'FINISHED'}
 
 
     def ShowReport(self, message = [], title = "Message Box", icon = 'INFO'):
@@ -208,7 +201,7 @@ class OT_BackupManager(Operator):
                     source_path = os.path.join(prefs().backup_path, prefs().restore_versions).replace("\\", "/")
                     target_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")
  
-                self.run_restore(source_path, target_path) 
+                self.run_backup(source_path, target_path) 
                
             elif self.button_input == 'SEARCH_BACKUP':
                 backup_version_list.clear() 
@@ -228,8 +221,7 @@ class OT_BackupManager(Operator):
                 backup_version_list.clear() 
                 backup_version_list = set(self.find_versions(bpy.utils.resource_path(type='USER')) + restore_version_list)
                 backup_version_list = list(dict.fromkeys(backup_version_list))
-                backup_version_list.sort(reverse=True)
-           
+                backup_version_list.sort(reverse=True)           
 
         else:
             self.ShowReport(["Specify a Backup Path"] , "Backup Path missing", 'COLORSET_01_VEC')
@@ -240,13 +232,11 @@ preferences_tabs = [("BACKUP", "Backup Options", ""),
                     ("RESTORE", "Restore Options", "")]
 
 class BackupManagerPreferences(AddonPreferences):
-    bl_idname = __package__
-    
-    version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
+    bl_idname = __package__  
+    this_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])  
 
     def update_version_list(self, context):
-        bpy.ops.bm.run_backup_manager(button_input='SEARCH_' + self.tabs)
-        
+        bpy.ops.bm.run_backup_manager(button_input='SEARCH_' + self.tabs)        
 
     # when user specified a custom temp path use that one as default, otherwise use the app default
     if bpy.context.preferences.filepaths.temporary_directory == None:
@@ -258,22 +248,21 @@ class BackupManagerPreferences(AddonPreferences):
         if self.use_system_id:
             default_path = os.path.join(self.default_path , '!backupmanager/', self.system_id)
         else:            
-            default_path = os.path.join(self.default_path , '!backupmanager/')
-            
+            default_path = os.path.join(self.default_path , '!backupmanager/')            
         print(default_path)
+
     backup_path: StringProperty(name="Backup Path", description="Backup Location", subtype='DIR_PATH', default=os.path.join(default_path , '!backupmanager/'), update=update_version_list)
     blender_user_path: bpy.props.StringProperty(default=bpy.utils.resource_path(type='USER'))
     tabs: EnumProperty(name="Tabs", items=preferences_tabs, default="BACKUP", update=update_version_list)   
     config_path: StringProperty( name="config_path", description="config_path", subtype='DIR_PATH', default=bpy.utils.user_resource('CONFIG')) #Resource type in [‘DATAFILES’, ‘CONFIG’, ‘SCRIPTS’, ‘AUTOSAVE’].
-    this_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
     system_id: StringProperty(name="ID", description="Current Computer Name", subtype='NONE', default=str(socket.getfqdn()))  
-    use_system_id: BoolProperty(name="use_system_id", description="use_system_id", update=update_system_id, default=False)  
-    active_blender_version: StringProperty(name="Current Blender Version", description="Current Blender Version", subtype='NONE', default=version)
+    use_system_id: BoolProperty(name="Use System ID", description="use_system_id", update=update_system_id, default=False)  
+    active_blender_version: StringProperty(name="Current Blender Version", description="Current Blender Version", subtype='NONE', default=this_version)
     dry_run: BoolProperty(name="Dry Run", description="Run code without modifying any files on the drive. NOTE: this will not create or restore any backups!", default=False)    
     advanced_mode: BoolProperty(name="Advanced", description="Advanced backup and restore options", default=False, update=update_version_list)
     
     # BACKUP        
-    clean_backup_path: BoolProperty(name="Clean Backup", description="delete before backup", default=False)
+    clean_path: BoolProperty(name="Clean Backup", description="delete before backup", default=False)
     def populate_backuplist(self, context):
         global backup_version_list  
         return backup_version_list
@@ -289,9 +278,8 @@ class BackupManagerPreferences(AddonPreferences):
     backup_presets: BoolProperty(name="presets", description="backup_presets", default=True)
 
     ## RESTORE   
-    custom_toggle: BoolProperty(name="Custom Backup Version", description="define your custom backup version path", default=False)  
+    custom_toggle: BoolProperty(name="Custom Backup Version", description="define your custom backup version path", default=False, update=update_version_list)  
     custom_version: StringProperty(name="Custom Path", description="Custom version folder", subtype='NONE', default='custom')
-    clean_restore_path: BoolProperty(name="Clean Backup", description="Wipe target folder before creating backup", default=False)
     
     def populate_restorelist(self, context):
         global restore_version_list
@@ -322,7 +310,7 @@ class BackupManagerPreferences(AddonPreferences):
         col  = box.column(align=False)  
         col.use_property_split = True 
         col.prop(self, 'backup_path') 
-        col.prop(self, 'use_system_id')
+        #col.prop(self, 'use_system_id')
         
         col  = box.column(align=False)         
         col.use_property_split = True        
@@ -376,7 +364,7 @@ class BackupManagerPreferences(AddonPreferences):
 
         col = row.column()  
         col.prop(self, 'dry_run')  
-        col.prop(self, 'clean_backup_path')  
+        col.prop(self, 'clean_path')  
         col.prop(self, 'advanced_mode') 
 
         row  = box.row() 
@@ -445,7 +433,7 @@ class BackupManagerPreferences(AddonPreferences):
 
         col = row.column()  
         col.prop(self, 'dry_run')      
-        col.prop(self, 'clean_backup_path')   
+        col.prop(self, 'clean_path')   
         col.prop(self, 'advanced_mode')  
         
         row  = box.row() 
