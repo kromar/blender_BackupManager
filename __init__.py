@@ -221,13 +221,15 @@ class OT_BackupManager(Operator):
                 restore_version_list.sort(reverse=True)
             
             elif self.button_input == 'SEARCH_RESTORE': 
-                backup_version_list.clear() 
-                backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER'))
-                backup_version_list.sort(reverse=True)
-  
                 restore_version_list.clear()        
                 restore_version_list = self.find_versions(prefs().backup_path)
-                restore_version_list.sort(reverse=True)           
+                restore_version_list.sort(reverse=True)  
+
+                backup_version_list.clear() 
+                backup_version_list = set(self.find_versions(bpy.utils.resource_path(type='USER')) + restore_version_list)
+                backup_version_list = list(dict.fromkeys(backup_version_list))
+                backup_version_list.sort(reverse=True)
+           
 
         else:
             self.ShowReport(["Specify a Backup Path"] , "Backup Path missing", 'COLORSET_01_VEC')
@@ -254,7 +256,6 @@ class BackupManagerPreferences(AddonPreferences):
             default_path = os.path.join(self.default_path , '!backupmanager/')
             
         print(default_path)
-
 
     backup_path: StringProperty(name="Backup Path", description="Backup Location", subtype='DIR_PATH', default=os.path.join(default_path , '!backupmanager/'), update=update_version_list)
     blender_user_path: bpy.props.StringProperty(default=bpy.utils.resource_path(type='USER'))
