@@ -328,16 +328,17 @@ class BackupManagerPreferences(AddonPreferences):
             self.draw_restore(box)
 
 
-    def draw_backup_age(self, col, path):
-        #print("get age:", path)              
+    def draw_backup_age(self, col, path):       
         try:
-            date_file = os.path.getmtime(path)
-            backup_date = datetime.fromtimestamp(date_file)
+            files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(path) for f in filenames]
+            latest_file = max(files, key=os.path.getmtime)            
             current_time = datetime.now()
-            backup_age = str(current_time - backup_date).split('.')[0]  
-            col.label(text= "Last update: " + backup_age)
+            backup_date = datetime.fromtimestamp(os.path.getmtime(latest_file))       
+            backup_age = str(current_time - backup_date).split('.')[0]             
+            col.label(text= "Last change: " + backup_age)
         except:
             col.label(text= "no data")
+
 
     def draw_backup_size(self, col, path):
         try:
@@ -376,7 +377,7 @@ class BackupManagerPreferences(AddonPreferences):
         if not self.advanced_mode:            
             path = self.blender_user_path
             col.label(text = "Backup From:", icon='COLORSET_03_VEC')   
-            col.label(text = path)          
+            col.label(text = path)      
             self.draw_backup_age(col, path) 
             self.draw_backup_size(col, path)            
                    
