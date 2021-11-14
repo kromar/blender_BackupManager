@@ -279,7 +279,7 @@ class BackupManagerPreferences(AddonPreferences):
 
     ## RESTORE   
     custom_version_toggle: BoolProperty(name="Custom Backup Version", description="define your custom backup version path", default=False, update=update_version_list)  
-    custom_version: StringProperty(name="Custom Path", description="Custom version folder", subtype='DIR_PATH', default='custom')
+    custom_version: StringProperty(name="Custom Path", description="Custom version folder", subtype='NONE', default='custom')
     
     def populate_restorelist(self, context):
         global restore_version_list
