@@ -357,19 +357,7 @@ class BackupManagerPreferences(AddonPreferences):
             pass
 
 
-    def draw_backup(self, box):
-        row  = box.row()  
-        col = row.column()
-        col.scale_y = 3        
-        col.operator("bm.run_backup_manager", text="Backup", icon='COLORSET_03_VEC').button_input = 'BACKUP' 
-
-        col = row.column()  
-        col.prop(self, 'dry_run')  
-        col.prop(self, 'clean_path')  
-        col.prop(self, 'advanced_mode') 
-        if self.advanced_mode:
-            col.prop(self, 'expand_version_selection')  
-            col.prop(self, 'custom_version_toggle')       
+    def draw_backup(self, box): 
 
         row  = box.row()
         box1 = row.box() 
@@ -388,7 +376,7 @@ class BackupManagerPreferences(AddonPreferences):
             col.label(text = path)          
             self.draw_backup_age(col, path)    
             self.draw_backup_size(col, path)  
-        else:   
+        elif self.advanced_mode:   
             if self.custom_version_toggle:    
                 path = os.path.join(self.blender_user_path.strip(self.active_blender_version),  prefs().backup_versions)
                 col.label(text = "Backup From:", icon='COLORSET_03_VEC') 
@@ -420,7 +408,7 @@ class BackupManagerPreferences(AddonPreferences):
                 self.draw_backup_size(col, path)
 
             # Advanced options
-            col = box1.column()            
+            col = box1.column()          
             col.prop(self, 'backup_versions', text='Backup From', expand = self.expand_version_selection) 
 
             col = box2.column()    
@@ -431,19 +419,16 @@ class BackupManagerPreferences(AddonPreferences):
             
             self.draw_selection(box)
 
-         
-    def draw_restore(self, box):
-        row  = box.row() 
-        col = row.column()
-        col.scale_y = 3
-        col.operator("bm.run_backup_manager", text="Restore", icon='COLORSET_01_VEC').button_input = 'RESTORE'
-
-        col = row.column()  
-        col.prop(self, 'dry_run')      
-        col.prop(self, 'clean_path')   
-        col.prop(self, 'advanced_mode')  
+        col = row.column()     
+        col.operator("bm.run_backup_manager", text="Run Backup", icon='COLORSET_03_VEC').button_input = 'BACKUP' 
+        col.prop(self, 'dry_run')  
+        col.prop(self, 'clean_path')  
+        col.prop(self, 'advanced_mode') 
         if self.advanced_mode:
             col.prop(self, 'expand_version_selection')  
+            col.prop(self, 'custom_version_toggle')      
+         
+    def draw_restore(self, box):
         
         row  = box.row() 
         box1 = row.box() 
@@ -487,6 +472,13 @@ class BackupManagerPreferences(AddonPreferences):
 
             self.draw_selection(box)
 
+        col = row.column()
+        col.operator("bm.run_backup_manager", text="Run Restore", icon='COLORSET_01_VEC').button_input = 'RESTORE'
+        col.prop(self, 'dry_run')      
+        col.prop(self, 'clean_path')   
+        col.prop(self, 'advanced_mode')  
+        if self.advanced_mode:
+            col.prop(self, 'expand_version_selection')  
  
     def draw_selection(self, box):     
         if  self.tabs == 'BACKUP':  
