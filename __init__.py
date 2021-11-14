@@ -198,10 +198,8 @@ class OT_BackupManager(Operator):
                         else:                
                             source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")
                             target_path = os.path.join(prefs().backup_path, prefs().restore_versions).replace("\\", "/")
- 
                         self.run_backup(source_path, target_path)  
                 
-
             elif self.button_input == 'RESTORE':
                 if not prefs().advanced_mode:            
                     source_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")
@@ -209,7 +207,6 @@ class OT_BackupManager(Operator):
                 else:             
                     source_path = os.path.join(prefs().backup_path, prefs().restore_versions).replace("\\", "/")
                     target_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")
- 
                 self.run_backup(source_path, target_path) 
                
             elif self.button_input == 'SEARCH_BACKUP':
@@ -273,7 +270,7 @@ class BackupManagerPreferences(AddonPreferences):
     # BACKUP  
     custom_version_toggle: BoolProperty(name="Custom Version", description="Set your custom backup version", default=False, update=update_version_list)  
     custom_version: StringProperty(name="Custom Version", description="Custom version folder", subtype='NONE', default='custom')
-    batch_mode: BoolProperty(name="batch_mode", description="batch_mode", default=False)  
+    batch_mode: BoolProperty(name="Batch Backup", description="Backup all existing versions", default=False)  
 
 
     clean_path: BoolProperty(name="Clean Backup", description="delete before backup", default=False)
