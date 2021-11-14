@@ -259,9 +259,12 @@ class BackupManagerPreferences(AddonPreferences):
     use_system_id: BoolProperty(name="Use System ID", description="use_system_id", update=update_system_id, default=False)  
     active_blender_version: StringProperty(name="Current Blender Version", description="Current Blender Version", subtype='NONE', default=this_version)
     dry_run: BoolProperty(name="Dry Run", description="Run code without modifying any files on the drive. NOTE: this will not create or restore any backups!", default=False)    
-    advanced_mode: BoolProperty(name="Advanced", description="Advanced backup and restore options", default=False, update=update_version_list)
-    expand_version_selection: BoolProperty(name="Expanded Version Selection", description="Switch between dropdown and expanded version layout", default=True, update=update_version_list)
-    # BACKUP        
+    advanced_mode: BoolProperty(name="Custom", description="Custom backup and restore options", default=False, update=update_version_list)
+    expand_version_selection: BoolProperty(name="Expand Versions", description="Switch between dropdown and expanded version layout", default=False, update=update_version_list)
+    # BACKUP  
+    custom_version_toggle: BoolProperty(name="Custom Version", description="Set your custom backup version", default=False, update=update_version_list)  
+    custom_version: StringProperty(name="Custom Version", description="Custom version folder", subtype='NONE', default='custom')
+          
     clean_path: BoolProperty(name="Clean Backup", description="delete before backup", default=False)
     def populate_backuplist(self, context):
         global backup_version_list  
@@ -278,8 +281,6 @@ class BackupManagerPreferences(AddonPreferences):
     backup_presets: BoolProperty(name="presets", description="backup_presets", default=True)
 
     ## RESTORE   
-    custom_version_toggle: BoolProperty(name="Custom Backup Version", description="define your custom backup version path", default=False, update=update_version_list)  
-    custom_version: StringProperty(name="Custom Version", description="Custom version folder", subtype='NONE', default='custom')
     
     def populate_restorelist(self, context):
         global restore_version_list
@@ -408,29 +409,32 @@ class BackupManagerPreferences(AddonPreferences):
                 self.draw_backup_size(col, path)
 
             # Advanced options
-            col = box1.column()          
+            col = box1.column()   
+            col.scale_x = 0.8   
             col.prop(self, 'backup_versions', text='Backup From', expand = self.expand_version_selection) 
     
             col = box2.column()   
-            if self.custom_version_toggle:   
-                col.scale_x = 0.8     
+            if self.custom_version_toggle: 
+                col.scale_x = 0.8
                 col.prop(self, 'custom_version')
-            else: 
+            else:      
+                col.scale_x = 0.8 
                 col.prop(self, 'restore_versions', text='Backup To', expand = self.expand_version_selection)
             
             self.draw_selection(box)
 
-        col = row.column()     
+        col = row.column()   
+        col.scale_x = 0.8
         col.operator("bm.run_backup_manager", text="Run Backup", icon='COLORSET_03_VEC').button_input = 'BACKUP' 
         col.prop(self, 'dry_run')  
         col.prop(self, 'clean_path')  
         col.prop(self, 'advanced_mode') 
         if self.advanced_mode:
             col.prop(self, 'expand_version_selection')  
-            col.prop(self, 'custom_version_toggle')      
+            col.prop(self, 'custom_version_toggle')    
+
          
-    def draw_restore(self, box):
-        
+    def draw_restore(self, box):        
         row  = box.row() 
         box1 = row.box() 
         col = box1.column()
@@ -466,14 +470,17 @@ class BackupManagerPreferences(AddonPreferences):
 
             # Advanced options
             col = box1.column() 
+            col.scale_x = 0.8
             col.prop(self, 'restore_versions', text='Restore From', expand = self.expand_version_selection) 
             
-            col = box2.column()                   
+            col = box2.column()  
+            col.scale_x = 0.8                 
             col.prop(self, 'backup_versions', text='Restore To', expand = self.expand_version_selection)
 
             self.draw_selection(box)
 
         col = row.column()
+        col.scale_x = 0.8
         col.operator("bm.run_backup_manager", text="Run Restore", icon='COLORSET_01_VEC').button_input = 'RESTORE'
         col.prop(self, 'dry_run')      
         col.prop(self, 'clean_path')   
