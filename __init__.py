@@ -437,13 +437,13 @@ class BackupManagerPreferences(AddonPreferences):
         col = row.column()   
         col.scale_x = 0.8
         col.operator("bm.run_backup_manager", text="Backup Selected", icon='COLORSET_03_VEC').button_input = 'BACKUP' 
-        col.operator("bm.run_backup_manager", text="Backup All", icon='COLORSET_02_VEC').button_input = 'BATCH_BACKUP' 
         col.prop(self, 'dry_run')  
         col.prop(self, 'clean_path')  
         col.prop(self, 'advanced_mode') 
         if self.advanced_mode:
             col.prop(self, 'custom_version_toggle')  
-            col.prop(self, 'expand_version_selection')    
+            col.prop(self, 'expand_version_selection')   
+            col.operator("bm.run_backup_manager", text="Batch Backup", icon='COLORSET_01_VEC').button_input = 'BATCH_BACKUP'  
 
          
     def draw_restore(self, box):        
