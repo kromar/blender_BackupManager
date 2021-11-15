@@ -29,7 +29,7 @@ bl_info = {
     "name": "Backup Manager",
     "description": "Backup and Restore your Blender configuration files",
     "author": "Daniel Grauer",
-    "version": (1, 1, 0),
+    "version": (1, 1, 1),
     "blender": (2, 93, 0),
     "location": "Preferences",
     "category": "!System",
@@ -196,6 +196,20 @@ class OT_BackupManager(Operator):
                     source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  version[0]).replace("\\", "/")
                     target_path = os.path.join(prefs().backup_path, version[0]).replace("\\", "/")
                     self.run_backup(source_path, target_path)   
+            
+            elif self.button_input == 'DELETE_BACKUP':
+                if not prefs().advanced_mode:            
+                    target_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")                    
+                else:                                                 
+                    if prefs().custom_version_toggle:
+                        target_path = os.path.join(prefs().backup_path, str(prefs().custom_version)).replace("\\", "/")
+                    else:                
+                        target_path = os.path.join(prefs().backup_path, prefs().restore_versions).replace("\\", "/")
+                if os.path.exists(target_path):
+                    os.system('rmdir /S /Q "{}"'.format(target_path))
+                    print("\nDeleted Backup: ", target_path)
+                
+                
 
             elif self.button_input == 'RESTORE':
                 if not prefs().advanced_mode:            
@@ -245,7 +259,7 @@ class BackupManagerPreferences(AddonPreferences):
 
     def update_version_list(self, context):
         bpy.ops.bm.run_backup_manager(button_input='SEARCH_' + self.tabs)        
-
+    
     # when user specified a custom temp path use that one as default, otherwise use the app default
     if bpy.context.preferences.filepaths.temporary_directory:        
         default_path = bpy.context.preferences.filepaths.temporary_directory 
@@ -270,8 +284,8 @@ class BackupManagerPreferences(AddonPreferences):
     #use_system_id: BoolProperty(name="Use System ID", description="use_system_id", update=update_system_id, default=False)  
     active_blender_version: StringProperty(name="Current Blender Version", description="Current Blender Version", subtype='NONE', default=this_version)
     dry_run: BoolProperty(name="Dry Run", description="Run code without modifying any files on the drive. NOTE: this will not create or restore any backups!", default=False)    
-    advanced_mode: BoolProperty(name="Advanced", description="Advanced backup and restore options", default=False, update=update_version_list)
-    expand_version_selection: BoolProperty(name="Expand Versions", description="Switch between dropdown and expanded version layout", default=False, update=update_version_list)
+    advanced_mode: BoolProperty(name="Advanced", description="Advanced backup and restore options", default=True, update=update_version_list)
+    expand_version_selection: BoolProperty(name="Expand Versions", description="Switch between dropdown and expanded version layout", default=True, update=update_version_list)
     # BACKUP  
     custom_version_toggle: BoolProperty(name="Custom Version", description="Set your custom backup version", default=False, update=update_version_list)  
     custom_version: StringProperty(name="Custom Version", description="Custom version folder", subtype='NONE', default='custom')
@@ -443,7 +457,8 @@ class BackupManagerPreferences(AddonPreferences):
         if self.advanced_mode:
             col.prop(self, 'custom_version_toggle')  
             col.prop(self, 'expand_version_selection')   
-            col.operator("bm.run_backup_manager", text="Batch Backup", icon='COLORSET_01_VEC').button_input = 'BATCH_BACKUP'  
+            col.operator("bm.run_backup_manager", text="Batch Backup", icon='COLORSET_11_VEC').button_input = 'BATCH_BACKUP'  
+            col.operator("bm.run_backup_manager", text="Delete Backup", icon='COLORSET_01_VEC').button_input = 'DELETE_BACKUP' 
 
          
     def draw_restore(self, box):        
