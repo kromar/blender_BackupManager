@@ -47,7 +47,7 @@ backup_version_list = [(initial_version, initial_version, '')]
 restore_version_list = [(initial_version, initial_version, '')]
 
 class OT_BackupManager(Operator):
-    ''' backup manager '''
+    ''' run backup & restore '''
     bl_idname = "bm.run_backup_manager"
     bl_label = "Blender Versions"     
     button_input: bpy.props.StringProperty()
@@ -180,24 +180,23 @@ class OT_BackupManager(Operator):
             if self.button_input == 'BACKUP':         
                 if not prefs().advanced_mode:            
                     source_path = os.path.join(prefs().blender_user_path).replace("\\", "/")
-                    target_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")
-                    self.run_backup(source_path, target_path) 
-                else: 
-                    if prefs().batch_mode:
-                        for version in backup_version_list:
-                            print(version[0])
-                            source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  version[0]).replace("\\", "/")
-                            target_path = os.path.join(prefs().backup_path, version[0]).replace("\\", "/")
-                            self.run_backup(source_path, target_path)  
-                    else:                                
-                        if prefs().custom_version_toggle:
-                            source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")
-                            target_path = os.path.join(prefs().backup_path, str(prefs().custom_version)).replace("\\", "/")
-                        else:                
-                            source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")
-                            target_path = os.path.join(prefs().backup_path, prefs().restore_versions).replace("\\", "/")
-                        self.run_backup(source_path, target_path)  
-                
+                    target_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")                    
+                else:                                                 
+                    if prefs().custom_version_toggle:
+                        source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")
+                        target_path = os.path.join(prefs().backup_path, str(prefs().custom_version)).replace("\\", "/")
+                    else:                
+                        source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")
+                        target_path = os.path.join(prefs().backup_path, prefs().restore_versions).replace("\\", "/")
+                self.run_backup(source_path, target_path)  
+            
+            elif self.button_input == 'BATCH_BACKUP':
+                for version in backup_version_list:
+                    print(version[0])
+                    source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  version[0]).replace("\\", "/")
+                    target_path = os.path.join(prefs().backup_path, version[0]).replace("\\", "/")
+                    self.run_backup(source_path, target_path)   
+
             elif self.button_input == 'RESTORE':
                 if not prefs().advanced_mode:            
                     source_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")
@@ -233,7 +232,7 @@ class OT_BackupManager(Operator):
                 backup_version_list.sort(reverse=True)     
 
         else:
-            self.ShowReport(["Specify a Backup Path"] , "Backup Path missing", 'COLORSET_01_VEC')
+            self.ShowReport(["Specify a Backup Path"] , "Backup Path missing", 'COLORSET_04_VEC')
         return {'FINISHED'}
     
 
@@ -276,8 +275,6 @@ class BackupManagerPreferences(AddonPreferences):
     # BACKUP  
     custom_version_toggle: BoolProperty(name="Custom Version", description="Set your custom backup version", default=False, update=update_version_list)  
     custom_version: StringProperty(name="Custom Version", description="Custom version folder", subtype='NONE', default='custom')
-    batch_mode: BoolProperty(name="Batch Backup", description="Backup all existing versions", default=False)  
-
 
     clean_path: BoolProperty(name="Clean Backup", description="delete before backup", default=False)
     def populate_backuplist(self, context):
@@ -379,7 +376,7 @@ class BackupManagerPreferences(AddonPreferences):
         col = box1.column()
         if not self.advanced_mode:            
             path = self.blender_user_path
-            col.label(text = "Backup From:", icon='COLORSET_03_VEC')   
+            col.label(text = "Backup From: " + str(self.active_blender_version), icon='COLORSET_03_VEC')   
             col.label(text = path)      
             self.draw_backup_age(col, path) 
             self.draw_backup_size(col, path)            
@@ -387,14 +384,14 @@ class BackupManagerPreferences(AddonPreferences):
             box = row.box() 
             col = box.column()  
             path =  os.path.join(self.backup_path, str(self.active_blender_version))
-            col.label(text = "Backup To:", icon='COLORSET_01_VEC')   
+            col.label(text = "Backup To: " + str(self.active_blender_version), icon='COLORSET_04_VEC')   
             col.label(text = path)          
             self.draw_backup_age(col, path)    
             self.draw_backup_size(col, path)  
         elif self.advanced_mode:   
             if self.custom_version_toggle:    
                 path = os.path.join(self.blender_user_path.strip(self.active_blender_version),  prefs().backup_versions)
-                col.label(text = "Backup From:", icon='COLORSET_03_VEC') 
+                col.label(text = "Backup From: " + prefs().backup_versions, icon='COLORSET_03_VEC') 
                 col.label(text = path)       
                 self.draw_backup_age(col, path)
                 self.draw_backup_size(col, path)
@@ -402,14 +399,14 @@ class BackupManagerPreferences(AddonPreferences):
                 box2 = row.box() 
                 col = box2.column()  
                 path = os.path.join(self.backup_path, str(self.custom_version))
-                col.label(text = "Backup To:", icon='COLORSET_01_VEC')   
+                col.label(text = "Backup To: " + str(self.custom_version), icon='COLORSET_04_VEC')   
                 col.label(text = path)     
                 self.draw_backup_age(col, path)    
                 self.draw_backup_size(col, path)                
 
             else:                
                 path = os.path.join(self.blender_user_path.strip(self.active_blender_version),  prefs().backup_versions)
-                col.label(text = "Backup From:", icon='COLORSET_03_VEC') 
+                col.label(text = "Backup From: " + prefs().backup_versions, icon='COLORSET_03_VEC') 
                 col.label(text = path)       
                 self.draw_backup_age(col, path)
                 self.draw_backup_size(col, path)
@@ -417,7 +414,7 @@ class BackupManagerPreferences(AddonPreferences):
                 box2 = row.box() 
                 col = box2.column()  
                 path =  os.path.join(self.backup_path, prefs().restore_versions)
-                col.label(text = "Backup To:", icon='COLORSET_01_VEC')   
+                col.label(text = "Backup To: " + prefs().restore_versions, icon='COLORSET_04_VEC')   
                 col.label(text = path)
                 self.draw_backup_age(col, path)
                 self.draw_backup_size(col, path)
@@ -439,14 +436,14 @@ class BackupManagerPreferences(AddonPreferences):
 
         col = row.column()   
         col.scale_x = 0.8
-        col.operator("bm.run_backup_manager", text="Run Backup", icon='COLORSET_03_VEC').button_input = 'BACKUP' 
+        col.operator("bm.run_backup_manager", text="Backup Selected", icon='COLORSET_03_VEC').button_input = 'BACKUP' 
+        col.operator("bm.run_backup_manager", text="Backup All", icon='COLORSET_02_VEC').button_input = 'BATCH_BACKUP' 
         col.prop(self, 'dry_run')  
         col.prop(self, 'clean_path')  
         col.prop(self, 'advanced_mode') 
         if self.advanced_mode:
-            col.prop(self, 'expand_version_selection')  
-            col.prop(self, 'custom_version_toggle')    
-            col.prop(self, 'batch_mode')  
+            col.prop(self, 'custom_version_toggle')  
+            col.prop(self, 'expand_version_selection')    
 
          
     def draw_restore(self, box):        
@@ -455,7 +452,7 @@ class BackupManagerPreferences(AddonPreferences):
         col = box1.column()
         if not self.advanced_mode:            
             path = os.path.join(prefs().backup_path, str(self.active_blender_version))
-            col.label(text = "Restore From:", icon='COLORSET_01_VEC')   
+            col.label(text = "Restore From: " + str(self.active_blender_version), icon='COLORSET_04_VEC')   
             col.label(text = path)                  
             self.draw_backup_age(col, path) 
             self.draw_backup_size(col, path)            
@@ -463,14 +460,14 @@ class BackupManagerPreferences(AddonPreferences):
             box = row.box() 
             col = box.column()  
             path =  self.blender_user_path
-            col.label(text = "Restore To:", icon='COLORSET_03_VEC')   
+            col.label(text = "Restore To: " + str(self.active_blender_version), icon='COLORSET_03_VEC')   
             col.label(text = path)              
             self.draw_backup_age(col, path)    
             self.draw_backup_size(col, path)  
 
         else:        
             path = os.path.join(prefs().backup_path, prefs().restore_versions)
-            col.label(text = "Restore From:", icon='COLORSET_01_VEC')   
+            col.label(text = "Restore From: " + prefs().restore_versions, icon='COLORSET_04_VEC')   
             col.label(text = path)    
             self.draw_backup_age(col, path)
             self.draw_backup_size(col, path)
@@ -478,7 +475,7 @@ class BackupManagerPreferences(AddonPreferences):
             box2 = row.box() 
             col = box2.column()  
             path =  os.path.join(self.blender_user_path.strip(self.active_blender_version),  prefs().backup_versions)
-            col.label(text = "Restore To:", icon='COLORSET_03_VEC')   
+            col.label(text = "Restore To: " + prefs().backup_versions, icon='COLORSET_03_VEC')   
             col.label(text = path)    
             self.draw_backup_age(col, path)
             self.draw_backup_size(col, path)
@@ -496,7 +493,7 @@ class BackupManagerPreferences(AddonPreferences):
 
         col = row.column()
         col.scale_x = 0.8
-        col.operator("bm.run_backup_manager", text="Run Restore", icon='COLORSET_01_VEC').button_input = 'RESTORE'
+        col.operator("bm.run_backup_manager", text="Restore Selected", icon='COLORSET_04_VEC').button_input = 'RESTORE'
         col.prop(self, 'dry_run')      
         col.prop(self, 'clean_path')   
         col.prop(self, 'advanced_mode')  
