@@ -209,27 +209,28 @@ class OT_BackupManager(Operator):
                
             elif self.button_input == 'SEARCH_BACKUP':
                 backup_version_list.clear() 
-                backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER'))
-                print("A: ", bpy.utils.resource_path(type='USER'))
+                backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER').strip(prefs().active_blender_version))
                 backup_version_list.sort(reverse=True)
 
                 restore_version_list.clear()    
                 restore_version_list = set(self.find_versions(prefs().backup_path) + backup_version_list)
                 restore_version_list = list(dict.fromkeys(restore_version_list))
-                print("B: ", prefs().backup_path)
                 restore_version_list.sort(reverse=True)
             
             elif self.button_input == 'SEARCH_RESTORE': 
                 restore_version_list.clear()        
                 restore_version_list = self.find_versions(prefs().backup_path)
-                print("C: ", prefs().backup_path)
-                restore_version_list.sort(reverse=True)  
+                restore_version_list.sort(reverse=True) 
 
                 backup_version_list.clear() 
-                backup_version_list = set(self.find_versions(bpy.utils.resource_path(type='USER')) + restore_version_list)
+                backup_version_list = set(self.find_versions(bpy.utils.resource_path(type='USER').strip(prefs().active_blender_version)) + restore_version_list)
                 backup_version_list = list(dict.fromkeys(backup_version_list))
-                print("D: ", bpy.utils.resource_path(type='USER'))
-                backup_version_list.sort(reverse=True)           
+                for version in backup_version_list: # remove custom items from list (assuming non floats are invalid)
+                    try:
+                        float(version[0])
+                    except:
+                        backup_version_list.remove(version)
+                backup_version_list.sort(reverse=True)     
 
         else:
             self.ShowReport(["Specify a Backup Path"] , "Backup Path missing", 'COLORSET_01_VEC')
