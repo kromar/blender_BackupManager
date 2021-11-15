@@ -62,13 +62,13 @@ class OT_BackupManager(Operator):
 
     def find_versions(self, filepath):
         version_list = []
-        if filepath:
-            try:
-                path_preferences = os.path.dirname(filepath)
-                for v in os.listdir(path_preferences):
-                    version_list.append((v, v, ""))
-            except:
-                print("filepath invalid")
+        try:
+            for folder in os.listdir(os.path.dirname(filepath)):
+                #[(identifier, name, description, icon, number), ...]
+                #print("filepath: ", folder)
+                version_list.append((folder, folder, ''))
+        except:
+            print("filepath invalid: ", filepath)
         return version_list
     
     
@@ -154,8 +154,6 @@ class OT_BackupManager(Operator):
                 self.recursive_overwrite(source_path, target_path,  ignore = shutil.ignore_patterns(*self.ignore_backup))                
             else:
                 print("dry run, no files modified")
-
-
         """ 
         if prefs().custom_version and prefs().custom_version_toggle:
             self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " +  prefs().custom_version, 'COLORSET_07_VEC') 
@@ -212,21 +210,25 @@ class OT_BackupManager(Operator):
             elif self.button_input == 'SEARCH_BACKUP':
                 backup_version_list.clear() 
                 backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER'))
+                print("A: ", bpy.utils.resource_path(type='USER'))
                 backup_version_list.sort(reverse=True)
 
                 restore_version_list.clear()    
                 restore_version_list = set(self.find_versions(prefs().backup_path) + backup_version_list)
                 restore_version_list = list(dict.fromkeys(restore_version_list))
+                print("B: ", prefs().backup_path)
                 restore_version_list.sort(reverse=True)
             
             elif self.button_input == 'SEARCH_RESTORE': 
                 restore_version_list.clear()        
                 restore_version_list = self.find_versions(prefs().backup_path)
+                print("C: ", prefs().backup_path)
                 restore_version_list.sort(reverse=True)  
 
                 backup_version_list.clear() 
                 backup_version_list = set(self.find_versions(bpy.utils.resource_path(type='USER')) + restore_version_list)
                 backup_version_list = list(dict.fromkeys(backup_version_list))
+                print("D: ", bpy.utils.resource_path(type='USER'))
                 backup_version_list.sort(reverse=True)           
 
         else:
@@ -245,24 +247,27 @@ class BackupManagerPreferences(AddonPreferences):
         bpy.ops.bm.run_backup_manager(button_input='SEARCH_' + self.tabs)        
 
     # when user specified a custom temp path use that one as default, otherwise use the app default
-    if bpy.context.preferences.filepaths.temporary_directory == None:
-        default_path = bpy.app.tempdir
-    else: 
+    if bpy.context.preferences.filepaths.temporary_directory:        
         default_path = bpy.context.preferences.filepaths.temporary_directory 
-
+    else: 
+        default_path = bpy.app.tempdir
+    """ 
     def update_system_id(self, context):
         if self.use_system_id:
             default_path = os.path.join(self.default_path , '!backupmanager/', self.system_id)
         else:            
             default_path = os.path.join(self.default_path , '!backupmanager/')            
-        print(default_path)
+        print(default_path) 
+    #"""
+
+    print("Backup Manager Default path: ", default_path)
 
     backup_path: StringProperty(name="Backup Path", description="Backup Location", subtype='DIR_PATH', default=os.path.join(default_path , '!backupmanager/'), update=update_version_list)
     blender_user_path: bpy.props.StringProperty(default=bpy.utils.resource_path(type='USER'))
     tabs: EnumProperty(name="Tabs", items=preferences_tabs, default="BACKUP", update=update_version_list)   
     config_path: StringProperty( name="config_path", description="config_path", subtype='DIR_PATH', default=bpy.utils.user_resource('CONFIG')) #Resource type in [‘DATAFILES’, ‘CONFIG’, ‘SCRIPTS’, ‘AUTOSAVE’].
     system_id: StringProperty(name="ID", description="Current Computer Name", subtype='NONE', default=str(socket.getfqdn()))  
-    use_system_id: BoolProperty(name="Use System ID", description="use_system_id", update=update_system_id, default=False)  
+    #use_system_id: BoolProperty(name="Use System ID", description="use_system_id", update=update_system_id, default=False)  
     active_blender_version: StringProperty(name="Current Blender Version", description="Current Blender Version", subtype='NONE', default=this_version)
     dry_run: BoolProperty(name="Dry Run", description="Run code without modifying any files on the drive. NOTE: this will not create or restore any backups!", default=False)    
     advanced_mode: BoolProperty(name="Advanced", description="Advanced backup and restore options", default=False, update=update_version_list)
