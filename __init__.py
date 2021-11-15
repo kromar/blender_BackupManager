@@ -450,7 +450,7 @@ class BackupManagerPreferences(AddonPreferences):
 
         col = row.column()   
         col.scale_x = 0.8
-        col.operator("bm.run_backup_manager", text="Backup Selected", icon='COLORSET_03_VEC').button_input = 'BACKUP' 
+        col.operator("bm.run_backup_manager", text="Run Backup", icon='COLORSET_03_VEC').button_input = 'BACKUP' 
         col.prop(self, 'dry_run')  
         col.prop(self, 'clean_path')  
         col.prop(self, 'advanced_mode') 
@@ -508,7 +508,7 @@ class BackupManagerPreferences(AddonPreferences):
 
         col = row.column()
         col.scale_x = 0.8
-        col.operator("bm.run_backup_manager", text="Restore Selected", icon='COLORSET_04_VEC').button_input = 'RESTORE'
+        col.operator("bm.run_backup_manager", text="Run Restore", icon='COLORSET_04_VEC').button_input = 'RESTORE'
         col.prop(self, 'dry_run')      
         col.prop(self, 'clean_path')   
         col.prop(self, 'advanced_mode')  
