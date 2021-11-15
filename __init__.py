@@ -208,8 +208,6 @@ class OT_BackupManager(Operator):
                 if os.path.exists(target_path):
                     os.system('rmdir /S /Q "{}"'.format(target_path))
                     print("\nDeleted Backup: ", target_path)
-                
-                
 
             elif self.button_input == 'RESTORE':
                 if not prefs().advanced_mode:            
@@ -253,11 +251,13 @@ class OT_BackupManager(Operator):
 preferences_tabs = [("BACKUP", "Backup Options", ""),
                     ("RESTORE", "Restore Options", "")]
 
+
 class BackupManagerPreferences(AddonPreferences):
     bl_idname = __package__  
     this_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])  
 
     def update_version_list(self, context):
+        print("update_version_list: ", 'SEARCH_' + self.tabs)
         bpy.ops.bm.run_backup_manager(button_input='SEARCH_' + self.tabs)        
     
     # when user specified a custom temp path use that one as default, otherwise use the app default
@@ -293,8 +293,10 @@ class BackupManagerPreferences(AddonPreferences):
     clean_path: BoolProperty(name="Clean Backup", description="delete before backup", default=False)
     def populate_backuplist(self, context):
         global backup_version_list  
+        #print(len(backup_version_list))
         return backup_version_list
-    backup_versions: EnumProperty(items=populate_backuplist, name="Backup", description="Choose the version to backup")
+        
+    backup_versions: EnumProperty(items=populate_backuplist, name="Backup", description="Choose the version to backup", update=update_version_list)
     backup_cache: BoolProperty(name="cache", description="backup_cache", default=False)      
     backup_bookmarks: BoolProperty(name="bookmarks", description="backup_bookmarks", default=True)   
     backup_recentfiles: BoolProperty(name="recentfiles", description="backup_recentfiles", default=True) 
@@ -310,7 +312,7 @@ class BackupManagerPreferences(AddonPreferences):
     def populate_restorelist(self, context):
         global restore_version_list
         return restore_version_list        
-    restore_versions: EnumProperty(items=populate_restorelist, name="Restore", description="Choose the version to Resotre")
+    restore_versions: EnumProperty(items=populate_restorelist, name="Restore", description="Choose the version to Resotre", update=update_version_list)
     restore_cache: BoolProperty(name="cache", description="restore_cache", default=False)   
     restore_bookmarks: BoolProperty(name="bookmarks", description="restore_bookmarks", default=True)   
     restore_recentfiles: BoolProperty(name="recentfiles", description="restore_recentfiles", default=True) 
