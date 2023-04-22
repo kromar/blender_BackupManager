@@ -312,7 +312,7 @@ class BackupManagerPreferences(AddonPreferences):
     def populate_restorelist(self, context):
         global restore_version_list
         return restore_version_list        
-    restore_versions: EnumProperty(items=populate_restorelist, name="Restore", description="Choose the version to Resotre", update=update_version_list)
+    restore_versions: EnumProperty(items=populate_restorelist, name="Restore", description="Choose the version to Restore", update=update_version_list)
     restore_cache: BoolProperty(name="cache", description="restore_cache", default=False)   
     restore_bookmarks: BoolProperty(name="bookmarks", description="restore_bookmarks", default=True)   
     restore_recentfiles: BoolProperty(name="recentfiles", description="restore_recentfiles", default=True) 
