@@ -22,8 +22,9 @@ from datetime import datetime
 import shutil
 import socket
 import numpy
-from bpy.types import Operator, AddonPreferences
+from bpy.types import Operator, Context, AddonPreferences, Menu
 from bpy.props import StringProperty, EnumProperty, BoolProperty
+
 
 bl_info = {
     "name": "Backup Manager",
@@ -42,9 +43,10 @@ def prefs():
     return user_preferences.addons[__package__].preferences
 
 
-initial_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])
-backup_version_list = [(initial_version, initial_version, '')]
-restore_version_list = [(initial_version, initial_version, '')]
+initial_version = f'{str(bpy.app.version[0])}.{str(bpy.app.version[1])}'
+backup_version_list = [(initial_version, initial_version, '', 0)]
+restore_version_list = [(initial_version, initial_version, '', 0)]
+print("restore_version_list: ", restore_version_list)
 
 class OT_BackupManager(Operator):
     ''' run backup & restore '''
@@ -257,8 +259,8 @@ class BackupManagerPreferences(AddonPreferences):
     this_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])  
 
     def update_version_list(self, context):
-        print("update_version_list: ", 'SEARCH_' + self.tabs)
-        bpy.ops.bm.run_backup_manager(button_input='SEARCH_' + self.tabs)        
+        print("update_version_list: ", f'SEARCH_{self.tabs}')
+        bpy.ops.bm.run_backup_manager(button_input=f'SEARCH_{self.tabs}')        
     
     # when user specified a custom temp path use that one as default, otherwise use the app default
     if bpy.context.preferences.filepaths.temporary_directory:        
@@ -286,17 +288,21 @@ class BackupManagerPreferences(AddonPreferences):
     dry_run: BoolProperty(name="Dry Run", description="Run code without modifying any files on the drive. NOTE: this will not create or restore any backups!", default=False)    
     advanced_mode: BoolProperty(name="Advanced", description="Advanced backup and restore options", default=True, update=update_version_list)
     expand_version_selection: BoolProperty(name="Expand Versions", description="Switch between dropdown and expanded version layout", default=True, update=update_version_list)
+    
     # BACKUP  
     custom_version_toggle: BoolProperty(name="Custom Version", description="Set your custom backup version", default=False, update=update_version_list)  
     custom_version: StringProperty(name="Custom Version", description="Custom version folder", subtype='NONE', default='custom')
-
     clean_path: BoolProperty(name="Clean Backup", description="delete before backup", default=False)
+    
     def populate_backuplist(self, context):
         global backup_version_list  
-        #print(len(backup_version_list))
-        return backup_version_list
-        
-    backup_versions: EnumProperty(items=populate_backuplist, name="Backup", description="Choose the version to backup", update=update_version_list)
+        print("backup_version_list: ", backup_version_list)
+        return backup_version_list        
+    backup_versions: EnumProperty(items=populate_backuplist, 
+                                    name="Backup", 
+                                    description="Choose the version to backup", 
+                                    update=update_version_list)
+    
     backup_cache: BoolProperty(name="cache", description="backup_cache", default=False)      
     backup_bookmarks: BoolProperty(name="bookmarks", description="backup_bookmarks", default=True)   
     backup_recentfiles: BoolProperty(name="recentfiles", description="backup_recentfiles", default=True) 
@@ -307,12 +313,16 @@ class BackupManagerPreferences(AddonPreferences):
     backup_addons: BoolProperty(name="addons", description="backup_addons", default=True)     
     backup_presets: BoolProperty(name="presets", description="backup_presets", default=True)
 
-    ## RESTORE   
-    
+    # RESTORE      
     def populate_restorelist(self, context):
         global restore_version_list
+        print("restore_version_list: ", restore_version_list)
         return restore_version_list        
-    restore_versions: EnumProperty(items=populate_restorelist, name="Restore", description="Choose the version to Restore", update=update_version_list)
+    restore_versions: EnumProperty(items=populate_restorelist, 
+                                    name="Restore", 
+                                    description="Choose the version to Resotre", 
+                                    update=update_version_list)
+    
     restore_cache: BoolProperty(name="cache", description="restore_cache", default=False)   
     restore_bookmarks: BoolProperty(name="bookmarks", description="restore_bookmarks", default=True)   
     restore_recentfiles: BoolProperty(name="recentfiles", description="restore_recentfiles", default=True) 
@@ -556,17 +566,43 @@ class BackupManagerPreferences(AddonPreferences):
         
 
 
+class BM_MT_BR(Menu):
+    bl_label = 'Backup and Restore'
+    bl_idname = 'BM_MT_BR'
+
+    def draw(self, context):
+        pass
+
 classes = (
     OT_BackupManager,
     BackupManagerPreferences,
+    BM_MT_BR,
     )
+
+
+def menus_draw_fn(self, context: Context) -> None:
+    """Callback to add menus for exporters."""
+    layout = self.layout    
+    layout.menu(BM_MT_BR.bl_idname)   
+    
+
+def backupandrestore_menu_fn(self, context: Context) -> None:
+    """Menu Callback for the export operator."""
+    layout = self.layout
+    layout.operator("bm.run_backup_manager", text="Run Backup", icon='COLORSET_03_VEC').button_input = 'BACKUP'     
+    layout.operator("bm.run_backup_manager", text="Run Restore", icon='COLORSET_04_VEC').button_input = 'RESTORE' 
 
 
 def register():    
     [bpy.utils.register_class(c) for c in classes]
+    bpy.types.TOPBAR_MT_file_defaults.append(menus_draw_fn)
+    bpy.types.BM_MT_BR.append(backupandrestore_menu_fn)
+
 
 def unregister():
     [bpy.utils.unregister_class(c) for c in classes]
+    bpy.types.TOPBAR_MT_file_defaults.remove(menus_draw_fn)
+    bpy.types.BM_MT_BR.remove(backupandrestore_menu_fn)
 
 if __name__ == "__main__":
     register()
