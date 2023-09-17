@@ -42,7 +42,7 @@ def prefs():
     user_preferences = bpy.context.preferences
     return user_preferences.addons[__package__].preferences
 
-
+# globals
 initial_version = f'{str(bpy.app.version[0])}.{str(bpy.app.version[1])}'
 backup_version_list = [(initial_version, initial_version, '', 0)]
 restore_version_list = [(initial_version, initial_version, '', 0)]
@@ -133,7 +133,21 @@ class OT_BackupManager(Operator):
             shutil.copyfile(src, dest)
 
 
-    def run_backup(self, source_path, target_path):         
+    def backup_addons():
+        pass
+
+
+    def run_backup(self, source_path, target_path): 
+        
+        if prefs().use_system_id:
+            default_path = os.path.join(prefs().default_path , '!backupmanager/', prefs().system_id)
+        else:            
+            default_path = os.path.join(prefs().default_path , '!backupmanager/')  
+
+        if prefs().debug: 
+            print("default path: ", default_path)
+
+
         if prefs().clean_path:
             if os.path.exists(target_path):
                 os.system(f'rmdir /S /Q "{target_path}"')
@@ -172,11 +186,13 @@ class OT_BackupManager(Operator):
 
     
     def execute(self, context): 
-        if self.debug:
-            print("\n\nbutton_input: ", self.button_input)        
+        if prefs().debug:
+            print("\n\nbutton_input: ", self.button_input) 
+                   
         if prefs().backup_path:            
             global backup_version_list
             global restore_version_list  
+
             if self.button_input == 'BACKUP':         
                 if not prefs().advanced_mode:            
                     source_path = os.path.join(prefs().blender_user_path).replace("\\", "/")
@@ -191,7 +207,7 @@ class OT_BackupManager(Operator):
             
             elif self.button_input == 'BATCH_BACKUP':
                 for version in backup_version_list:
-                    if self.debug:
+                    if prefs().debug:
                         print(version[0])
                     source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  version[0]).replace("\\", "/")
                     target_path = os.path.join(prefs().backup_path, version[0]).replace("\\", "/")
@@ -290,9 +306,18 @@ class BackupManagerPreferences(AddonPreferences):
     backup_path: StringProperty(name="Backup Path", description="Backup Location", subtype='DIR_PATH', default=os.path.join(default_path , '!backupmanager/'), update=update_version_list)
     blender_user_path: bpy.props.StringProperty(default=bpy.utils.resource_path(type='USER'))
     tabs: EnumProperty(name="Tabs", items=preferences_tabs, default="BACKUP", update=update_version_list)   
-    config_path: StringProperty( name="config_path", description="config_path", subtype='DIR_PATH', default=bpy.utils.user_resource('CONFIG')) #Resource type in [‘DATAFILES’, ‘CONFIG’, ‘SCRIPTS’, ‘AUTOSAVE’].
-    system_id: StringProperty(name="ID", description="Current Computer Name", subtype='NONE', default=str(socket.getfqdn()))  
-    use_system_id: BoolProperty(name="Use System ID", description="use_system_id", update=update_system_id, default=False)   # default = False 
+    config_path: StringProperty(name="config_path",
+                                description="config_path", 
+                                subtype='DIR_PATH', 
+                                default=bpy.utils.user_resource('CONFIG')) #Resource type in [‘DATAFILES’, ‘CONFIG’, ‘SCRIPTS’, ‘AUTOSAVE’].
+    system_id: StringProperty(name="ID", 
+                              description="Current Computer Name", 
+                              subtype='NONE',
+                              default=str(socket.getfqdn()))  
+    use_system_id: BoolProperty(name="Shared configs", 
+                                description="use_system_id", 
+                                update=update_system_id,
+                                default=False)   # default = False 
     
     debug: BoolProperty(name="debug", description="debug", update=update_system_id, default=True) # default = False  
     
@@ -310,7 +335,8 @@ class BackupManagerPreferences(AddonPreferences):
         global backup_version_list
         if self.debug:  
             print("backup_version_list: ", backup_version_list)
-        return backup_version_list        
+        return backup_version_list      
+      
     backup_versions: EnumProperty(items=populate_backuplist, 
                                     name="Backup", 
                                     description="Choose the version to backup", 
