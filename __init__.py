@@ -65,11 +65,11 @@ class OT_BackupManager(Operator):
     def find_versions(self, filepath):
         version_list = []
         try:
-            for folder in os.listdir(os.path.dirname(filepath)):
-                #[(identifier, name, description, icon, number), ...]
-                #print("filepath: ", folder)
-                version_list.append((folder, folder, ''))
-        except:
+            version_list.extend(
+                (folder, folder, '')
+                for folder in os.listdir(os.path.dirname(filepath))
+            )
+        except Exception:
             print("filepath invalid: ", filepath)
         return version_list
     
@@ -123,10 +123,7 @@ class OT_BackupManager(Operator):
             if not os.path.isdir(dest):
                 os.makedirs(dest)
             files = os.listdir(src)
-            if ignore is not None:
-                ignored = ignore(src, files)
-            else:
-                ignored = set()
+            ignored = ignore(src, files) if ignore is not None else set()
             for f in files:
                 if f not in ignored:
                     self.recursive_overwrite(os.path.join(src, f), 
@@ -139,7 +136,7 @@ class OT_BackupManager(Operator):
     def run_backup(self, source_path, target_path):         
         if prefs().clean_path:
             if os.path.exists(target_path):
-                os.system('rmdir /S /Q "{}"'.format(target_path))
+                os.system(f'rmdir /S /Q "{target_path}"')
                 #shutil.rmtree(target_path, onerror = self.handler)
                 print("\nCleaned path: ", target_path)
             else:                
@@ -150,7 +147,7 @@ class OT_BackupManager(Operator):
         #self.transfer_files(source_path, target_path)   
         print("source: ",  source_path)
         print("target: ", target_path)
-    
+
         if os.path.isdir(source_path): 
             if not prefs().dry_run:
                 self.recursive_overwrite(source_path, target_path,  ignore = shutil.ignore_patterns(*self.ignore_backup))                
@@ -163,7 +160,7 @@ class OT_BackupManager(Operator):
             self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " + self.generate_version(input='RESTORE'), 'COLORSET_07_VEC')
         #"""
         print(40*"-")
-        self.report({'INFO'}, "Backup Complete")   
+        self.report({'INFO'}, "Backup Complete")
         return {'FINISHED'}    
 
 
@@ -596,13 +593,13 @@ def backupandrestore_menu_fn(self, context: Context) -> None:
 def register():    
     [bpy.utils.register_class(c) for c in classes]
     bpy.types.TOPBAR_MT_file_defaults.append(menus_draw_fn)
-    bpy.types.BM_MT_BR.append(backupandrestore_menu_fn)
+    bpy.types.TOPBAR_MT_file.append(backupandrestore_menu_fn)
 
 
 def unregister():
     [bpy.utils.unregister_class(c) for c in classes]
     bpy.types.TOPBAR_MT_file_defaults.remove(menus_draw_fn)
-    bpy.types.BM_MT_BR.remove(backupandrestore_menu_fn)
+    bpy.types.TOPBAR_MT_file.remove(backupandrestore_menu_fn)
 
 if __name__ == "__main__":
     register()
