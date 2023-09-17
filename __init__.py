@@ -180,12 +180,11 @@ class OT_BackupManager(Operator):
                 if not prefs().advanced_mode:            
                     source_path = os.path.join(prefs().blender_user_path).replace("\\", "/")
                     target_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")                    
-                else:                                                 
+                else:    
+                    source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")                                             
                     if prefs().custom_version_toggle:
-                        source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")
                         target_path = os.path.join(prefs().backup_path, str(prefs().custom_version)).replace("\\", "/")
-                    else:                
-                        source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")
+                    else: 
                         target_path = os.path.join(prefs().backup_path, prefs().restore_versions).replace("\\", "/")
                 self.run_backup(source_path, target_path)  
             
@@ -195,7 +194,7 @@ class OT_BackupManager(Operator):
                     source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  version[0]).replace("\\", "/")
                     target_path = os.path.join(prefs().backup_path, version[0]).replace("\\", "/")
                     self.run_backup(source_path, target_path)   
-            
+             
             elif self.button_input == 'DELETE_BACKUP':
                 if not prefs().advanced_mode:            
                     target_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")                    
@@ -216,7 +215,14 @@ class OT_BackupManager(Operator):
                     source_path = os.path.join(prefs().backup_path, prefs().restore_versions).replace("\\", "/")
                     target_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")
                 self.run_backup(source_path, target_path) 
-               
+                
+            elif self.button_input == 'BATCH_RESTORE':
+                for version in restore_version_list:
+                    print(version[0])
+                    source_path = os.path.join(prefs().backup_path, version[0]).replace("\\", "/")
+                    target_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  version[0]).replace("\\", "/")                    
+                    self.run_backup(source_path, target_path) 
+           
             elif self.button_input == 'SEARCH_BACKUP':
                 backup_version_list.clear() 
                 backup_version_list = self.find_versions(bpy.utils.resource_path(type='USER').strip(prefs().active_blender_version))
@@ -459,14 +465,17 @@ class BackupManagerPreferences(AddonPreferences):
 
         col = row.column()   
         col.scale_x = 0.8
-        col.operator("bm.run_backup_manager", text="Run Backup", icon='COLORSET_03_VEC').button_input = 'BACKUP' 
+        col.operator("bm.run_backup_manager", text="Backup Selected", icon='COLORSET_03_VEC').button_input = 'BACKUP' 
+        if self.advanced_mode:
+            col.operator("bm.run_backup_manager", text="Backup All", icon='COLORSET_03_VEC').button_input = 'BATCH_BACKUP' 
+        col.separator(factor=1.0)
         col.prop(self, 'dry_run')  
         col.prop(self, 'clean_path')  
         col.prop(self, 'advanced_mode') 
         if self.advanced_mode:
             col.prop(self, 'custom_version_toggle')  
-            col.prop(self, 'expand_version_selection')   
-            col.operator("bm.run_backup_manager", text="Batch Backup", icon='COLORSET_11_VEC').button_input = 'BATCH_BACKUP'  
+            col.prop(self, 'expand_version_selection')    
+            col.separator(factor=1.0)
             col.operator("bm.run_backup_manager", text="Delete Backup", icon='COLORSET_01_VEC').button_input = 'DELETE_BACKUP' 
 
          
@@ -517,7 +526,10 @@ class BackupManagerPreferences(AddonPreferences):
 
         col = row.column()
         col.scale_x = 0.8
-        col.operator("bm.run_backup_manager", text="Run Restore", icon='COLORSET_04_VEC').button_input = 'RESTORE'
+        col.operator("bm.run_backup_manager", text="Restore Selected", icon='COLORSET_04_VEC').button_input = 'RESTORE'
+        if self.advanced_mode:
+            col.operator("bm.run_backup_manager", text="Restore All", icon='COLORSET_04_VEC').button_input = 'BATCH_RESTORE'
+        col.separator(factor=1.0)
         col.prop(self, 'dry_run')      
         col.prop(self, 'clean_path')   
         col.prop(self, 'advanced_mode')  
