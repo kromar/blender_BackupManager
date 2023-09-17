@@ -38,6 +38,10 @@ def find_versions(filepath):
         )
     except Exception:
         print("filepath invalid: ", filepath)
+    
+    if prefs().debug:
+        print("\nVersion List: ", filepath, version_list)
+
     return version_list
 
 
@@ -165,13 +169,12 @@ class OT_BackupManager(Operator):
         backup_version_list = prefs().backup_version_list
         restore_version_list = prefs().restore_version_list  
         
-        if prefs().backup_path:            
-            
+        if prefs().backup_path:         
 
             if prefs().use_system_id:
                 system_id_path = os.path.join(prefs().backup_path, prefs().system_id, prefs().backup_versions).replace("\\", "/")  
             else:            
-                system_id_path = os.path.join(prefs().target_path, prefs().backup_versions).replace("\\", "/") 
+                system_id_path = os.path.join(prefs().backup_path, prefs().backup_versions).replace("\\", "/") 
 
             shared_path = os.path.join(prefs().backup_path, 'shared', prefs().backup_versions).replace("\\", "/") 
 
@@ -261,7 +264,7 @@ class OT_BackupManager(Operator):
                         float(version[0])
                     except:
                         backup_version_list.remove(version)
-                backup_version_list.sort(reverse=True)     
+                backup_version_list.sort(reverse=True)  
 
         else:
             self.ShowReport(["Specify a Backup Path"] , "Backup Path missing", 'COLORSET_04_VEC')

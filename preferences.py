@@ -114,15 +114,12 @@ class BackupManagerPreferences(AddonPreferences):
     clean_path: BoolProperty(name="Clean Backup", description="delete before backup", default=False) # default = False 
     
     def populate_backuplist(self, context):
-        self.backup_version_list
-        if not self.debug:  
+        self.backup_version_list = core.find_versions(self.backup_path)
+        if self.debug:  
             print("backup_version_list: ", self.backup_version_list)
         return self.backup_version_list      
       
-    backup_versions: EnumProperty(items=populate_backuplist, 
-                                    name="Backup", 
-                                    description="Choose the version to backup", 
-                                    update=update_version_list)
+    backup_versions: EnumProperty(items=populate_backuplist,name="Backup",  description="Choose the version to backup", update=update_version_list)
     
     backup_cache: BoolProperty(name="cache", description="backup_cache", default=False)   # default = False      
     backup_bookmarks: BoolProperty(name="bookmarks", description="backup_bookmarks", default=True)   # default = True   
@@ -134,17 +131,21 @@ class BackupManagerPreferences(AddonPreferences):
     backup_addons: BoolProperty(name="addons", description="backup_addons", default=True)   # default = True   
     backup_presets: BoolProperty(name="presets", description="backup_presets", default=True) # default = True
 
+
     # RESTORE      
     def populate_restorelist(self, context):
         self.restore_version_list
-        if not self.debug:
+        if self.debug:
             print("restore_version_list: ", self.restore_version_list)
-        return self.restore_version_list        
+        return self.restore_version_list  
+          
     restore_versions: EnumProperty(items=populate_restorelist, 
-                                    name="Restore", 
-                                    description="Choose the version to Resotre", 
-                                    update=update_version_list)
+                                   name="Restore", 
+                                   options={'ANIMATABLE'},
+                                   description="Choose the version to Resotre", 
+                                   update=None)
     
+
     restore_cache: BoolProperty(name="cache", description="restore_cache", default=False)  # default = False  
     restore_bookmarks: BoolProperty(name="bookmarks", description="restore_bookmarks", default=True)    # default = True
     restore_recentfiles: BoolProperty(name="recentfiles", description="restore_recentfiles", default=True)  # default = True
@@ -154,6 +155,7 @@ class BackupManagerPreferences(AddonPreferences):
     restore_datafile: BoolProperty(name="datafile", description="restore_datafile", default=True)       # default = True  
     restore_addons: BoolProperty(name="addons", description="restore_addons", default=True)    # default = True  
     restore_presets: BoolProperty(name="presets", description="restore_presets", default=True)   # default = True  
+
 
 
     # DRAW Preferences      
