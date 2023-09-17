@@ -138,15 +138,6 @@ class OT_BackupManager(Operator):
 
 
     def run_backup(self, source_path, target_path): 
-        
-        if prefs().use_system_id:
-            default_path = os.path.join(prefs().default_path , '!backupmanager/', prefs().system_id)
-        else:            
-            default_path = os.path.join(prefs().default_path , '!backupmanager/')  
-
-        if prefs().debug: 
-            print("default path: ", default_path)
-
 
         if prefs().clean_path:
             if os.path.exists(target_path):
@@ -164,9 +155,12 @@ class OT_BackupManager(Operator):
 
         if os.path.isdir(source_path): 
             if not prefs().dry_run:
-                self.recursive_overwrite(source_path, target_path,  ignore = shutil.ignore_patterns(*self.ignore_backup))                
+                self.recursive_overwrite(source_path, target_path,  ignore = shutil.ignore_patterns(*self.ignore_backup)) 
+
             else:
                 print("dry run, no files modified")
+
+
         """ 
         if prefs().custom_version and prefs().custom_version_toggle:
             self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " +  prefs().custom_version, 'COLORSET_07_VEC') 
@@ -192,6 +186,19 @@ class OT_BackupManager(Operator):
         if prefs().backup_path:            
             global backup_version_list
             global restore_version_list  
+            
+
+            if prefs().use_system_id:
+                system_id_path = os.path.join(prefs().backup_path, prefs().system_id, prefs().backup_versions).replace("\\", "/")  
+            else:            
+                system_id_path = os.path.join(target_path, prefs().backup_versions).replace("\\", "/") 
+
+            shared_path = os.path.join(prefs().backup_path, 'shared', prefs().backup_versions).replace("\\", "/") 
+
+            if prefs().debug: 
+                print("system_id_path: ", system_id_path)
+                print("shared_path: ", shared_path)
+
 
             if self.button_input == 'BACKUP':         
                 if not prefs().advanced_mode:            
@@ -221,7 +228,8 @@ class OT_BackupManager(Operator):
                         target_path = os.path.join(prefs().backup_path, str(prefs().custom_version)).replace("\\", "/")
                     else:                
                         target_path = os.path.join(prefs().backup_path, prefs().restore_versions).replace("\\", "/")
-                if os.path.exists(target_path):
+
+                if os.path.exists(target_path): # TODO: does this need to go into clean mode?
                     os.system('rmdir /S /Q "{}"'.format(target_path))
                     print("\nDeleted Backup: ", target_path)
 
@@ -317,14 +325,28 @@ class BackupManagerPreferences(AddonPreferences):
     use_system_id: BoolProperty(name="Shared configs", 
                                 description="use_system_id", 
                                 update=update_system_id,
-                                default=False)   # default = False 
+                                default=True)   # default = False 
     
     debug: BoolProperty(name="debug", description="debug", update=update_system_id, default=True) # default = False  
     
-    active_blender_version: StringProperty(name="Current Blender Version", description="Current Blender Version", subtype='NONE', default=this_version)
-    dry_run: BoolProperty(name="Dry Run", description="Run code without modifying any files on the drive. NOTE: this will not create or restore any backups!", default=False)     # default = False 
-    advanced_mode: BoolProperty(name="Advanced", description="Advanced backup and restore options", default=True, update=update_version_list)  # default = True
-    expand_version_selection: BoolProperty(name="Expand Versions", description="Switch between dropdown and expanded version layout", default=True, update=update_version_list)  # default = True
+    active_blender_version: StringProperty(name="Current Blender Version", 
+                                           description="Current Blender Version", 
+                                           subtype='NONE', 
+                                           default=this_version)
+    dry_run: BoolProperty(name="Dry Run",
+                          description="Run code without modifying any files on the drive."
+                          "NOTE: this will not create or restore any backups!", 
+                          default=True)     # default = False 
+    
+    advanced_mode: BoolProperty(name="Advanced", 
+                                description="Advanced backup and restore options", 
+                                default=True, 
+                                update=update_version_list)  # default = True
+    
+    expand_version_selection: BoolProperty(name="Expand Versions", 
+                                           description="Switch between dropdown and expanded version layout", 
+                                           default=True, 
+                                           update=update_version_list)  # default = True
     
     # BACKUP  
     custom_version_toggle: BoolProperty(name="Custom Version", description="Set your custom backup version", default=False, update=update_version_list)  # default = False  
@@ -333,7 +355,7 @@ class BackupManagerPreferences(AddonPreferences):
     
     def populate_backuplist(self, context):
         global backup_version_list
-        if self.debug:  
+        if not self.debug:  
             print("backup_version_list: ", backup_version_list)
         return backup_version_list      
       
@@ -355,7 +377,7 @@ class BackupManagerPreferences(AddonPreferences):
     # RESTORE      
     def populate_restorelist(self, context):
         global restore_version_list
-        if self.debug:
+        if not self.debug:
             print("restore_version_list: ", restore_version_list)
         return restore_version_list        
     restore_versions: EnumProperty(items=populate_restorelist, 
