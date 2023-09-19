@@ -57,7 +57,7 @@ class BM_MT_BR(Menu):
 
 classes = (
     core.OT_BackupManager,
-    preferences.BackupManagerPreferences,
+    preferences.BM_Preferences,
     BM_MT_BR,
     )
 

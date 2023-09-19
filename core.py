@@ -21,7 +21,8 @@ import bpy
 import os
 import shutil
 import numpy
-from bpy.types import Operator, Context, AddonPreferences, Menu
+from bpy.types import Operator
+from . import preferences
 
 
 def prefs():
@@ -163,13 +164,14 @@ class OT_BackupManager(Operator):
 
     
     def execute(self, context): 
-        if prefs().debug:
-            print("\n\nbutton_input: ", self.button_input) 
-                   
-        backup_version_list = prefs().backup_version_list
-        restore_version_list = prefs().restore_version_list  
         
-        if prefs().backup_path:         
+        backup_version_list = preferences.BM_Preferences.backup_version_list
+        restore_version_list = preferences.BM_Preferences.restore_version_list  
+
+        if prefs().debug:
+            print("\n\nbutton_input: ", self.button_input)                    
+        
+        if prefs().backup_path:     
 
             if prefs().use_system_id:
                 system_id_path = os.path.join(prefs().backup_path, prefs().system_id, prefs().backup_versions).replace("\\", "/")  
@@ -227,7 +229,7 @@ class OT_BackupManager(Operator):
                 
             elif self.button_input == 'BATCH_RESTORE':
                 for version in restore_version_list:
-                    if self.debug:
+                    if prefs().debug:
                         print(version[0])
                     source_path = os.path.join(prefs().backup_path, version[0]).replace("\\", "/")
                     target_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  version[0]).replace("\\", "/")                    
@@ -235,22 +237,26 @@ class OT_BackupManager(Operator):
            
 
             elif self.button_input == 'SEARCH_BACKUP':
-                #backup_version_list.clear() 
+                backup_version_list.clear() 
                 backup_version_list = find_versions(bpy.utils.resource_path(type='USER').strip(prefs().active_blender_version))
                 backup_version_list.sort(reverse=True)
 
-                #restore_version_list.clear()    
+                restore_version_list.clear()    
                 restore_version_list = set(find_versions(prefs().backup_path) + backup_version_list)
                 restore_version_list = list(dict.fromkeys(restore_version_list))
-                restore_version_list.sort(reverse=True)
+                restore_version_list.sort(reverse=True)   
+                
+                # update version lists
+                preferences.BM_Preferences.restore_version_list = restore_version_list
+                preferences.BM_Preferences.backup_version_list = backup_version_list
             
 
             elif self.button_input == 'SEARCH_RESTORE': 
-                #restore_version_list.clear()        
+                restore_version_list.clear()        
                 restore_version_list = find_versions(prefs().backup_path)
                 restore_version_list.sort(reverse=True) 
 
-                #backup_version_list.clear() 
+                backup_version_list.clear() 
                 backup_version_list = set(find_versions(bpy.utils.resource_path(type='USER').strip(prefs().active_blender_version)) + restore_version_list)
                 if prefs().debug:
                     print("list 1: ", backup_version_list)
@@ -258,13 +264,17 @@ class OT_BackupManager(Operator):
                 if prefs().debug:
                     print("list 2: ", backup_version_list)
                 
-                
-                for version in backup_version_list: # remove custom items from list (assuming non floats are invalid)
+                # remove custom items from list (assuming non floats are invalid)
+                for version in backup_version_list: 
                     try:
                         float(version[0])
                     except:
                         backup_version_list.remove(version)
                 backup_version_list.sort(reverse=True)  
+                
+                # update version lists
+                preferences.BM_Preferences.restore_version_list = restore_version_list
+                preferences.BM_Preferences.backup_version_list = backup_version_list            
 
         else:
             self.ShowReport(["Specify a Backup Path"] , "Backup Path missing", 'COLORSET_04_VEC')

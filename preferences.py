@@ -23,25 +23,15 @@ import socket
 from bpy.types import AddonPreferences
 from bpy.props import StringProperty, EnumProperty, BoolProperty
 
-from . import core
 
-
-# globals
-
-
-preferences_tabs = [("BACKUP", "Backup Options", ""),
-                ("RESTORE", "Restore Options", "")]
-
-class BackupManagerPreferences(AddonPreferences):
+class BM_Preferences(AddonPreferences):
     bl_idname = __package__  
     this_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])  
-
-
+    
     initial_version = f'{str(bpy.app.version[0])}.{str(bpy.app.version[1])}'
     backup_version_list = [(initial_version, initial_version, '', 0)]
     restore_version_list = [(initial_version, initial_version, '', 0)]
-    print("restore_version_list: ", restore_version_list)
-
+    
     def update_version_list(self, context):
         if self.debug:
             print("update_version_list: ", f'SEARCH_{self.tabs}')
@@ -61,17 +51,20 @@ class BackupManagerPreferences(AddonPreferences):
             default_path = os.path.join(self.default_path , '!backupmanager/')            
         
         if self.debug:
-            print("system id path: ", default_path) 
+            print("system id path: ", default_path)  
 
     print("Backup Manager Default path: ", default_path)
 
     backup_path: StringProperty(name="Backup Path", description="Backup Location", subtype='DIR_PATH', default=os.path.join(default_path , '!backupmanager/'), update=update_version_list)
     blender_user_path: bpy.props.StringProperty(default=bpy.utils.resource_path(type='USER'))
     
+    preferences_tabs = [("BACKUP", "Backup Options", ""),
+                ("RESTORE", "Restore Options", "")]
+    
     tabs: EnumProperty(name="Tabs", 
                        items=preferences_tabs, 
                        default="BACKUP",
-                         update=update_version_list)   
+                       update=update_version_list)   
     
     config_path: StringProperty(name="config_path",
                                 description="config_path", 
@@ -114,16 +107,12 @@ class BackupManagerPreferences(AddonPreferences):
     clean_path: BoolProperty(name="Clean Backup", description="delete before backup", default=False) # default = False 
     
     def populate_backuplist(self, context):
-        self.backup_version_list = core.find_versions(self.backup_path)
-        #self.backup_version_list
-        if self.debug:  
-            print("backup_version_list: ", self.backup_version_list)
         return self.backup_version_list      
       
     backup_versions: EnumProperty(items=populate_backuplist,
                                   name="Backup",  
                                   description="Choose the version to backup", 
-                                  update=update_version_list)
+                                  update=None)
     
     backup_cache: BoolProperty(name="cache", description="backup_cache", default=False)   # default = False      
     backup_bookmarks: BoolProperty(name="bookmarks", description="backup_bookmarks", default=True)   # default = True   
@@ -138,17 +127,13 @@ class BackupManagerPreferences(AddonPreferences):
 
     # RESTORE      
     def populate_restorelist(self, context):
-        self.restore_version_list
-        if self.debug:
-            print("restore_version_list: ", self.restore_version_list)
         return self.restore_version_list  
           
     restore_versions: EnumProperty(items=populate_restorelist, 
                                    name="Restore", 
                                    description="Choose the version to Resotre", 
-                                   update=update_version_list)
+                                   update=None)
     
-
     restore_cache: BoolProperty(name="cache", description="restore_cache", default=False)  # default = False  
     restore_bookmarks: BoolProperty(name="bookmarks", description="restore_bookmarks", default=True)    # default = True
     restore_recentfiles: BoolProperty(name="recentfiles", description="restore_recentfiles", default=True)  # default = True
