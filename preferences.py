@@ -115,11 +115,15 @@ class BackupManagerPreferences(AddonPreferences):
     
     def populate_backuplist(self, context):
         self.backup_version_list = core.find_versions(self.backup_path)
+        #self.backup_version_list
         if self.debug:  
             print("backup_version_list: ", self.backup_version_list)
         return self.backup_version_list      
       
-    backup_versions: EnumProperty(items=populate_backuplist,name="Backup",  description="Choose the version to backup", update=update_version_list)
+    backup_versions: EnumProperty(items=populate_backuplist,
+                                  name="Backup",  
+                                  description="Choose the version to backup", 
+                                  update=update_version_list)
     
     backup_cache: BoolProperty(name="cache", description="backup_cache", default=False)   # default = False      
     backup_bookmarks: BoolProperty(name="bookmarks", description="backup_bookmarks", default=True)   # default = True   
@@ -141,9 +145,8 @@ class BackupManagerPreferences(AddonPreferences):
           
     restore_versions: EnumProperty(items=populate_restorelist, 
                                    name="Restore", 
-                                   options={'ANIMATABLE'},
                                    description="Choose the version to Resotre", 
-                                   update=None)
+                                   update=update_version_list)
     
 
     restore_cache: BoolProperty(name="cache", description="restore_cache", default=False)  # default = False  
