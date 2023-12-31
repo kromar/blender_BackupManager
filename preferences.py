@@ -92,7 +92,7 @@ class BM_Preferences(AddonPreferences):
     dry_run: BoolProperty(name="Dry Run",
                           description="Run code without modifying any files on the drive."
                           "NOTE: this will not create or restore any backups!", 
-                          default=True)     # default = False 
+                          default=False)     # default = False 
     
     advanced_mode: BoolProperty(name="Advanced", 
                                 description="Advanced backup and restore options", 
