@@ -32,16 +32,17 @@ def prefs():
 def find_versions(filepath):
     version_list = []
     
-    try:
-        version_list.extend(
-            (folder, folder, '')
-            for folder in os.listdir(os.path.dirname(filepath))
-        )
+    try:          
+        for file in os.listdir(os.path.dirname(filepath)):
+            path = os.path.join(filepath, file)
+            if os.path.isdir(path):      
+                version_list.append((file, file, ''))
+
     except Exception:
         print("filepath invalid: ", filepath)
     
     if prefs().debug:
-        print("\nVersion List: ", filepath, version_list)
+        print("\nVersion List: ", version_list)
 
     return version_list
 
@@ -65,6 +66,10 @@ class OT_BackupManager(Operator):
     def create_ignore_pattern(self):
         self.ignore_backup.clear()
         self.ignore_restore.clear()
+        
+        for item in prefs().ignore_files:
+            self.ignore_backup.append(item)
+            self.ignore_restore.append(item)
 
         if not prefs().backup_bookmarks:
             self.ignore_backup.append('bookmarks.txt')

@@ -80,7 +80,10 @@ class BM_Preferences(AddonPreferences):
                                 update=update_system_id,
                                 default=True)   # default = False 
     
-    debug: BoolProperty(name="debug", description="debug", update=update_system_id, default=True) # default = False  
+    debug: BoolProperty(name="debug", 
+                        description="debug", 
+                        update=update_system_id, 
+                        default=False) # default = False  
     
     active_blender_version: StringProperty(name="Current Blender Version", 
                                            description="Current Blender Version", 
@@ -93,13 +96,13 @@ class BM_Preferences(AddonPreferences):
     
     advanced_mode: BoolProperty(name="Advanced", 
                                 description="Advanced backup and restore options", 
-                                default=True, 
-                                update=update_version_list)  # default = True
+                                update=update_version_list,
+                                default=True)  # default = True
     
     expand_version_selection: BoolProperty(name="Expand Versions", 
-                                           description="Switch between dropdown and expanded version layout", 
-                                           default=True, 
-                                           update=update_version_list)  # default = True
+                                           description="Switch between dropdown and expanded version layout",
+                                           update=update_version_list, 
+                                           default=True)  # default = True
     
     # BACKUP  
     custom_version_toggle: BoolProperty(name="Custom Version", description="Set your custom backup version", default=False, update=update_version_list)  # default = False  
@@ -144,7 +147,10 @@ class BM_Preferences(AddonPreferences):
     restore_addons: BoolProperty(name="addons", description="restore_addons", default=True)    # default = True  
     restore_presets: BoolProperty(name="presets", description="restore_presets", default=True)   # default = True  
 
-
+    ignore_files: StringProperty(name="Ignore Files",
+                                description="Ignore files from being backed up or restored", 
+                                subtype='FILE_NAME', 
+                                default='desktop.ini')
 
     # DRAW Preferences      
     def draw(self, context):
@@ -160,8 +166,10 @@ class BM_Preferences(AddonPreferences):
         col  = box.column(align=False)  
         col.use_property_split = True 
         col.prop(self, 'backup_path') 
-        col.prop(self, 'use_system_id')
-        col.prop(self, 'debug')
+        
+        col.prop(self, 'ignore_files')
+        #col.prop(self, 'use_system_id')
+        #col.prop(self, 'debug')
         
         col  = box.column(align=False)         
         col.use_property_split = True        
