@@ -78,13 +78,13 @@ def backupandrestore_menu_fn(self, context: Context) -> None:
 def register():    
     [bpy.utils.register_class(c) for c in classes]
     bpy.types.TOPBAR_MT_file_defaults.append(menus_draw_fn)
-    bpy.types.TOPBAR_MT_file.append(backupandrestore_menu_fn)
+    #bpy.types.TOPBAR_MT_file.append(backupandrestore_menu_fn)
 
 
 def unregister():
     [bpy.utils.unregister_class(c) for c in classes]
     bpy.types.TOPBAR_MT_file_defaults.remove(menus_draw_fn)
-    bpy.types.TOPBAR_MT_file.remove(backupandrestore_menu_fn)
+    #bpy.types.TOPBAR_MT_file.remove(backupandrestore_menu_fn)
 
 if __name__ == "__main__":
     register()
