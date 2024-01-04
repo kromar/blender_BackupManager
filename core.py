@@ -66,8 +66,11 @@ class OT_BackupManager(Operator):
     def create_ignore_pattern(self):
         self.ignore_backup.clear()
         self.ignore_restore.clear()
+
         
-        for item in prefs().ignore_files:
+        import re     
+        list = [x for x in re.split(',|\s+', prefs().ignore_files) if x!='']        
+        for item in list:
             self.ignore_backup.append(item)
             self.ignore_restore.append(item)
 
