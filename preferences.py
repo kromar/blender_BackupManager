@@ -55,8 +55,12 @@ class BM_Preferences(AddonPreferences):
 
     print("Backup Manager Default path: ", default_path)
 
-    backup_path: StringProperty(name="Backup Path", description="Backup Location", subtype='DIR_PATH', default=os.path.join(default_path , '!backupmanager/'), update=update_version_list)
-    blender_user_path: bpy.props.StringProperty(default=bpy.utils.resource_path(type='USER'))
+    backup_path: StringProperty(name="Backup Path", 
+                                description="Backup Location", 
+                                subtype='DIR_PATH', 
+                                default=os.path.join(default_path , '!backupmanager/'), 
+                                update=update_version_list)
+    blender_user_path: StringProperty(default=bpy.utils.resource_path(type='USER'))
     
     preferences_tabs = [("BACKUP", "Backup Options", ""),
                 ("RESTORE", "Restore Options", "")]
@@ -83,7 +87,7 @@ class BM_Preferences(AddonPreferences):
     debug: BoolProperty(name="debug", 
                         description="debug", 
                         update=update_system_id, 
-                        default=False) # default = False  
+                        default=True) # default = False  
     
     active_blender_version: StringProperty(name="Current Blender Version", 
                                            description="Current Blender Version", 
@@ -105,9 +109,17 @@ class BM_Preferences(AddonPreferences):
                                            default=True)  # default = True
     
     # BACKUP  
-    custom_version_toggle: BoolProperty(name="Custom Version", description="Set your custom backup version", default=False, update=update_version_list)  # default = False  
-    custom_version: StringProperty(name="Custom Version", description="Custom version folder", subtype='NONE', default='custom')
-    clean_path: BoolProperty(name="Clean Backup", description="delete before backup", default=False) # default = False 
+    custom_version_toggle: BoolProperty(name="Custom Version", 
+                                        description="Set your custom backup version", 
+                                        default=False, 
+                                        update=update_version_list)  # default = False  
+    custom_version: StringProperty(name="Custom Version", 
+                                   description="Custom version folder", 
+                                   subtype='NONE', 
+                                   default='custom')
+    clean_path: BoolProperty(name="Clean Backup", 
+                             description="delete before backup", 
+                             default=False) # default = False 
     
     def populate_backuplist(self, context):
         return self.backup_version_list      
@@ -124,7 +136,8 @@ class BM_Preferences(AddonPreferences):
     backup_userpref_blend: BoolProperty(name="userpref.blend", description="backup_userpref_blend", default=True)  # default = True  
     backup_workspaces_blend: BoolProperty(name="workspaces.blend", description="backup_workspaces_blend", default=True)  # default = True 
     backup_datafile: BoolProperty( name="datafile", description="backup_datafile", default=True)  # default = True       
-    backup_addons: BoolProperty(name="addons", description="backup_addons", default=True)   # default = True   
+    backup_addons: BoolProperty(name="addons", description="backup_addons", default=True)   # default = True       
+    backup_extensions: BoolProperty(name="extensions", description="backup_extensions", default=True)   # default = True     
     backup_presets: BoolProperty(name="presets", description="backup_presets", default=True) # default = True
 
 
@@ -145,6 +158,7 @@ class BM_Preferences(AddonPreferences):
     restore_workspaces_blend: BoolProperty(name="workspaces.blend", description="restore_workspaces_blend", default=True)   # default = True
     restore_datafile: BoolProperty(name="datafile", description="restore_datafile", default=True)       # default = True  
     restore_addons: BoolProperty(name="addons", description="restore_addons", default=True)    # default = True  
+    restore_extensions: BoolProperty(name="extensions", description="restore_extensions", default=True)    # default = True  
     restore_presets: BoolProperty(name="presets", description="restore_presets", default=True)   # default = True  
 
     ignore_files: StringProperty(name="Ignore Files",
@@ -168,8 +182,8 @@ class BM_Preferences(AddonPreferences):
         col.prop(self, 'backup_path') 
         
         col.prop(self, 'ignore_files')
-        #col.prop(self, 'use_system_id')
-        #col.prop(self, 'debug')
+        col.prop(self, 'use_system_id')
+        col.prop(self, 'debug')
         
         col  = box.column(align=False)         
         col.use_property_split = True        
@@ -361,6 +375,7 @@ class BM_Preferences(AddonPreferences):
             row = box.row()            
             col = row.column() 
             col.prop(self, 'backup_addons') 
+            col.prop(self, 'backup_extensions') 
             col.prop(self, 'backup_presets')  
             col.prop(self, 'backup_datafile') 
 
@@ -379,6 +394,7 @@ class BM_Preferences(AddonPreferences):
             row = box.row()            
             col = row.column() 
             col.prop(self, 'restore_addons') 
+            col.prop(self, 'restore_extensions') 
             col.prop(self, 'restore_presets')  
             col.prop(self, 'restore_datafile') 
 

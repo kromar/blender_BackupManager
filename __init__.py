@@ -33,7 +33,7 @@ bl_info = {
     "name": "Backup Manager",
     "description": "Backup and Restore your Blender configuration files",
     "author": "Daniel Grauer",
-    "version": (1, 2, 0),
+    "version": (1, 2, 1),
     "blender": (2, 93, 0),
     "location": "Preferences",
     "category": "!System",
@@ -45,15 +45,13 @@ def prefs():
     user_preferences = bpy.context.preferences
     return user_preferences.addons[__package__].preferences
 
-      
-
-
 class BM_MT_BR(Menu):
     bl_label = 'Backup and Restore'
     bl_idname = 'BM_MT_BR'
 
     def draw(self, context):
         pass
+
 
 classes = (
     core.OT_BackupManager,
@@ -77,13 +75,13 @@ def backupandrestore_menu_fn(self, context: Context) -> None:
 
 def register():    
     [bpy.utils.register_class(c) for c in classes]
-    bpy.types.TOPBAR_MT_file_defaults.append(menus_draw_fn)
+    #bpy.types.TOPBAR_MT_file_defaults.append(menus_draw_fn)
     #bpy.types.TOPBAR_MT_file.append(backupandrestore_menu_fn)
 
 
 def unregister():
     [bpy.utils.unregister_class(c) for c in classes]
-    bpy.types.TOPBAR_MT_file_defaults.remove(menus_draw_fn)
+    #bpy.types.TOPBAR_MT_file_defaults.remove(menus_draw_fn)
     #bpy.types.TOPBAR_MT_file.remove(backupandrestore_menu_fn)
 
 if __name__ == "__main__":

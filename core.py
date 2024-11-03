@@ -22,6 +22,7 @@ import os
 import shutil
 import numpy
 from bpy.types import Operator
+from bpy.props import StringProperty
 from . import preferences
 
 
@@ -52,7 +53,7 @@ class OT_BackupManager(Operator):
     ''' run backup & restore '''
     bl_idname = "bm.run_backup_manager"
     bl_label = "Blender Versions"     
-    button_input: bpy.props.StringProperty()
+    button_input: StringProperty()
     ignore_backup = []
     ignore_restore = []
 
@@ -100,14 +101,22 @@ class OT_BackupManager(Operator):
             self.ignore_backup.append('cache')
         if not prefs().restore_cache:
             self.ignore_restore.append('cache')
+
         if not prefs().backup_datafile:
             self.ignore_backup.append('datafiles')
         if not prefs().restore_datafile:
             self.ignore_restore.append('datafiles')
+
         if not prefs().backup_addons:
             self.ignore_backup.append('addons')
         if not prefs().restore_addons:
             self.ignore_restore.append('addons')
+            
+        if not prefs().backup_extensions:
+            self.ignore_backup.append('extensions')
+        if not prefs().restore_extensions:
+            self.ignore_restore.append('extensions')
+
         if not prefs().backup_presets:
             self.ignore_backup.append('presets')
         if not prefs().restore_presets:
