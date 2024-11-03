@@ -78,16 +78,17 @@ class BM_Preferences(AddonPreferences):
     system_id: StringProperty(name="ID", 
                               description="Current Computer Name", 
                               subtype='NONE',
-                              default=str(socket.getfqdn()))  
+                              default=str(socket.getfqdn())) 
+     
     use_system_id: BoolProperty(name="Shared configs", 
                                 description="use_system_id", 
                                 update=update_system_id,
-                                default=True)   # default = False 
+                                default=False)   # default = False 
     
     debug: BoolProperty(name="debug", 
                         description="debug", 
                         update=update_system_id, 
-                        default=True) # default = False  
+                        default=False) # default = False  
     
     active_blender_version: StringProperty(name="Current Blender Version", 
                                            description="Current Blender Version", 
@@ -182,8 +183,8 @@ class BM_Preferences(AddonPreferences):
         col.prop(self, 'backup_path') 
         
         col.prop(self, 'ignore_files')
-        col.prop(self, 'use_system_id')
-        col.prop(self, 'debug')
+        #col.prop(self, 'use_system_id')
+        #col.prop(self, 'debug')
         
         col  = box.column(align=False)         
         col.use_property_split = True        
