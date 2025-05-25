@@ -63,7 +63,8 @@ def get_paths_for_details(prefs_instance):
             paths.add(os.path.join(base_user_path_dir, p.backup_versions))
     
     final_paths = list(path for path in paths if path) # Filter out only None or empty strings
-    if prefs_instance.debug: print(f"DEBUG: get_paths_for_details collected raw paths: {paths}, returning filtered: {final_paths}")
+    if prefs_instance.debug:
+        print(f"DEBUG: get_paths_for_details collected {len(final_paths)} relevant paths: {final_paths if len(final_paths) < 5 else '[Too many to list, see raw for full list]'}")
     return final_paths
 
 def _calculate_path_age_str(path_to_scan):
@@ -89,6 +90,7 @@ class BM_Preferences(AddonPreferences):
     
     _age_cache = {}
     _size_cache = {}
+    _initial_scan_done = False # Flag to track if the initial version scan has run
     
     initial_version = f'{str(bpy.app.version[0])}.{str(bpy.app.version[1])}'
     backup_version_list = [(initial_version, initial_version, '', 0)]
@@ -104,7 +106,7 @@ class BM_Preferences(AddonPreferences):
             BM_Preferences._size_cache.clear()
             if self.debug: print("DEBUG: update_version_list: Cleared _size_cache.")
             # print("DEBUG: Cleared age and size caches due to version list update.") # Slightly redundant with above
-            print("\n" + "="*40 + " NEW UPDATE FRAME " + "="*40 + "\n") # Visual separator for new update
+            print("\n" + "="*40 + " update_version_list (NEW UPDATE FRAME) " + "="*40 + "\n") # Visual separator
             _start_time_uvl = datetime.now()
             print(f"DEBUG: update_version_list START for tabs: {self.tabs}")
         if self.debug:
@@ -116,6 +118,9 @@ class BM_Preferences(AddonPreferences):
         if self.debug:
             _end_time_uvl = datetime.now()
             print(f"DEBUG: (took: {(_end_time_uvl - _call_time_uvl).total_seconds():.6f}s) update_version_list FINISHED bpy.ops.bm.run_backup_manager. Total update_version_list time: {(_end_time_uvl - _start_time_uvl).total_seconds():.6f}s")
+        
+        # Mark the initial scan as done if this was the first time update_version_list was called
+        BM_Preferences._initial_scan_done = True
         
         # After version lists are updated by the operator,
         # explicitly recalculate path details if they are meant to be shown.
@@ -206,24 +211,21 @@ class BM_Preferences(AddonPreferences):
         # Caches are now class attributes, no need for hasattr check here for initialization
 
         for path in paths_to_update:
-            if self.debug: print(f"DEBUG: _update_path_details_for_paths (id(self)={id(self)}): Processing path '{path}'")
+            if self.debug: print(f"DEBUG: _update_path_details_for_paths: Processing '{path}'")
             new_age_text = _calculate_path_age_str(path)
-            if self.debug: print(f"DEBUG: _update_path_details_for_paths: Calculated age for '{path}': '{new_age_text}'")
             if BM_Preferences._age_cache.get(path) != new_age_text:
                 BM_Preferences._age_cache[path] = new_age_text
                 cache_updated = True
-                if self.debug: print(f"DEBUG: _update_path_details_for_paths: Updated _age_cache for '{path}'")
-            elif self.debug:
-                print(f"DEBUG: _update_path_details_for_paths: _age_cache for '{path}' unchanged.")
+                if self.debug: print(f"DEBUG: _update_path_details_for_paths: Cached new age for '{path}'")
 
             new_size_text = _calculate_path_size_str(path)
-            if self.debug: print(f"DEBUG: _update_path_details_for_paths: Calculated size for '{path}': '{new_size_text}'")
             if BM_Preferences._size_cache.get(path) != new_size_text:
                 BM_Preferences._size_cache[path] = new_size_text
                 cache_updated = True
-                if self.debug: print(f"DEBUG: _update_path_details_for_paths: Updated _size_cache for '{path}'")
-            elif self.debug:
-                print(f"DEBUG: _update_path_details_for_paths: _size_cache for '{path}' unchanged.")
+                if self.debug: print(f"DEBUG: _update_path_details_for_paths: Cached new size for '{path}'")
+        
+        if self.debug and not cache_updated and paths_to_update:
+            print(f"DEBUG: _update_path_details_for_paths: No cache changes for paths: {paths_to_update if len(paths_to_update) < 5 else '[Multiple paths, no changes]'}")
         return cache_updated
 
     def _on_show_path_details_changed(self, context):
@@ -233,7 +235,8 @@ class BM_Preferences(AddonPreferences):
         if self.show_path_details:
             if self.debug: print("DEBUG: show_path_details enabled. Calculating details for current view.")
             paths = get_paths_for_details(self)
-            if self.debug: print(f"DEBUG: _on_show_path_details_changed: paths_to_update = {paths}")
+            # Path list already printed by get_paths_for_details if debug is on
+            # if self.debug: print(f"DEBUG: _on_show_path_details_changed: paths_to_update = {paths}")
             if self._update_path_details_for_paths(paths):
                 if context and hasattr(context, 'area') and context.area:
                     context.area.tag_redraw()
@@ -251,7 +254,8 @@ class BM_Preferences(AddonPreferences):
         if self.show_path_details:
             if self.debug: print("DEBUG: Version selection or custom version changed. Recalculating details for current view.")
             paths = get_paths_for_details(self) # Re-evaluate all relevant paths
-            if self.debug: print(f"DEBUG: _on_version_or_custom_changed: paths_to_update = {paths}")
+            # Path list already printed by get_paths_for_details if debug is on
+            # if self.debug: print(f"DEBUG: _on_version_or_custom_changed: paths_to_update = {paths}")
             
             if self._update_path_details_for_paths(paths):
                 if self.debug: print("DEBUG: _on_version_or_custom_changed: Cache updated, tagging for redraw.")
@@ -267,7 +271,7 @@ class BM_Preferences(AddonPreferences):
 
     show_path_details: BoolProperty(name="Show Path Details",
                                     description="Display last change date and size for backup/restore paths. Calculated on demand.",
-                                    default=False,
+                                    default=True,
                                     update=_on_show_path_details_changed)
     
     advanced_mode: BoolProperty(name="Advanced", 
@@ -280,30 +284,34 @@ class BM_Preferences(AddonPreferences):
                                            update=update_version_list,
                                            default=True)  # default = True
     
-    # BACKUP  
-    custom_version_toggle: BoolProperty(name="Custom Version", 
-                                        description="Set your custom backup version", 
-                                        default=False,  # default = False
-                                        update=update_version_list,
-                                        )
-    
     custom_version: StringProperty(name="Custom Version", 
                                    description="Custom version folder", 
                                    subtype='NONE', 
                                    default='custom',
                                    update=_on_version_or_custom_changed)
     
+    # BACKUP  (custom_version_toggle was defined twice, keeping this one as it's grouped with other backup options)
+    custom_version_toggle: BoolProperty(name="Custom Version", 
+                                        description="Set your custom backup version", 
+                                        default=False,  # default = False
+                                        update=update_version_list,
+                                        )
+
     clean_path: BoolProperty(name="Clean Backup", 
                              description="delete before backup", 
                              default=False) # default = False 
     
     def populate_backuplist(self, context):
+        #if hasattr(self, 'debug') and self.debug: # Check if self has debug, might not always if context is weird
+            #print(f"DEBUG: populate_backuplist CALLED. Returning BM_Preferences.backup_version_list (len={len(BM_Preferences.backup_version_list)}): {BM_Preferences.backup_version_list}")
         return self.backup_version_list      
       
     backup_versions: EnumProperty(items=populate_backuplist,
                                   name="Backup",  
                                   description="Choose the version to backup", 
                                   update=_on_version_or_custom_changed)
+    # Note: It's unusual to have an EnumProperty directly use a class variable list
+    # that is modified by an operator. Usually, the items function generates the list on demand.
     
     backup_cache: BoolProperty(name="cache", description="backup_cache", default=False)   # default = False      
     backup_bookmarks: BoolProperty(name="bookmarks", description="backup_bookmarks", default=True)   # default = True   
@@ -319,6 +327,8 @@ class BM_Preferences(AddonPreferences):
 
     # RESTORE      
     def populate_restorelist(self, context):
+        #if hasattr(self, 'debug') and self.debug:
+            #print(f"DEBUG: populate_restorelist CALLED. Returning BM_Preferences.restore_version_list (len={len(BM_Preferences.restore_version_list)}): {BM_Preferences.restore_version_list}")
         return self.restore_version_list  
           
     restore_versions: EnumProperty(items=populate_restorelist, 
@@ -391,7 +401,7 @@ class BM_Preferences(AddonPreferences):
         display_text = BM_Preferences._age_cache.get(path)
         if display_text is None: # Not yet calculated by timer or path is new
             display_text = "Last change: Calculating..."
-            if self.debug: print(f"DEBUG: draw_backup_age (id(self)={id(self)}): No cache for '{path}', displaying 'Calculating...'")
+            if self.debug: print(f"DEBUG: draw_backup_age: No cache for '{path}', displaying 'Calculating...'")
         elif self.debug:
              print(f"DEBUG: draw_backup_age: Using cached value for '{path}': {display_text}")
         col.label(text=display_text)
@@ -402,7 +412,7 @@ class BM_Preferences(AddonPreferences):
         display_text = BM_Preferences._size_cache.get(path)
         if display_text is None: # Not yet calculated by timer or path is new
             display_text = "Size: Calculating..."
-            if self.debug: print(f"DEBUG: draw_backup_size (id(self)={id(self)}): No cache for '{path}', displaying 'Calculating...'")
+            if self.debug: print(f"DEBUG: draw_backup_size: No cache for '{path}', displaying 'Calculating...'")
         elif self.debug:
             print(f"DEBUG: draw_backup_size: Using cached value for '{path}': {display_text}")
         col.label(text=display_text)
@@ -468,6 +478,10 @@ class BM_Preferences(AddonPreferences):
             # Advanced options
             col = box1.column()   
             col.scale_x = 0.8   
+            # Redundant debug prints, populate_backuplist already logs list state
+            # if self.debug:
+            #     print(f"DEBUG: draw_backup (Advanced): expand={self.expand_version_selection}, val='{self.backup_versions}'")
+            #     print(f"DEBUG: draw_backup (Advanced): BM_Preferences.backup_version_list (len={len(BM_Preferences.backup_version_list)})")
             col.prop(self, 'backup_versions', text='Backup From', expand = self.expand_version_selection) 
     
             col = box2.column()   
@@ -477,6 +491,9 @@ class BM_Preferences(AddonPreferences):
             else:      
                 col.scale_x = 0.8 
                 col.prop(self, 'restore_versions', text='Backup To', expand = self.expand_version_selection)
+                # Redundant debug prints
+                # if self.debug:
+                #     print(f"DEBUG: draw_backup (Advanced, Backup To): expand={self.expand_version_selection}, val='{self.restore_versions}'")
             
             self.draw_selection(box)
 
@@ -537,10 +554,18 @@ class BM_Preferences(AddonPreferences):
             # Advanced options
             col = box1.column() 
             col.scale_x = 0.8
+            # Redundant debug prints
+            # if self.debug:
+            #     print(f"DEBUG: draw_restore (Advanced): expand={self.expand_version_selection}, val='{self.restore_versions}'")
+            #     print(f"DEBUG: draw_restore (Advanced): BM_Preferences.restore_version_list (len={len(BM_Preferences.restore_version_list)})")
             col.prop(self, 'restore_versions', text='Restore From', expand = self.expand_version_selection) 
             
             col = box2.column()  
             col.scale_x = 0.8                 
+            # Redundant debug prints
+            # if self.debug:
+            #     print(f"DEBUG: draw_restore (Advanced, Restore To): expand={self.expand_version_selection}, val='{self.backup_versions}'")
+            #     print(f"DEBUG: draw_restore (Advanced, Restore To): BM_Preferences.backup_version_list (len={len(BM_Preferences.backup_version_list)})")
             col.prop(self, 'backup_versions', text='Restore To', expand = self.expand_version_selection)
 
             self.draw_selection(box)

@@ -24,16 +24,17 @@ import importlib
 # re-enabled or re-registered in Blender, which is common during development.
 # "bpy" in locals() checks if Blender's Python environment (bpy) is already
 # initialized in the current scope, indicating a reload rather than an initial load.
+
+# Always import the modules first so they are in the namespace
+from . import preferences
+from . import core
+
+import bpy.app.timers # Import timers module
+
 if "bpy" in locals():
     # If reloading, re-import the addon's core modules to pick up changes.
-    # 'preferences' and 'core' module objects are expected to be in the global
-    # scope from the initial load (the 'else' block below).
     importlib.reload(preferences)
     importlib.reload(core)
-else:
-    # Initial load of the addon.
-    from . import preferences
-    from . import core
 
 # Third-party imports (Blender API)
 import bpy
@@ -78,23 +79,62 @@ def menus_draw_fn(self, context: Context) -> None:
     layout.menu(BM_MT_BR.bl_idname)   
     
 
-# The BM_MT_BR menu is empty. If this menu is intended to be used,
-# its draw() method needs content, or this function could directly add operators.
-def backupandrestore_menu_fn(self, context: Context) -> None:
-    """Menu Callback for the export operator."""
-    layout = self.layout
-    layout.operator("bm.run_backup_manager", text="Run Backup", icon='COLORSET_03_VEC').button_input = 'BACKUP'     
-    layout.operator("bm.run_backup_manager", text="Run Restore", icon='COLORSET_04_VEC').button_input = 'RESTORE' 
+# The BM_MT_BR menu is empty. If this menu is intended to be used, its draw() method needs content.
+# The backupandrestore_menu_fn seems intended for a different menu type or location.
+# Keeping them commented out as they don't seem actively used in the preferences panel context.
+# def backupandrestore_menu_fn(self, context: Context) -> None:
+#     """Menu Callback for the export operator."""
+#     layout = self.layout
+#     layout.operator("bm.run_backup_manager", text="Run Backup", icon='COLORSET_03_VEC').button_input = 'BACKUP'     
+#     layout.operator("bm.run_backup_manager", text="Run Restore", icon='COLORSET_04_VEC').button_input = 'RESTORE' 
 
+def _initial_version_scan_timer():
+    """Timer to perform the initial version scan shortly after registration."""
+    try:
+        prefs_instance = bpy.context.preferences.addons[__package__].preferences
+        # Check if the initial scan has already been done for this registration cycle
+        if preferences.BM_Preferences._initial_scan_done:
+            if prefs_instance.debug: print("DEBUG: _initial_version_scan_timer: Initial scan already done, unregistering timer.")
+            return None # Stop the timer
+
+        if prefs_instance.debug: print("DEBUG: _initial_version_scan_timer: Performing initial version scan.")
+        
+        # Determine the search mode based on the currently active tab in preferences.
+        search_mode = f'SEARCH_{prefs_instance.tabs}'
+        bpy.ops.bm.run_backup_manager(button_input=search_mode)
+        
+        # Mark the initial scan as done
+        preferences.BM_Preferences._initial_scan_done = True
+        
+        if prefs_instance.debug: print("DEBUG: _initial_version_scan_timer: Scan complete, timer finished.")
+        return None # Stop the timer after running once
+        
+    except Exception as e:
+        print(f"ERROR: Backup Manager: Error during initial version scan timer: {e}")
+        return None # Stop the timer on error
 
 def register():    
+    print("DEBUG: Backup Manager register() CALLED")
     [bpy.utils.register_class(c) for c in classes]
+    
+    # Reset the initial scan flag on registration
+    preferences.BM_Preferences._initial_scan_done = False
+    
+    # Register a one-shot timer to perform the initial version scan shortly after registration
+    # This avoids calling the operator directly from register(), which has a restricted context.
+    bpy.app.timers.register(_initial_version_scan_timer, first_interval=0.1)
+    if prefs().debug: # Use the local prefs() function defined in this __init__.py file
+        print("DEBUG: register(): Registered _initial_version_scan_timer with first_interval=0.1s.")
+
     # bpy.types.TOPBAR_MT_file_new.append(backupandrestore_menu_fn) # Example: Add to File > New
     # bpy.types.TOPBAR_MT_file.append(menus_draw_fn) # If BM_MT_BR is populated
 
 
 def unregister():
     # No timer to unregister in this approach
+    # Ensure the initial scan timer is unregistered if it's still pending
+    if bpy.app.timers.is_registered(_initial_version_scan_timer):
+        bpy.app.timers.unregister(_initial_version_scan_timer)
     [bpy.utils.unregister_class(c) for c in classes]
     # bpy.types.TOPBAR_MT_file_new.remove(backupandrestore_menu_fn)
     # bpy.types.TOPBAR_MT_file.remove(menus_draw_fn)

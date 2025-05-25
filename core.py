@@ -60,9 +60,11 @@ def find_versions(filepath):
             print(f"DEBUG: find_versions: Error accessing filepath {filepath}: {e}")
     
     if prefs().debug and _start_time_fv:
-        print("\nVersion List: ", version_list)
+        # print("\nVersion List: ", version_list)
         _end_time_fv = datetime.now()
-        print(f"DEBUG: (took: {(_end_time_fv - _start_time_fv).total_seconds():.6f}s) find_versions END for path: {filepath}, found {len(version_list)} versions")
+        # Consider summarizing 'version_list' if it can be very long.
+        # For now, printing the full list for detailed debugging.
+        print(f"DEBUG: (took: {(_end_time_fv - _start_time_fv).total_seconds():.6f}s) find_versions END for path: '{filepath}', found {len(version_list)} versions. List: {version_list}")
 
     return version_list
 
@@ -75,17 +77,6 @@ class OT_BackupManager(Operator):
     button_input: StringProperty()
     ignore_backup = []
     ignore_restore = []
-
-    # This method seems unused. If so, consider removing it and the numpy import.
-    # For now, assuming it might be used elsewhere or intended for future use.
-    # If removing, also remove `import numpy`
-    """
-    def max_list_value(self, list):
-        import numpy # Keep numpy import local if this method is kept and rarely used
-        i = numpy.argmax(list)
-        v = list[i]
-        return (i, v)
-    """
     
     def create_ignore_pattern(self):
         self.ignore_backup.clear()
@@ -187,13 +178,6 @@ class OT_BackupManager(Operator):
                 self.report({'ERROR'}, f"Backup/Restore failed: {e}")
                 return {'CANCELLED'}
 
-
-        """ 
-        if prefs().custom_version and prefs().custom_version_toggle:
-            self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " +  prefs().custom_version, 'COLORSET_07_VEC') 
-        else:
-            self.ShowReport(path_index, "Backup complete from: " + self.generate_version(input='BACKUP') + " to: " + self.generate_version(input='RESTORE'), 'COLORSET_07_VEC')
-        #"""
         print(40*"-")
         self.report({'INFO'}, "Backup Complete")
         return {'FINISHED'}    
@@ -214,22 +198,9 @@ class OT_BackupManager(Operator):
         if prefs().debug:
             print("\n\nbutton_input: ", self.button_input)                    
         
-        if prefs().backup_path:     
-
-            if prefs().use_system_id:
-                # This path seems unused later, consider if it's needed or how it integrates.
-                # system_id_path = os.path.join(prefs().backup_path, prefs().system_id, prefs().backup_versions)
-                pass
-            else:            
-                # system_id_path = os.path.join(prefs().backup_path, prefs().backup_versions)
-                pass
-
-            # shared_path = os.path.join(prefs().backup_path, 'shared', prefs().backup_versions)
-
-            if prefs().debug: 
-                # print("system_id_path: ", system_id_path) # If re-enabled
-                # print("shared_path: ", shared_path) # If re-enabled
-                pass
+        if prefs().backup_path:
+            # The system_id_path and shared_path logic was commented out and seemed unused.
+            # Removed for clarity. If needed, it can be re-evaluated.
 
             if self.button_input == 'BACKUP':         
                 if not prefs().advanced_mode:            
