@@ -23,6 +23,7 @@ import socket
 from bpy.types import AddonPreferences
 from bpy.props import StringProperty, EnumProperty, BoolProperty, FloatProperty
 
+from . import core # To reference OT_BackupManagerWindow.bl_idname
 
 def get_paths_for_details(prefs_instance):
     """
@@ -67,6 +68,27 @@ def get_paths_for_details(prefs_instance):
         print(f"DEBUG: get_paths_for_details collected {len(final_paths)} relevant paths: {final_paths if len(final_paths) < 5 else '[Too many to list, see raw for full list]'}")
     return final_paths
 
+def get_default_base_temp_dir():
+    """Safely determines a base temporary directory for addon defaults."""
+    temp_dir_path = ""
+    try:
+        # Try to access bpy.context and its attributes safely
+        if bpy.context and hasattr(bpy.context, 'preferences') and \
+           hasattr(bpy.context.preferences, 'filepaths') and \
+           bpy.context.preferences.filepaths.temporary_directory:
+            temp_dir_path = bpy.context.preferences.filepaths.temporary_directory
+        else:
+            # Fallback if user-specified temp path isn't available or context is limited
+            temp_dir_path = bpy.app.tempdir
+    except (RuntimeError, AttributeError, ReferenceError):
+        # Broader fallback if bpy.context is unstable or bpy.app.tempdir fails
+        try:
+            temp_dir_path = bpy.app.tempdir
+        except AttributeError: # Absolute fallback if bpy.app.tempdir also fails
+            temp_dir_path = os.path.join(os.path.expanduser("~"), "blender_temp_fallback")
+            os.makedirs(temp_dir_path, exist_ok=True) # Ensure fallback path exists
+    return temp_dir_path
+
 def _calculate_path_age_str(path_to_scan):
     try:
         if not path_to_scan or not os.path.isdir(path_to_scan): return "Last change: N/A" # Should be pre-filtered by get_paths_for_details
@@ -93,8 +115,8 @@ class BM_Preferences(AddonPreferences):
     _initial_scan_done = False # Flag to track if the initial version scan has run
     
     initial_version = f'{str(bpy.app.version[0])}.{str(bpy.app.version[1])}'
-    backup_version_list = [(initial_version, initial_version, '', 0)]
-    restore_version_list = [(initial_version, initial_version, '', 0)]
+    backup_version_list = [(initial_version, initial_version, '')] # Standardize to 3-element tuple
+    restore_version_list = [(initial_version, initial_version, '')] # Standardize to 3-element tuple
     
     def update_version_list(self, context):
         if self.debug:
@@ -106,7 +128,7 @@ class BM_Preferences(AddonPreferences):
             BM_Preferences._size_cache.clear()
             if self.debug: print("DEBUG: update_version_list: Cleared _size_cache.")
             # print("DEBUG: Cleared age and size caches due to version list update.") # Slightly redundant with above
-            print("\n" + "="*40 + " update_version_list (NEW UPDATE FRAME) " + "="*40 + "\n") # Visual separator
+            print("\n" + "-"*10 + " update_version_list (NEW UPDATE FRAME) " + "-"*10 + "\n") # Visual separator
             _start_time_uvl = datetime.now()
             print(f"DEBUG: update_version_list START for tabs: {self.tabs}")
         if self.debug:
@@ -114,7 +136,13 @@ class BM_Preferences(AddonPreferences):
         if self.debug:
             _call_time_uvl = datetime.now()
             print(f"DEBUG: update_version_list CALLING bpy.ops.bm.run_backup_manager with SEARCH_{self.tabs}")
-        bpy.ops.bm.run_backup_manager(button_input=f'SEARCH_{self.tabs}')        
+        try:
+            bpy.ops.bm.run_backup_manager(button_input=f'SEARCH_{self.tabs}')
+        except Exception as e:
+            # If this happens during script reload, the operator might not be available.
+            print(f"ERROR: Backup Manager: Error calling bpy.ops.bm.run_backup_manager in update_version_list (likely during script reload): {e}")
+            # Optionally, clear the version lists or handle the error to prevent further issues
+            return # Stop further processing in this update if the op call failed
         if self.debug:
             _end_time_uvl = datetime.now()
             print(f"DEBUG: (took: {(_end_time_uvl - _call_time_uvl).total_seconds():.6f}s) update_version_list FINISHED bpy.ops.bm.run_backup_manager. Total update_version_list time: {(_end_time_uvl - _start_time_uvl).total_seconds():.6f}s")
@@ -134,34 +162,30 @@ class BM_Preferences(AddonPreferences):
                     context.area.tag_redraw()
                 elif self.debug:
                     print("DEBUG: update_version_list: context or context.area not available for tag_redraw after detail update.")
-        elif self.debug:
-            print("DEBUG: update_version_list: show_path_details is False, not recalculating details after version list update.")
-    # when user specified a custom temp path use that one as default, otherwise use the app default
-    if bpy.context.preferences.filepaths.temporary_directory:        
-        default_path = bpy.context.preferences.filepaths.temporary_directory 
-    else: 
-        default_path = bpy.app.tempdir
+        elif self.debug: # This else corresponds to "if self.show_path_details:"
+            print("DEBUG: update_version_list: show_path_details is False, not recalculating details.")
     
-    
-    def update_system_id(self, context):
-        if self.use_system_id:
-            default_path = os.path.join(self.default_path , '!backupmanager/', self.system_id)
-        else:            
-            default_path = os.path.join(self.default_path , '!backupmanager/')            
-        
-        if self.debug:
-            print("system id path: ", default_path)  
+    # Calculate the initial default backup path safely ONCE when the class is defined.
+    # This function call happens during module import / class definition.
+    _initial_default_backup_path = os.path.join(get_default_base_temp_dir(), '!backupmanager')
 
-    # Conditional print for default path during debugging
-    try: # Use try-except as __package__ might not be available during initial addon registration in all contexts
-        if bpy.context.preferences.addons[__package__].preferences.debug:
-            print("Backup Manager Default path (initial): ", default_path)
-    except: # Fallback if addon preferences aren't fully loaded yet
-        pass
+    def update_system_id(self, context):
+        """Updates the backup_path when use_system_id is toggled."""
+        base_dir = get_default_base_temp_dir() # Get the consistent base temporary directory
+        if self.use_system_id:
+            new_backup_path = os.path.join(base_dir, '!backupmanager', self.system_id)
+        else:            
+            new_backup_path = os.path.join(base_dir, '!backupmanager')
+        
+        self.backup_path = new_backup_path # Assigning here will trigger backup_path's update function
+
+        if self.debug:
+            print(f"DEBUG: update_system_id: self.backup_path changed to: {self.backup_path}")
+
     backup_path: StringProperty(name="Backup Path", 
                                 description="Backup Location", 
                                 subtype='DIR_PATH', 
-                                default=os.path.join(default_path , '!backupmanager/'), 
+                                default=_initial_default_backup_path, 
                                 update=update_version_list)
     blender_user_path: StringProperty(default=bpy.utils.resource_path(type='USER'))
     
@@ -309,14 +333,20 @@ class BM_Preferences(AddonPreferences):
     def populate_backuplist(self, context):
         #if hasattr(self, 'debug') and self.debug: # Check if self has debug, might not always if context is weird
             #print(f"DEBUG: populate_backuplist CALLED. Returning BM_Preferences.backup_version_list (len={len(BM_Preferences.backup_version_list)}): {BM_Preferences.backup_version_list}")
-        return self.backup_version_list      
+        current_list = BM_Preferences.backup_version_list
+        if not isinstance(current_list, list) or not all(isinstance(item, tuple) and len(item) == 3 for item in current_list if item): # Check list integrity
+            print("ERROR: Backup Manager: BM_Preferences.backup_version_list is malformed in populate_backuplist. Returning default.")
+            return [(BM_Preferences.initial_version, BM_Preferences.initial_version, "Default version")]
+        if not current_list: # If the list is empty
+            return [("(NONE)", "No Versions Found", "Perform a search or check backup path")]
+        # Ensure all items are 3-element tuples
+        # The list should already contain 3-element tuples from find_versions
+        return current_list
       
     backup_versions: EnumProperty(items=populate_backuplist,
                                   name="Backup",  
                                   description="Choose the version to backup", 
                                   update=_on_version_or_custom_changed)
-    # Note: It's unusual to have an EnumProperty directly use a class variable list
-    # that is modified by an operator. Usually, the items function generates the list on demand.
     
     backup_cache: BoolProperty(name="cache", description="backup_cache", default=False)   # default = False      
     backup_bookmarks: BoolProperty(name="bookmarks", description="backup_bookmarks", default=True)   # default = True   
@@ -334,7 +364,15 @@ class BM_Preferences(AddonPreferences):
     def populate_restorelist(self, context):
         #if hasattr(self, 'debug') and self.debug:
             #print(f"DEBUG: populate_restorelist CALLED. Returning BM_Preferences.restore_version_list (len={len(BM_Preferences.restore_version_list)}): {BM_Preferences.restore_version_list}")
-        return self.restore_version_list  
+        current_list = BM_Preferences.restore_version_list
+        if not isinstance(current_list, list) or not all(isinstance(item, tuple) and len(item) == 3 for item in current_list if item): # Check list integrity
+            print("ERROR: Backup Manager: BM_Preferences.restore_version_list is malformed in populate_restorelist. Returning default.")
+            return [(BM_Preferences.initial_version, BM_Preferences.initial_version, "Default version")]
+        if not current_list: # If the list is empty
+            return [("(NONE)", "No Versions Found", "Perform a search or check backup path")]
+         # Ensure all items are 3-element tuples
+        # The list should already contain 3-element tuples from find_versions
+        return current_list
           
     restore_versions: EnumProperty(items=populate_restorelist, 
                                    name="Restore", 
@@ -360,59 +398,19 @@ class BM_Preferences(AddonPreferences):
     # DRAW Preferences      
     def draw(self, context):
         _start_time_draw = None
-        if self.debug:
-            _start_time_draw = datetime.now()
-            print("\n" + "*"*35 + " PREFERENCES DRAW START " + "*"*35) # Visual separator for new draw call
-            print(f"DEBUG: Preferences draw() START")
+        # The main UI is now in a separate window.
+        # This preferences panel will just show a button to open that window
+        # and perhaps a few core settings like the backup path for convenience.
+
         layout = self.layout        
-        box = layout.box() 
-        col  = box.column(align=False)  
+        layout.label(text="Backup Manager operations are now handled in a dedicated window.")
+        layout.operator(core.OT_BackupManagerWindow.bl_idname, text="Open Backup Manager Window", icon='WINDOW')
         
-        col.use_property_split = True 
-        col.enabled = False
-        col.prop(self, 'system_id')
-        col.prop(self, 'active_blender_version')  
-        #col.prop(self, 'config_path')
-
-        col  = box.column(align=False)  
-        col.use_property_split = True 
-        col.prop(self, 'backup_path') 
-        
-        col.prop(self, 'ignore_files')
-        col.prop(self, 'debug')
-        col.prop(self, 'show_path_details') # Add toggle for path details
-
-        col  = box.column(align=False)         
-        col.use_property_split = True
-
-        # TAB BAR
-        layout.use_property_split = False
-        col = layout.column(align=True) #.split(factor=0.5)  
-
-        # --- Operation Progress UI ---
-        if self.show_operation_progress:
-            progress_box = col.box()
-            progress_box.label(text=self.operation_progress_message)
-            
-            # Row for progress bar and abort button
-            row_progress = progress_box.row(align=True)
-            # Use standard Blender progress bar (slider), allow it to expand
-            row_progress.prop(self, "operation_progress_value", text="", slider=True)
-            # Add Abort button next to the progress bar
-            row_progress.operator("bm.abort_operation", text="", icon='CANCEL')
-
-        row = col.row()        
-        row.prop(self, "tabs", expand=True)
-        #row.direction = 'VERTICAL'
-        box = col.box()
-        if self.tabs == "BACKUP":
-            self.draw_backup(box)
-        elif self.tabs == "RESTORE":
-            self.draw_restore(box)
-        
-        if self.debug and _start_time_draw:
-            print(f"DEBUG: (took: {(datetime.now() - _start_time_draw).total_seconds():.6f}s) Preferences draw() END\n" + "*"*36 + " PREFERENCES DRAW END " + "*"*36 + "\n")
-
+        layout.separator()
+        col_prefs_settings = layout.column(align=True) 
+    
+        col_prefs_settings.prop(self, "backup_path", text="Main Backup Location")
+        col_prefs_settings.prop(self, "debug", text="Debug Logging")
 
     def draw_backup_age(self, col, path):       
         # Access class attribute
