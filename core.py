@@ -20,7 +20,8 @@
 import bpy
 import os
 import shutil
-import numpy
+import re # Moved from create_ignore_pattern
+from datetime import datetime # Added for debug timestamps
 from bpy.types import Operator
 from bpy.props import StringProperty
 from . import preferences
@@ -32,18 +33,36 @@ def prefs():
 
 def find_versions(filepath):
     version_list = []
-    
-    try:          
-        for file in os.listdir(os.path.dirname(filepath)):
-            path = os.path.join(filepath, file)
-            if os.path.isdir(path):      
-                version_list.append((file, file, ''))
-
-    except Exception:
-        print("filepath invalid: ", filepath)
-    
+    _start_time_fv = None
     if prefs().debug:
+        _start_time_fv = datetime.now()
+        print(f"DEBUG: find_versions START for path: {filepath}")
+
+    if not filepath or not os.path.isdir(filepath):
+        if prefs().debug:
+            print(f"DEBUG: find_versions: filepath invalid or not a directory: {filepath}")
+        return version_list
+
+    try:
+        _listdir_start_time_fv = None
+        if prefs().debug:
+            _listdir_start_time_fv = datetime.now()
+            print(f"DEBUG: find_versions CALLING os.listdir for path: {filepath}")
+        for file_or_dir_name in os.listdir(filepath):
+            path = os.path.join(filepath, file_or_dir_name)
+            if os.path.isdir(path):      
+                version_list.append((file_or_dir_name, file_or_dir_name, ''))
+        if prefs().debug:
+            _listdir_end_time_fv = datetime.now()
+            print(f"DEBUG: (took: {(_listdir_end_time_fv - _listdir_start_time_fv).total_seconds():.6f}s) find_versions FINISHED os.listdir for path: {filepath}")
+    except OSError as e: # Catch specific OS errors like PermissionError
+        if prefs().debug:
+            print(f"DEBUG: find_versions: Error accessing filepath {filepath}: {e}")
+    
+    if prefs().debug and _start_time_fv:
         print("\nVersion List: ", version_list)
+        _end_time_fv = datetime.now()
+        print(f"DEBUG: (took: {(_end_time_fv - _start_time_fv).total_seconds():.6f}s) find_versions END for path: {filepath}, found {len(version_list)} versions")
 
     return version_list
 
@@ -57,19 +76,20 @@ class OT_BackupManager(Operator):
     ignore_backup = []
     ignore_restore = []
 
-
+    # This method seems unused. If so, consider removing it and the numpy import.
+    # For now, assuming it might be used elsewhere or intended for future use.
+    # If removing, also remove `import numpy`
+    """
     def max_list_value(self, list):
+        import numpy # Keep numpy import local if this method is kept and rarely used
         i = numpy.argmax(list)
         v = list[i]
         return (i, v)
-    
+    """
     
     def create_ignore_pattern(self):
         self.ignore_backup.clear()
         self.ignore_restore.clear()
-
-        
-        import re     
         list = [x for x in re.split(',|\s+', prefs().ignore_files) if x!='']        
         for item in list:
             self.ignore_backup.append(item)
@@ -140,13 +160,16 @@ class OT_BackupManager(Operator):
 
     def run_backup(self, source_path, target_path): 
 
-        if prefs().clean_path:
-            if os.path.exists(target_path):
-                os.system(f'rmdir /S /Q "{target_path}"')
-                #shutil.rmtree(target_path, onerror = self.handler)
-                print("\nCleaned path: ", target_path)
-            else:                
-                print("\nFailed to clean path: ", target_path)
+        if prefs().clean_path and os.path.exists(target_path):
+            if prefs().debug:
+                print(f"Attempting to clean path: {target_path}")
+            try:
+                if not prefs().dry_run:
+                    shutil.rmtree(target_path)
+                print(f"\nCleaned path: {target_path}")
+            except OSError as e:
+                print(f"\nFailed to clean path {target_path}: {e}")
+                self.report({'WARNING'}, f"Failed to clean {target_path}: {e}")
 
         # backup
         self.create_ignore_pattern()
@@ -155,11 +178,14 @@ class OT_BackupManager(Operator):
         print("target: ", target_path)
 
         if os.path.isdir(source_path): 
-            if not prefs().dry_run:
-                self.recursive_overwrite(source_path, target_path,  ignore = shutil.ignore_patterns(*self.ignore_backup)) 
-
-            else:
-                print("dry run, no files modified")
+            try:
+                if not prefs().dry_run:
+                    self.recursive_overwrite(source_path, target_path,  ignore = shutil.ignore_patterns(*self.ignore_backup)) 
+                else:
+                    print("Dry run: No files modified.")
+            except Exception as e: # Generic catch for copy errors
+                self.report({'ERROR'}, f"Backup/Restore failed: {e}")
+                return {'CANCELLED'}
 
 
         """ 
@@ -182,8 +208,8 @@ class OT_BackupManager(Operator):
     
     def execute(self, context): 
         
-        backup_version_list = preferences.BM_Preferences.backup_version_list
-        restore_version_list = preferences.BM_Preferences.restore_version_list  
+        pref_backup_versions = preferences.BM_Preferences.backup_version_list
+        pref_restore_versions = preferences.BM_Preferences.restore_version_list
 
         if prefs().debug:
             print("\n\nbutton_input: ", self.button_input)                    
@@ -191,35 +217,38 @@ class OT_BackupManager(Operator):
         if prefs().backup_path:     
 
             if prefs().use_system_id:
-                system_id_path = os.path.join(prefs().backup_path, prefs().system_id, prefs().backup_versions).replace("\\", "/")  
+                # This path seems unused later, consider if it's needed or how it integrates.
+                # system_id_path = os.path.join(prefs().backup_path, prefs().system_id, prefs().backup_versions)
+                pass
             else:            
-                system_id_path = os.path.join(prefs().backup_path, prefs().backup_versions).replace("\\", "/") 
+                # system_id_path = os.path.join(prefs().backup_path, prefs().backup_versions)
+                pass
 
-            shared_path = os.path.join(prefs().backup_path, 'shared', prefs().backup_versions).replace("\\", "/") 
+            # shared_path = os.path.join(prefs().backup_path, 'shared', prefs().backup_versions)
 
             if prefs().debug: 
-                print("system_id_path: ", system_id_path)
-                print("shared_path: ", shared_path)
-
+                # print("system_id_path: ", system_id_path) # If re-enabled
+                # print("shared_path: ", shared_path) # If re-enabled
+                pass
 
             if self.button_input == 'BACKUP':         
                 if not prefs().advanced_mode:            
-                    source_path = os.path.join(prefs().blender_user_path).replace("\\", "/")
-                    target_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")                    
+                    source_path = prefs().blender_user_path
+                    target_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version))
                 else:    
-                    source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")                                             
+                    source_path = os.path.join(os.path.dirname(prefs().blender_user_path),  prefs().backup_versions)
                     if prefs().custom_version_toggle:
-                        target_path = os.path.join(prefs().backup_path, str(prefs().custom_version)).replace("\\", "/")
+                        target_path = os.path.join(prefs().backup_path, str(prefs().custom_version))
                     else: 
-                        target_path = os.path.join(prefs().backup_path, prefs().restore_versions).replace("\\", "/")
+                        target_path = os.path.join(prefs().backup_path, prefs().restore_versions)
                 self.run_backup(source_path, target_path)  
             
             elif self.button_input == 'BATCH_BACKUP':
-                for version in backup_version_list:
+                for version in pref_backup_versions: # Iterate over the list from preferences
                     if prefs().debug:
                         print(version[0])
-                    source_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  version[0]).replace("\\", "/")
-                    target_path = os.path.join(prefs().backup_path, version[0]).replace("\\", "/")
+                    source_path = os.path.join(os.path.dirname(prefs().blender_user_path),  version[0])
+                    target_path = os.path.join(prefs().backup_path, version[0])
                     self.run_backup(source_path, target_path)   
              
             elif self.button_input == 'DELETE_BACKUP':
@@ -227,75 +256,130 @@ class OT_BackupManager(Operator):
                     target_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")                    
                 else:                                                 
                     if prefs().custom_version_toggle:
-                        target_path = os.path.join(prefs().backup_path, str(prefs().custom_version)).replace("\\", "/")
+                        target_path = os.path.join(prefs().backup_path, str(prefs().custom_version))
                     else:                
-                        target_path = os.path.join(prefs().backup_path, prefs().restore_versions).replace("\\", "/")
+                        target_path = os.path.join(prefs().backup_path, prefs().restore_versions)
 
-                if os.path.exists(target_path): # TODO: does this need to go into clean mode?
-                    os.system('rmdir /S /Q "{}"'.format(target_path))
-                    print("\nDeleted Backup: ", target_path)
+                if os.path.exists(target_path):
+                    try:
+                        if not prefs().dry_run:
+                            shutil.rmtree(target_path)
+                        print(f"\nDeleted Backup: {target_path}")
+                        self.report({'INFO'}, f"Deleted: {target_path}")
+                    except OSError as e:
+                        print(f"\nFailed to delete {target_path}: {e}")
+                        self.report({'WARNING'}, f"Failed to delete {target_path}: {e}")
+                else:
+                    print(f"\nBackup to delete not found: {target_path}")
+                    self.report({'INFO'}, f"Not found, nothing to delete: {target_path}")
 
             elif self.button_input == 'RESTORE':
                 if not prefs().advanced_mode:            
-                    source_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")
-                    target_path = os.path.join(prefs().blender_user_path).replace("\\", "/")
+                    source_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version))
+                    target_path = prefs().blender_user_path
                 else:             
-                    source_path = os.path.join(prefs().backup_path, prefs().restore_versions).replace("\\", "/")
-                    target_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  prefs().backup_versions).replace("\\", "/")
+                    source_path = os.path.join(prefs().backup_path, prefs().restore_versions)
+                    target_path = os.path.join(os.path.dirname(prefs().blender_user_path),  prefs().backup_versions)
                 self.run_backup(source_path, target_path) 
                 
             elif self.button_input == 'BATCH_RESTORE':
-                for version in restore_version_list:
+                for version in pref_restore_versions: # Iterate over the list from preferences
                     if prefs().debug:
                         print(version[0])
-                    source_path = os.path.join(prefs().backup_path, version[0]).replace("\\", "/")
-                    target_path = os.path.join(prefs().blender_user_path.strip(prefs().active_blender_version),  version[0]).replace("\\", "/")                    
+                    source_path = os.path.join(prefs().backup_path, version[0])
+                    target_path = os.path.join(os.path.dirname(prefs().blender_user_path),  version[0])
                     self.run_backup(source_path, target_path) 
            
 
             elif self.button_input == 'SEARCH_BACKUP':
-                backup_version_list.clear() 
-                backup_version_list = find_versions(bpy.utils.resource_path(type='USER').strip(prefs().active_blender_version))
-                backup_version_list.sort(reverse=True)
+                _search_start_sb = None
+                if prefs().debug:
+                    _search_start_sb = datetime.now()
+                    print(f"DEBUG: execute SEARCH_BACKUP START")
+                # Path to the directory containing Blender version folders (e.g., .../Blender/3.6, .../Blender/4.0)
+                blender_versions_parent_dir = os.path.dirname(bpy.utils.resource_path(type='USER'))
 
-                restore_version_list.clear()    
-                restore_version_list = set(find_versions(prefs().backup_path) + backup_version_list)
-                restore_version_list = list(dict.fromkeys(restore_version_list))
-                restore_version_list.sort(reverse=True)   
-                
-                # update version lists
-                preferences.BM_Preferences.restore_version_list = restore_version_list
-                preferences.BM_Preferences.backup_version_list = backup_version_list
-            
+                pref_backup_versions.clear()
+                _fv1_start_sb = None
+                if prefs().debug:
+                    _fv1_start_sb = datetime.now()
+                    print(f"DEBUG: execute SEARCH_BACKUP calling find_versions for blender_versions_parent_dir: {blender_versions_parent_dir}")
+                found_backup_versions = find_versions(blender_versions_parent_dir)
+                if prefs().debug:
+                    _fv1_end_sb = datetime.now()
+                    print(f"DEBUG: (took: {(_fv1_end_sb - _fv1_start_sb).total_seconds():.6f}s) execute SEARCH_BACKUP find_versions for blender_versions_parent_dir DONE")
+                pref_backup_versions.extend(found_backup_versions)
+                pref_backup_versions.sort(reverse=True)
+
+                pref_restore_versions.clear()
+                # Combine found versions from backup path and current Blender versions, then make unique
+                _fv2_start_sb = None
+                if prefs().debug:
+                    _fv2_start_sb = datetime.now()
+                    print(f"DEBUG: execute SEARCH_BACKUP calling find_versions for backup_path: {prefs().backup_path}")
+                combined_restore_versions = find_versions(prefs().backup_path) + pref_backup_versions
+                if prefs().debug:
+                    _fv2_end_sb = datetime.now()
+                    print(f"DEBUG: (took: {(_fv2_end_sb - _fv2_start_sb).total_seconds():.6f}s) execute SEARCH_BACKUP find_versions for backup_path DONE")
+                # Use dict.fromkeys to preserve order of first appearance if that's desired before sorting
+                pref_restore_versions.extend(list(dict.fromkeys(combined_restore_versions)))
+                pref_restore_versions.sort(reverse=True)
+                if prefs().debug and _search_start_sb:
+                    _search_end_sb = datetime.now()
+                    print(f"DEBUG: (took: {(_search_end_sb - _search_start_sb).total_seconds():.6f}s) execute SEARCH_BACKUP END")
 
             elif self.button_input == 'SEARCH_RESTORE': 
-                restore_version_list.clear()        
-                restore_version_list = find_versions(prefs().backup_path)
-                restore_version_list.sort(reverse=True) 
+                _search_start_sr = None
+                if prefs().debug:
+                    _search_start_sr = datetime.now()
+                    print(f"DEBUG: execute SEARCH_RESTORE START")
+                blender_versions_parent_dir = os.path.dirname(bpy.utils.resource_path(type='USER'))
 
-                backup_version_list.clear() 
-                backup_version_list = set(find_versions(bpy.utils.resource_path(type='USER').strip(prefs().active_blender_version)) + restore_version_list)
+                pref_restore_versions.clear()
+                _fv1_start_sr = None
                 if prefs().debug:
-                    print("list 1: ", backup_version_list)
-                backup_version_list = list(dict.fromkeys(backup_version_list))
+                    _fv1_start_sr = datetime.now()
+                    print(f"DEBUG: execute SEARCH_RESTORE calling find_versions for backup_path: {prefs().backup_path}")
+                found_restore_versions = find_versions(prefs().backup_path)
                 if prefs().debug:
-                    print("list 2: ", backup_version_list)
+                    _fv1_end_sr = datetime.now()
+                    print(f"DEBUG: (took: {(_fv1_end_sr - _fv1_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE find_versions for backup_path DONE")
+                pref_restore_versions.extend(found_restore_versions)
+                pref_restore_versions.sort(reverse=True) 
+
+                pref_backup_versions.clear()
+                _fv2_start_sr = None
+                if prefs().debug:
+                    _fv2_start_sr = datetime.now()
+                    print(f"DEBUG: execute SEARCH_RESTORE calling find_versions for blender_versions_parent_dir: {blender_versions_parent_dir}")
+                combined_backup_versions = find_versions(blender_versions_parent_dir) + pref_restore_versions
+                if prefs().debug:
+                    _fv2_end_sr = datetime.now()
+                    print(f"DEBUG: (took: {(_fv2_end_sr - _fv2_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE find_versions for blender_versions_parent_dir DONE")
+
+                if prefs().debug:
+                    print("Combined backup versions before filtering: ", combined_backup_versions)
                 
-                # remove custom items from list (assuming non floats are invalid)
-                for version in backup_version_list: 
+                # Filter and sort backup versions
+                unique_backup_versions = list(dict.fromkeys(combined_backup_versions))
+                valid_backup_versions = []
+                for version_tuple in unique_backup_versions:
                     try:
-                        float(version[0])
-                    except:
-                        backup_version_list.remove(version)
-                backup_version_list.sort(reverse=True)  
+                        float(version_tuple[0]) # Check if version name can be a float
+                        valid_backup_versions.append(version_tuple)
+                    except ValueError:
+                        if prefs().debug:
+                            print(f"Filtered out non-float-like version from backup_versions: {version_tuple[0]}")
                 
-                # update version lists
-                preferences.BM_Preferences.restore_version_list = restore_version_list
-                preferences.BM_Preferences.backup_version_list = backup_version_list            
+                pref_backup_versions.extend(valid_backup_versions)
+                if prefs().debug:
+                    print("Final backup_versions list: ", pref_backup_versions)
+                pref_backup_versions.sort(reverse=True)
+                if prefs().debug and _search_start_sr:
+                    _search_end_sr = datetime.now()
+                    print(f"DEBUG: (took: {(_search_end_sr - _search_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE END")
 
         else:
             self.ShowReport(["Specify a Backup Path"] , "Backup Path missing", 'COLORSET_04_VEC')
         return {'FINISHED'}
     
-
-

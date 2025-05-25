@@ -16,15 +16,26 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
+# Standard library imports
+import importlib
 
+# Blender-specific addon reloading logic
+# This pattern handles reloading of the addon's modules when the addon is
+# re-enabled or re-registered in Blender, which is common during development.
+# "bpy" in locals() checks if Blender's Python environment (bpy) is already
+# initialized in the current scope, indicating a reload rather than an initial load.
 if "bpy" in locals():
-    import importlib
+    # If reloading, re-import the addon's core modules to pick up changes.
+    # 'preferences' and 'core' module objects are expected to be in the global
+    # scope from the initial load (the 'else' block below).
     importlib.reload(preferences)
     importlib.reload(core)
 else:
+    # Initial load of the addon.
     from . import preferences
     from . import core
 
+# Third-party imports (Blender API)
 import bpy
 from bpy.types import Context, Menu
 
@@ -33,7 +44,7 @@ bl_info = {
     "name": "Backup Manager",
     "description": "Backup and Restore your Blender configuration files",
     "author": "Daniel Grauer",
-    "version": (1, 2, 1),
+    "version": (1, 2, 2), # Consider incrementing version after changes
     "blender": (2, 93, 0),
     "location": "Preferences",
     "category": "!System",
@@ -47,6 +58,7 @@ def prefs():
 
 class BM_MT_BR(Menu):
     bl_label = 'Backup and Restore'
+    # bl_idname should be unique, typically ADDONNAME_MT_menuname
     bl_idname = 'BM_MT_BR'
 
     def draw(self, context):
@@ -61,11 +73,13 @@ classes = (
 
 
 def menus_draw_fn(self, context: Context) -> None:
-    """Callback to add menus for exporters."""
+    """Callback to add main menu entry."""
     layout = self.layout    
     layout.menu(BM_MT_BR.bl_idname)   
     
 
+# The BM_MT_BR menu is empty. If this menu is intended to be used,
+# its draw() method needs content, or this function could directly add operators.
 def backupandrestore_menu_fn(self, context: Context) -> None:
     """Menu Callback for the export operator."""
     layout = self.layout
@@ -75,14 +89,15 @@ def backupandrestore_menu_fn(self, context: Context) -> None:
 
 def register():    
     [bpy.utils.register_class(c) for c in classes]
-    #bpy.types.TOPBAR_MT_file_defaults.append(menus_draw_fn)
-    #bpy.types.TOPBAR_MT_file.append(backupandrestore_menu_fn)
+    # bpy.types.TOPBAR_MT_file_new.append(backupandrestore_menu_fn) # Example: Add to File > New
+    # bpy.types.TOPBAR_MT_file.append(menus_draw_fn) # If BM_MT_BR is populated
 
 
 def unregister():
+    # No timer to unregister in this approach
     [bpy.utils.unregister_class(c) for c in classes]
-    #bpy.types.TOPBAR_MT_file_defaults.remove(menus_draw_fn)
-    #bpy.types.TOPBAR_MT_file.remove(backupandrestore_menu_fn)
+    # bpy.types.TOPBAR_MT_file_new.remove(backupandrestore_menu_fn)
+    # bpy.types.TOPBAR_MT_file.remove(menus_draw_fn)
 
 if __name__ == "__main__":
     register()
