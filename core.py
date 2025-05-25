@@ -18,13 +18,13 @@
 
 
 import bpy
-import os
+import os, blf, gpu # Import blf and gpu for custom drawing
 import shutil
 import fnmatch # For pattern matching in ignore list
 import re # Moved from create_ignore_pattern
 from datetime import datetime # Added for debug timestamps
 from bpy.types import Operator
-from bpy.props import StringProperty, EnumProperty # Added EnumProperty
+from bpy.props import StringProperty, EnumProperty, FloatProperty, IntProperty
 from . import preferences
 
 
@@ -113,7 +113,7 @@ class OT_ShowFinalReport(bpy.types.Operator):
         if prefs().debug:
             print(f"DEBUG: OT_ShowFinalReport.invoke: Setting up modal handler. Title='{OT_ShowFinalReport._title}'")
         context.window_manager.modal_handler_add(self)
-        self._timer = context.window_manager.event_timer_add(0.001, window=context.window) # Very short delay
+        self._timer = context.window_manager.event_timer_add(0.0, window=context.window) # Very short delay
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
@@ -137,26 +137,24 @@ class OT_ShowFinalReport(bpy.types.Operator):
     def cancel(self, context):
         """Ensures timer is cleaned up if the operator is cancelled externally (e.g., during unregister)."""
         # Use the robust prefs() function from core.py
-        prefs_instance_for_cancel = prefs()
-        _debug_active = prefs_instance_for_cancel.debug
+        _debug_active = False # Default to False for safety during cancel
+        try:
+            prefs_instance_for_cancel = prefs()
+            if prefs_instance_for_cancel:
+                _debug_active = prefs_instance_for_cancel.debug
+        except Exception:
+            pass # Ignore errors getting prefs during cancel, prioritize cleanup
 
-        if self._timer:
-            try:
-                context.window_manager.event_timer_remove(self._timer)
-                if _debug_active: print(f"DEBUG: OT_ShowFinalReport.cancel(): Timer removed.")
-            except Exception as e:
-                if _debug_active: print(f"DEBUG: OT_ShowFinalReport.cancel(): Error removing timer: {e}")
-            self._timer = None
         if _debug_active:
             print(f"DEBUG: OT_ShowFinalReport.cancel() EXIT.")
-        return None # Must return None
+        # Blender expects cancel() to return None
 
 class OT_BackupManagerWindow(Operator):
     bl_idname = "bm.open_backup_manager_window"
     bl_label = "Backup Manager"
     bl_options = {'REGISTER'} # No UNDO needed for a UI window
-
     _timer = None # For periodic UI updates (e.g., progress, path details)
+
 
     def _update_window_tabs(self, context):
         """Ensures BM_Preferences.tabs is updated when this window's tabs change, triggering searches."""
@@ -360,52 +358,64 @@ class OT_BackupManagerWindow(Operator):
             selection_toggles_box = layout.box() # Create a new box at the 'layout' (tab_content_box) level
             self._draw_selection_toggles(selection_toggles_box, "RESTORE", prefs_instance)
 
-    def draw(self, context):
-        layout = self.layout
-        _start_time_draw = None
+    def draw(self, context): # Standard signature for invoke_props_dialog
+        layout = self.layout # Provided by invoke_props_dialog
         prefs_instance = None
 
         try:
             prefs_instance = prefs() # Get current addon preferences
 
-            if prefs_instance.debug:
-                print("\n" + "-"*10 + " OT_BackupManagerWindow.draw() START " + "-"*10 + "\n") # Visual separator
-                _start_time_draw = datetime.now()
-                print(f"DEBUG: OT_BackupManagerWindow.draw() CALLED. Tabs: {self.tabs}")
+            _debug_draw = prefs_instance.debug if prefs_instance else False
+            _start_time_draw_obj = None # Use a different name to avoid conflict if prefs_instance is None initially
+
+            if _debug_draw:
+                timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                # Adjust for 0-1 scale for debug display
+                progress_val_for_debug = prefs_instance.operation_progress_value * 100.0 # For display in log
+                progress_val_str = f"{progress_val_for_debug:.1f}% (raw: {prefs_instance.operation_progress_value:.3f})" if prefs_instance.show_operation_progress else "N/A (hidden)"
+                op_message = prefs_instance.operation_progress_message if prefs_instance.show_operation_progress else "N/A (hidden)"
+                print(f"DEBUG: [{timestamp}] OT_BackupManagerWindow.draw() CALLED. Progress: {progress_val_str}, Msg: '{op_message}', show_op_progress: {prefs_instance.show_operation_progress}, Tabs: {self.tabs}")
+                _start_time_draw_obj = datetime.now()
 
             # --- Top section for global settings ---
+            # Ensure prefs_instance is valid before using it for drawing
             col_top = layout.column(align=True)
             col_top.prop(prefs_instance, 'backup_path')            
             col_top.prop(prefs_instance, 'ignore_files')
             col_top.prop(prefs_instance, 'debug')
             col_top.prop(prefs_instance, 'show_path_details')
 
-            # --- Progress UI (reads from BM_Preferences) ---
+            # --- Progress UI ---
             if prefs_instance.show_operation_progress:
-                progress_outer_box = layout.box() # Use a separate box for progress
-                progress_box = progress_outer_box.column(align=True)
-                progress_box.label(text=prefs_instance.operation_progress_message)
-                row_progress = progress_box.row(align=True)
-                row_progress.prop(prefs_instance, "operation_progress_value", text="", slider=True)
-                row_progress.operator("bm.abort_operation", text="", icon='CANCEL')
+                op_status_box = layout.box()
+                op_status_col = op_status_box.column(align=True)
+
+                # Display the progress message
+                if prefs_instance.operation_progress_message:
+                    op_status_col.label(text=prefs_instance.operation_progress_message)
+                
+                # Display the progress value as a progress bar with no text on the bar itself.
+                # operation_progress_value is a 0.0-1.0 factor.
+                op_status_col.progress(factor=prefs_instance.operation_progress_value, text="")
+                                
+                # Abort button
+                op_status_col.operator("bm.abort_operation", text="Abort Current Operation", icon='CANCEL')
 
             # --- Tabs for Backup/Restore ---
             layout.prop(self, "tabs", expand=True) # Use the operator's own tabs property
-            
             tab_content_box = layout.box() # Box for the content of the selected tab
             if self.tabs == "BACKUP":
                 self._draw_backup_tab(tab_content_box, context, prefs_instance)
             elif self.tabs == "RESTORE":
                 self._draw_restore_tab(tab_content_box, context, prefs_instance)
             
-            if prefs_instance and prefs_instance.debug and _start_time_draw: # Check prefs_instance again
-                _end_time_draw = datetime.now()
-                print(f"DEBUG: (took: {(_end_time_draw - _start_time_draw).total_seconds():.6f}s) OT_BackupManagerWindow.draw() END" + "\n" + "-"*40 + "\n") # Visual separator
+            if _debug_draw and _start_time_draw_obj:
+                _end_time_draw_obj = datetime.now()
+                print(f"DEBUG: (took: {(_end_time_draw_obj - _start_time_draw_obj).total_seconds():.6f}s) OT_BackupManagerWindow.draw() END")
 
         except Exception as e:
-            print(f"ERROR: Backup Manager: Error in OT_BackupManagerWindow.draw() (likely during script reload): {e}")
-            layout.label(text="Error drawing Backup Manager window. Please re-open if this persists after reload.")
-            # Avoid further drawing if prefs_instance might be invalid or other errors occurred.
+            print(f"ERROR: Backup Manager: Error in OT_BackupManagerWindow.draw() (prefs_instance might be None): {e}")
+            layout.label(text=f"Error drawing Backup Manager window: {e}")
 
 
     def execute(self, context):
@@ -421,8 +431,11 @@ class OT_BackupManagerWindow(Operator):
         if prefs_instance.debug:
             print(f"DEBUG: OT_BackupManagerWindow.execute() ENTER. Context: {context}, Self: {self}")
         
-        # Ensure cleanup is performed, similar to cancel.
-        self.cancel(context) # This will handle timer removal.
+        # Ensure timer is cleaned up if execute is called (e.g. by an "OK" button if one existed)
+        if self._timer:
+            context.window_manager.event_timer_remove(self._timer)
+            self._timer = None
+            if prefs_instance.debug: print(f"DEBUG: OT_BackupManagerWindow.execute() - Timer removed.")
         
         # Check prefs_instance again in case it was None from the try-except block
         # but cancel didn't lead to an immediate return (though it should).
@@ -450,106 +463,126 @@ class OT_BackupManagerWindow(Operator):
         # Trigger initial scan for path details if shown
         if prefs_instance.show_path_details:
             paths = preferences.get_paths_for_details(prefs_instance)
-            prefs_instance._update_path_details_for_paths(paths) # Update cache, redraw will happen via timer if needed
+            prefs_instance._update_path_details_for_paths(paths) 
 
-        if _debug_active:
-            print(f"DEBUG: OT_BackupManagerWindow.invoke() - Calling window_manager.invoke_props_dialog(self). Self: {self}")
-        
-        # This will make Blender open a dialog for this operator.
-        # The operator's draw() method will be called to populate it.
-        result = context.window_manager.invoke_props_dialog(self, width=700) # Specify a width for the dialog
+        # Always add the timer for the modal UI window.
+        # The modal() method will manage its activity based on show_operation_progress.
+        if self._timer is None:
+            self._timer = context.window_manager.event_timer_add(0.1) # Make timer global, not window-bound
+            if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.invoke() - UI Update Timer ADDED (global): {self._timer}")
+
+        context.window_manager.modal_handler_add(self)
+
+        # Use invoke_props_dialog to open the window.
+        # The operator's draw() method will be called by Blender to populate the dialog.
+        result = context.window_manager.invoke_props_dialog(self, width=700)
         if _debug_active:
             print(f"DEBUG: OT_BackupManagerWindow.invoke() EXIT. invoke_props_dialog returned: {result}. Self: {self}")
-        return result
+        # If invoke_props_dialog returns {'RUNNING_MODAL'}, our modal() method will also run.
+
+        return {'RUNNING_MODAL'} # Crucial for the modal() method to keep running
 
     def modal(self, context, event):
-        # This method is unlikely to be called if modal_handler_add is removed from invoke().
-        # Kept as a fallback; invoke_props_dialog should handle most events for the dialog.
-        # The primary role of a custom modal method here was for the timer, which has been removed.
+        prefs_instance = prefs() # Get fresh prefs
+        _debug_active = prefs_instance.debug if prefs_instance else False
 
-        # Safety check for context.window, though invoke_props_dialog should manage this.
-        # Initial critical check: if the window context is gone, always try to cancel.
         if not context.window:
-            # Try to log if debug was active, but prioritize cancellation.
-            _debug_active_check = False
-            try: _debug_active_check = bpy.context.preferences.addons[__package__].preferences.debug
-            except Exception: pass # Ignore if prefs can't be read here
-            if _debug_active_check:
-                 print(f"DEBUG: OT_BackupManagerWindow.modal() - context.window is None, calling cancel. Self: {self}")
+            if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.modal() - context.window is None, cancelling.")
             return self.cancel(context)
 
-        prefs_instance = None
-        try:
-            prefs_instance = prefs() # Attempt to get preferences
-        except Exception as e:
-            # If prefs() fails during a modal event, log and cancel to prevent a hard crash.
-            print(f"ERROR: OT_BackupManagerWindow.modal() - Failed to get preferences: {e}. Calling cancel. Self: {self}")
+        if not prefs_instance: # Should not happen if invoke checks, but safeguard
+            print(f"ERROR: OT_BackupManagerWindow.modal() - Failed to get preferences, cancelling.")
             return self.cancel(context)
-
-        # If prefs_instance is available and debug is on
-        if prefs_instance and prefs_instance.debug:
-            # The 'TIMER' event type check is no longer relevant as the timer was removed.
-            # Log other event types if this modal method is somehow still reached.
-            # However, with modal_handler_add removed, this method should not be directly
-            # invoked by Blender's main event loop for this operator instance.
-                 print(f"DEBUG: OT_BackupManagerWindow.modal() ENTER. Event: {event.type}, Self: {self}")
 
         if event.type == 'ESC': # Allow ESC to close the window
-             if prefs_instance.debug: print(f"DEBUG: OT_BackupManagerWindow.modal() - ESC detected, calling cancel. Self: {self}")
-             return self.cancel(context)
-
-        # If the Blender window itself is closed, cancel the operator
-        # This check is now at the top of the modal method.
+             if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.modal() - ESC detected, cancelling.")
+             self.cancel(context) # Perform cleanup
+             return {'CANCELLED'} # Modal operator itself returns CANCELLED
         
-        # REMOVED: Timer event handling logic, as the timer for OT_BackupManagerWindow was removed.
-        # The progress bar display relies on invoke_props_dialog redrawing the window,
-        # which will pick up changes in preferences made by the OT_BackupManager operator.
-        # Allow other UI interactions within this modal "window"
-        # This is important so buttons and properties in our draw() method work.
-        # For events not handled above (ESC, window close, TIMER), pass them through.
-        # This allows invoke_props_dialog to handle its own UI elements.
-        if prefs_instance.debug:
-            if event.type != 'TIMER': # Avoid spamming for timer
-                # Ensure prefs_instance is valid before accessing debug
-                if prefs_instance and prefs_instance.debug: print(f"DEBUG: OT_BackupManagerWindow.modal() EXIT. Returning {{'PASS_THROUGH'}}. Event: {event.type}, Self: {self}")
+        if event.type == 'TIMER':
+            if _debug_active:
+                timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                print(f"DEBUG: [{timestamp}] OT_BackupManagerWindow.modal() (TIMER) event.")
+                progress_val_for_debug = prefs_instance.operation_progress_value * 100.0 # Adjust for 0-1 scale
+                print(f"DEBUG: ... self._timer: {self._timer}, show_op_progress: {prefs_instance.show_operation_progress}, current_progress_val: {progress_val_for_debug:.1f}% (raw: {prefs_instance.operation_progress_value:.3f})")
+                print(f"DEBUG: ... Invoking context.area.type: {context.area.type if context.area else 'N/A'}")
+
+            # For invoke_props_dialog, the dialog is its own window. The modal() method's 'context'
+            # is from the invoking window. We must ensure the dialog window itself is tagged for redraw.
+            # Iterating all areas of all windows is the most robust way to catch the dialog.
+            for wm_window in context.window_manager.windows:
+                for area in wm_window.screen.areas:
+                    area.tag_redraw() # Tag each area individually
+            if _debug_active: # Log after the loop
+                print(f"DEBUG: ... All areas in all windows tagged for redraw.")
+
+            if prefs_instance.show_operation_progress:
+                # If a simple tag_redraw isn't enough for the dialog,
+                # try a more forceful redraw mechanism when progress is active.
+                try:
+                    bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+                    if _debug_active:
+                        print("DEBUG: ... Called bpy.ops.wm.redraw_timer() to force dialog update.")
+                except Exception as e_redraw_timer:
+                    if _debug_active:
+                        print(f"DEBUG: ... Error calling bpy.ops.wm.redraw_timer(): {e_redraw_timer}")
+
+                # Operation is in progress, timer should continue.
+                # Debug message for this state is already part of the initial timer log block
+                # Safeguard: If timer was somehow removed while an operation is supposed to be in progress, re-add it.
+                if self._timer is None:
+                    self._timer = context.window_manager.event_timer_add(0.1) # Make timer global
+                    if _debug_active: print(f"DEBUG: ... UI Update Timer RE-ADDED (global) for active operation.")
+
+            else: # Operation not in progress or finished
+                if self._timer: # If timer is still around
+                    # And no operation is in progress, we can remove this UI update timer.
+                    context.window_manager.event_timer_remove(self._timer)
+                    self._timer = None
+                    if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.modal() (TIMER) - Operation not in progress, UI timer removed.")
+                    # The redraw tagged above (and potentially redraw_timer if it ran one last time) will handle displaying the final UI state.
+        
+        # If we were handling button clicks for a fully custom UI, it would be here.
+        # For now, we only care about the timer and ESC.
+        if event.type in {'RIGHTMOUSE', 'LEFTMOUSE'}: # Example event handling
+            pass # Handle mouse clicks if drawing custom buttons
+
         return {'PASS_THROUGH'}
 
     def cancel(self, context):
         # Use the robust prefs() function from core.py
-        prefs_instance_for_cancel = prefs()
-        _debug_active = prefs_instance_for_cancel.debug
+        _debug_active = False # Default to False for safety during cancel
+        prefs_instance_for_cancel = None
+        try:
+            prefs_instance_for_cancel = prefs()
+            if prefs_instance_for_cancel:
+                _debug_active = prefs_instance_for_cancel.debug
+        except Exception:
+            pass # Ignore errors getting prefs during cancel, prioritize cleanup
         if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() ENTER. Context: {context}, Self: {self}")
         
-        # REMOVED: Timer removal logic as self._timer is no longer used by OT_BackupManagerWindow
-        # if self._timer:
-        #     if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Timer found, removing. Timer: {self._timer}, Self: {self}")
-        #     try:
-        #         context.window_manager.event_timer_remove(self._timer)
-        #         self._timer = None
-        #         if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Timer removed successfully. Self: {self}")
-        #     except Exception as e:
-        #         if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - ERROR removing timer: {e}. Self: {self}")
-        #         self._timer = None # Ensure it's None anyway
-        # elif _debug_active:
-        #     print(f"DEBUG: OT_BackupManagerWindow.cancel() - No timer to remove. Self: {self}")
+        if self._timer:
+            if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Timer found, removing. Timer: {self._timer}")
+            try:
+                context.window_manager.event_timer_remove(self._timer)
+            except Exception as e: # Timer might already be gone
+                if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Error removing timer (might be already gone): {e}")
+            self._timer = None
 
         # If an operation (from OT_BackupManager) is in progress, request it to abort.
         try:
             # prefs_instance_for_cancel is already the robust preferences object
-            if prefs_instance_for_cancel.show_operation_progress: # Check if OT_BackupManager is likely active
+            if prefs_instance_for_cancel and prefs_instance_for_cancel.show_operation_progress: # Check if OT_BackupManager is likely active
                 if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Operation in progress, setting abort_operation_requested.")
                 prefs_instance_for_cancel.abort_operation_requested = True
         except Exception as e:
             if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Error accessing prefs to request operation abort: {e}")
             
         if _debug_active:
-            print(f"DEBUG: OT_BackupManagerWindow.cancel() EXIT. Returning None. Self: {self}")
-        return None # Cancel method should return None when called by Blender's C API for cleanup
+            print(f"DEBUG: OT_BackupManagerWindow.cancel() EXIT. Returning {{'CANCELLED'}}. Self: {self}")
+        # Blender expects cancel() to return None
 
-    # def execute(self, context): # Not typically used for a modal UI operator like this
-    #     self.report({'INFO'}, "Backup Manager window opened (this is execute, should be invoke)")
-    #     return {'FINISHED'}
-
+                
 class OT_BackupManager(Operator):
     ''' run backup & restore '''
     bl_idname = "bm.run_backup_manager"
@@ -566,6 +599,7 @@ class OT_BackupManager(Operator):
     current_source_path: str = ""
     current_target_path: str = ""
     current_operation_type: str = "" # 'BACKUP' or 'RESTORE'
+    _progress_started_on_wm: bool = False # True if Blender's WM progress has been started
 
     ignore_backup = []
     ignore_restore = []
@@ -627,8 +661,14 @@ class OT_BackupManager(Operator):
     def cancel(self, context):
         """Ensures timer and progress UI are cleaned up if the operator is cancelled externally."""
         # Use the robust prefs() function from core.py
-        prefs_instance_for_cancel = prefs()
-        _debug_active = prefs_instance_for_cancel.debug
+        _debug_active = False # Default to False for safety during cancel
+        prefs_instance_for_cancel = None
+        try:
+            prefs_instance_for_cancel = prefs()
+            if prefs_instance_for_cancel:
+                _debug_active = prefs_instance_for_cancel.debug
+        except Exception:
+            pass # Ignore errors getting prefs during cancel, prioritize cleanup
 
         if self._timer:
             try:
@@ -640,15 +680,16 @@ class OT_BackupManager(Operator):
 
         # Reset UI state related to this operator's modal operation
         try:
-            # prefs_instance_for_cancel is already the robust preferences object
-            prefs_instance_for_cancel.show_operation_progress = False
-            prefs_instance_for_cancel.abort_operation_requested = False # Reset this flag too
-            if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): show_operation_progress and abort_operation_requested reset.")
+            if prefs_instance_for_cancel:
+                prefs_instance_for_cancel.show_operation_progress = False
+                prefs_instance_for_cancel.operation_progress_message = f"{self.current_operation_type if hasattr(self, 'current_operation_type') and self.current_operation_type else 'Operation'} cancelled (operator cleanup)."
+                prefs_instance_for_cancel.operation_progress_value = 0.0
+                prefs_instance_for_cancel.abort_operation_requested = False # Reset this flag too
+                if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): show_operation_progress and abort_operation_requested reset.")
         except Exception as e:
             if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): Error resetting preference flags: {e}")
-
         if _debug_active: print(f"DEBUG: OT_BackupManager.cancel() EXIT.")
-        return None # Must return None
+        # Blender expects cancel() to return None
 
 
     @staticmethod
@@ -723,91 +764,112 @@ class OT_BackupManager(Operator):
     def modal(self, context, event):
         # Capture the state of the abort request flag at the beginning of this modal event
         was_aborted_by_ui_button = prefs().abort_operation_requested
-
+        
         # Check for abort request first or ESC key
+        # Or if all files are processed (files_to_process is empty AND processed_files_count matches total_files)
+        # Or if total_files was 0 to begin with (and processed is also 0)
         if was_aborted_by_ui_button or event.type == 'ESC' or \
-           (not self.files_to_process and self.processed_files_count == self.total_files):
-            prefs().show_operation_progress = False
-            
-            if self._timer: # Ensure timer is removed
+           (not self.files_to_process and self.processed_files_count >= self.total_files and self.total_files > 0) or \
+           (self.total_files == 0 and self.processed_files_count == 0): # Handles case of no files to process initially
+
+             # Original timer removal
+            if self._timer:
                 context.window_manager.event_timer_remove(self._timer)
                 self._timer = None
+                if prefs().debug: print(f"DEBUG: OT_BackupManager.modal(): Timer removed (finish/cancel condition).")
+
 
             # Reset the flag now that its state (was_aborted_by_ui_button) has been used for the decision to exit the modal.
             if was_aborted_by_ui_button:
                 prefs().abort_operation_requested = False
 
-            if event.type == 'ESC' or was_aborted_by_ui_button: # Use the captured state
+            if event.type == 'ESC' or was_aborted_by_ui_button:
                 cancel_message = f"{self.current_operation_type} cancelled by user."
-                # Log for immediate feedback in console/status bar
                 self.report({'WARNING'}, cancel_message)
-                
-                # Defer the popup display
                 bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static([cancel_message], "Operation Cancelled", "WARNING"), first_interval=0.01)
-                
-                prefs().operation_progress_message = f"{self.current_operation_type} cancelled." # For the brief moment before UI hides
+                # Update prefs message for the window label
+                prefs().operation_progress_message = f"{self.current_operation_type} cancelled."
+                prefs().operation_progress_value = 0.0 # Reset progress value (0.0 is correct for 0-1 scale)
+                prefs().show_operation_progress = False # Signal OT_BackupManagerWindow to stop its timer
                 return {'CANCELLED'}
-            else: # Operation completed successfully
+            else: # Operation completed successfully or no files to process
                 completion_status = "Dry run complete" if prefs().dry_run else "Complete"
                 
-                report_message = (
-                    f"{self.current_operation_type} {completion_status.lower()}.\n"
-                    f"{self.processed_files_count}/{self.total_files} files processed.\n"
-                    f"Source: {self.current_source_path}\n"
-                    f"Target: {self.current_target_path}"
-                )
-                if prefs().dry_run and self.total_files > 0: 
-                    report_message += "\n(Dry Run - No files were actually copied/deleted)"
+                # Ensure processed_files_count doesn't exceed total_files for display
+                display_processed_count = min(self.processed_files_count, self.total_files)
 
-                report_icon = 'INFO' # Default
-                # Check if current_operation_type is set before using it for icon
+                report_message_lines = [
+                    f"{self.current_operation_type} {completion_status.lower()}.",
+                    f"{display_processed_count}/{self.total_files} files processed."
+                ]
+                if self.current_source_path: report_message_lines.append(f"Source: {self.current_source_path}")
+                if self.current_target_path: report_message_lines.append(f"Target: {self.current_target_path}")
+
+                if prefs().dry_run and self.total_files > 0: 
+                    report_message_lines.append("(Dry Run - No files were actually copied/deleted)")
+
+                report_icon = 'INFO' 
                 if hasattr(self, 'current_operation_type') and self.current_operation_type:
                     if self.current_operation_type == 'BACKUP':
                         report_icon = 'COLORSET_03_VEC'
                     elif self.current_operation_type == 'RESTORE':
                         report_icon = 'COLORSET_04_VEC'
                 
-                # Capture the value of current_operation_type before creating the lambda
-                operation_type_for_report = self.current_operation_type
-                # Defer the completion report popup as well for consistency
-                bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static(report_message.split('\n'), f"{operation_type_for_report} Report", report_icon), first_interval=0.01)
-                self.report({'INFO'}, report_message) # Keep immediate status bar report
-                prefs().operation_progress_message = f"{self.current_operation_type} {completion_status.lower()}." # For the brief moment before UI hides
+                operation_type_for_report = self.current_operation_type if hasattr(self, 'current_operation_type') else "Operation"
+                bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static(report_message_lines, f"{operation_type_for_report} Report", report_icon), first_interval=0.01)
+                self.report({'INFO'}, " ".join(report_message_lines)) 
+                # Update prefs message for the window label
+                prefs().operation_progress_message = f"{self.current_operation_type} {completion_status.lower()}."
+                prefs().operation_progress_value = 1.0 # Set progress to 100% (1.0 for 0-1 scale)
+                prefs().show_operation_progress = False # Signal OT_BackupManagerWindow to stop its timer
             return {'FINISHED'}
 
         if event.type == 'TIMER':
-            if not self.files_to_process: # Should be caught above, but as a safeguard
-                # context.window_manager.progress_end() # Replaced
-                prefs().show_operation_progress = False
-                if self._timer:
-                    context.window_manager.event_timer_remove(self._timer)
-                    self._timer = None
-                return {'FINISHED'}
+            if not self.files_to_process: 
+                # This state (timer event but no files left) should lead to FINISHED via the top condition
+                # in the next event cycle. Update progress one last time for safety.
+                if self.total_files > 0:
+                    progress_percent = (self.processed_files_count / self.total_files) * 100.0
+                else: # No files to begin with
+                    progress_percent = 100.0
+                # Update message for window label and status bar
+                current_message = f"{self.current_operation_type}: {self.processed_files_count}/{self.total_files} files ({progress_percent:.1f}%) - Finalizing..."
+                prefs().operation_progress_message = current_message
+                prefs().operation_progress_value = progress_percent / 100.0 # Scale to 0-1
+                return {'PASS_THROUGH'} # Let the next cycle handle termination via top conditions
 
-            # Process a small batch of files per timer event to keep UI responsive
-            # For simplicity, let's process one file per tick. Can be increased.
-            src_file, dest_file = self.files_to_process.pop(0)
+            # Process a batch of files
+            for _ in range(preferences.BM_Preferences.FILES_PER_TICK_MODAL_OP): # Use constant from preferences
+                if not self.files_to_process:
+                    break # No more files in the list for this tick
 
-            if not prefs().dry_run:
-                try:
-                    os.makedirs(os.path.dirname(dest_file), exist_ok=True)
-                    shutil.copy2(src_file, dest_file) # copy2 preserves metadata
-                except Exception as e:
-                    print(f"Error copying {src_file} to {dest_file}: {e}")
-                    # Optionally report this error or collect errors to show at the end
+                src_file, dest_file = self.files_to_process.pop(0)
+
+                if not prefs().dry_run:
+                    try:
+                        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                        shutil.copy2(src_file, dest_file)
+                    except Exception as e:
+                        print(f"Error copying {src_file} to {dest_file}: {e}")
+                        # Consider collecting errors for a summary report
+                
+                self.processed_files_count += 1
             
-            self.processed_files_count += 1
-            progress_value = (self.processed_files_count / self.total_files) * 100 if self.total_files > 0 else 100
-            # context.window_manager.progress_update(progress_value) # Replaced
-            prefs().operation_progress_value = progress_value
-            prefs().operation_progress_message = f"{self.current_operation_type}: {self.processed_files_count}/{self.total_files} files..."
+            # Update progress after processing the batch
+            if self.total_files > 0:
+                progress_percent = (self.processed_files_count / self.total_files) * 100.0
+            else: 
+                progress_percent = 100.0 # Should be caught by initial total_files == 0 check
+            
+            # Update the message string for window label and status bar
+            current_message = f"{self.current_operation_type}: {self.processed_files_count}/{self.total_files} files ({progress_percent:.1f}%)"
+            prefs().operation_progress_message = current_message
+            prefs().operation_progress_value = progress_percent / 100.0 # Scale to 0-1
+            if prefs().debug:
+                timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                debug_progress_display = prefs().operation_progress_value * 100.0 # For display in log
+                print(f"DEBUG: [{timestamp}] OT_BackupManager.modal() (TIMER) updated progress to: {debug_progress_display:.1f}% (raw: {prefs().operation_progress_value:.3f}), Msg: '{prefs().operation_progress_message}'")
 
-            # Force redraw of the preferences area to update the progress bar
-            for window in context.window_manager.windows:
-                for area in window.screen.areas:
-                    if area.type == 'PREFERENCES':
-                        area.tag_redraw()
-                        break # Found and tagged, no need to check other areas in this window
         return {'PASS_THROUGH'} # Allow other events to be processed
 
 
@@ -856,26 +918,49 @@ class OT_BackupManager(Operator):
                 if not self._prepare_file_list(): # Populates self.files_to_process
                     return {'CANCELLED'}
                 
-                if self.total_files == 0 and not prefs().dry_run:
+                if self.total_files == 0: # Handle case where no files are found to process
                     report_message = f"No files to {self.current_operation_type.lower()}"
                     if self.current_source_path:
                          report_message += f" from {self.current_source_path}"
-                    if prefs().dry_run:
-                        report_message += " (Dry Run)."
+                    
+                    if prefs().dry_run: # Clarify dry run message for 0 files
+                        report_message += " (Dry Run - no files would have been processed)."
                     else:
                         report_message += "."
-                    self.report({'INFO'}, report_message)
-                    OT_BackupManager.ShowReport_static(message=report_message.split('\n'), title="Operation Status", icon='INFO')
-                    # No need to set prefs().show_operation_progress as modal won't start
+
+
+                    self.report({'INFO'}, report_message) # Report to Blender status bar
+                    prefs().show_operation_progress = False # No modal progress needed
+                    prefs().operation_progress_message = report_message # For window if open
+
+                    # Determine title and icon for the deferred report
+                    op_type_for_report = self.current_operation_type if self.current_operation_type else "Operation"
+                    icon_for_report = 'INFO' # Default
+                    if self.current_operation_type == 'BACKUP': icon_for_report = 'COLORSET_03_VEC'
+                    elif self.current_operation_type == 'RESTORE': icon_for_report = 'COLORSET_04_VEC'
+                    
+                    # Capture values for the lambda to ensure they are correct at execution time
+                    _msg_lines = report_message.split('\n')
+                    _title = f"{op_type_for_report} Report"
+                    _icon = icon_for_report
+
+                    bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static(
+                        _msg_lines, _title, _icon
+                    ), first_interval=0.01)
                     return {'FINISHED'}
 
+                initial_message = f"Starting {self.current_operation_type}... (0/{self.total_files} files)"
+                self.report({'INFO'}, initial_message) # Report initial status to Blender status bar
+                
+                # Set preferences for the addon window's display
                 prefs().show_operation_progress = True
-                prefs().operation_progress_value = 0
-                prefs().operation_progress_message = f"Starting {self.current_operation_type}..."
-                self._timer = context.window_manager.event_timer_add(0.01, window=context.window) # Short interval for responsiveness
+                prefs().operation_progress_message = initial_message # For the window label
+                prefs().operation_progress_value = 0.0 # Initialize progress value
+                
+                self._timer = context.window_manager.event_timer_add(0.0, window=context.window) # Adjusted interval
+                
                 context.window_manager.modal_handler_add(self)
                 return {'RUNNING_MODAL'}
-            
             elif self.button_input == 'BATCH_BACKUP': # TODO: Adapt BATCH to use modal logic sequentially
                 for version in pref_backup_versions: # Iterate over the list from preferences
                     if prefs().debug:

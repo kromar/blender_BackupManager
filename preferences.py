@@ -22,7 +22,7 @@ from datetime import datetime
 import socket
 from bpy.types import AddonPreferences
 from bpy.props import StringProperty, EnumProperty, BoolProperty, FloatProperty
-
+from bpy.props import FloatVectorProperty # Added for color property
 from . import core # To reference OT_BackupManagerWindow.bl_idname
 
 def get_paths_for_details(prefs_instance):
@@ -113,6 +113,7 @@ class BM_Preferences(AddonPreferences):
     _age_cache = {}
     _size_cache = {}
     _initial_scan_done = False # Flag to track if the initial version scan has run
+    FILES_PER_TICK_MODAL_OP: int = 10 # Process this many files per timer event in OT_BackupManager
     
     initial_version = f'{str(bpy.app.version[0])}.{str(bpy.app.version[1])}'
     backup_version_list = [(initial_version, initial_version, '')] # Standardize to 3-element tuple
@@ -298,10 +299,25 @@ class BM_Preferences(AddonPreferences):
                                     default=True,
                                     update=_on_show_path_details_changed)
     
-    show_operation_progress: BoolProperty(default=False) # Internal: Controls visibility of progress UI
-    operation_progress_value: FloatProperty(default=0.0, min=0.0, max=100.0, subtype='PERCENTAGE')
-    operation_progress_message: StringProperty(default="Waiting...")
-    abort_operation_requested: BoolProperty(default=False) # Flag to signal abort from UI
+    show_operation_progress: BoolProperty(
+        default=False, 
+        options={'SKIP_SAVE'} # Internal: Controls visibility of progress UI, should not persist.
+    )
+    operation_progress_value: FloatProperty(
+        default=0.0, 
+        min=0.0, 
+        max=1.0,  # Changed max to 1.0 for FACTOR subtype
+        subtype='FACTOR', # Changed subtype to FACTOR
+        options={'SKIP_SAVE'} # Internal: Progress value, should not persist.
+    )
+    operation_progress_message: StringProperty(
+        default="Waiting...", 
+        options={'SKIP_SAVE'} # Internal: Progress message, should not persist.
+    )
+    abort_operation_requested: BoolProperty(
+        default=False, 
+        options={'SKIP_SAVE'} # Internal: Flag to signal abort from UI, should not persist.
+    )
     
     advanced_mode: BoolProperty(name="Advanced", 
                                 description="Advanced backup and restore options", 
@@ -394,6 +410,17 @@ class BM_Preferences(AddonPreferences):
                                 description="Ignore files from being backed up or restored", 
                                 subtype='FILE_NAME', 
                                 default='desktop.ini')
+    
+    # Progress Bar Color Customization
+    override_progress_bar_color: BoolProperty(
+        name="Override Progress Bar Color",
+        description="Enable to use a custom color for the addon's progress bar",
+        default=False)
+    custom_progress_bar_color: FloatVectorProperty(
+        name="Custom Progress Bar Color",
+        description="Color for the addon's progress bar when override is enabled",
+        subtype='COLOR', size=4, default=(0.2, 0.8, 0.2, 1.0), # Default to a nice green (RGBA)
+        min=0.0, max=1.0)
 
     # DRAW Preferences      
     def draw(self, context):
@@ -411,6 +438,13 @@ class BM_Preferences(AddonPreferences):
     
         col_prefs_settings.prop(self, "backup_path", text="Main Backup Location")
         col_prefs_settings.prop(self, "debug", text="Debug Logging")
+        
+        col_prefs_settings.separator()
+        col_prefs_settings.label(text="Progress Bar Appearance:")
+        col_prefs_settings.prop(self, "override_progress_bar_color")
+        if self.override_progress_bar_color:
+            col_prefs_settings.prop(self, "custom_progress_bar_color", text="")
+
 
     def draw_backup_age(self, col, path):       
         # Access class attribute

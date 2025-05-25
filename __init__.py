@@ -61,7 +61,7 @@ bl_info = {
     "description": "Backup and Restore your Blender configuration files",
     "author": "Daniel Grauer",
     "version": (1, 2, 2), # Consider incrementing version after changes
-    "blender": (2, 93, 0),
+    "blender": (3, 0, 0),
     "location": "Preferences",
     "category": "!System",
     "wiki_url": "https://github.com/kromar/blender_BackupManager",
@@ -83,9 +83,20 @@ def prefs_func(): # Renamed from prefs to avoid conflict with 'preferences' modu
 def menus_draw_fn(self, context: Context) -> None:
     """Callback to add main menu entry."""
     layout = self.layout    
-    # Ensure 'core' and 'OT_BackupManagerWindow' are available
     if core and hasattr(core, 'OT_BackupManagerWindow'):
-        layout.operator(core.OT_BackupManagerWindow.bl_idname, text="Backup Manager", icon='WINDOW')
+        # Diagnostic: Check if Blender's operator system recognizes the bl_idname
+        op_idname = core.OT_BackupManagerWindow.bl_idname
+        if hasattr(bpy.ops.bm, op_idname.split('.')[-1]): # Check if 'bm.open_backup_manager_window' is known as 'bpy.ops.bm.open_backup_manager_window'
+            layout.operator(op_idname, text="Backup Manager", icon='WINDOW')
+        else:
+            _debug_menu_draw = False
+            try:
+                _debug_menu_draw = prefs_func().debug
+            except Exception: # Catch errors if prefs_func() fails (e.g. during very early UI draw)
+                pass # Keep _debug_menu_draw as False
+            layout.label(text=f"Backup Manager (Op '{op_idname.split('.')[-1]}' unavailable)") # Shorter error for menu
+            if _debug_menu_draw:
+                print(f"DEBUG: menus_draw_fn: bpy.ops.bm does not have {op_idname.split('.')[-1]}. Available: {dir(bpy.ops.bm)}")
     else:
         layout.label(text="Backup Manager Window (Error: Operator not loaded)")
     
@@ -165,8 +176,14 @@ def register():
         core.OT_BackupManagerWindow,
     )
 
-    addon_prefs_instance = prefs_func()
-    _debug_active = addon_prefs_instance.debug if addon_prefs_instance and hasattr(addon_prefs_instance, 'debug') else False
+    _debug_active = False # Default to False for safety
+    try:
+        addon_prefs_instance = prefs_func()
+        if addon_prefs_instance and hasattr(addon_prefs_instance, 'debug'):
+            _debug_active = addon_prefs_instance.debug
+    except Exception as e_prefs:
+        # This might happen if prefs are not yet available or __package__ is not set during a very early call
+        print(f"WARNING: Backup Manager register(): Could not access preferences for debug flag: {e_prefs}")
 
     if _debug_active: print("DEBUG: Backup Manager register() CALLED")
     
@@ -208,8 +225,14 @@ def register():
 
 def unregister():
     global _registered_classes
-    addon_prefs_instance = prefs_func()
-    _debug_active = addon_prefs_instance.debug if addon_prefs_instance and hasattr(addon_prefs_instance, 'debug') else False
+    _debug_active = False # Default to False for safety
+    try:
+        addon_prefs_instance = prefs_func()
+        if addon_prefs_instance and hasattr(addon_prefs_instance, 'debug'):
+            _debug_active = addon_prefs_instance.debug
+    except Exception as e_prefs:
+        # Similar to register(), prefs might be gone during shutdown
+        print(f"WARNING: Backup Manager unregister(): Could not access preferences for debug flag: {e_prefs}")
 
     if _debug_active: print("DEBUG: Backup Manager unregister() CALLED")
 
