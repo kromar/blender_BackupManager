@@ -202,18 +202,38 @@ class OT_BackupManager(Operator):
 
     def modal(self, context, event):
         if event.type == 'ESC' or not self.files_to_process and self.processed_files_count == self.total_files:
-            # context.window_manager.progress_end() # Replaced with custom UI
             prefs().show_operation_progress = False
-            prefs().operation_progress_message = "Operation complete." # Or specific message
             if self._timer: # Ensure timer is removed
                 context.window_manager.event_timer_remove(self._timer)
                 self._timer = None
+
             if event.type == 'ESC':
-                self.report({'WARNING'}, f"{self.current_operation_type} cancelled by user.")
-                prefs().operation_progress_message = f"{self.current_operation_type} cancelled."
+                cancel_message = f"{self.current_operation_type} cancelled by user."
+                self.report({'WARNING'}, cancel_message)
+                self.ShowReport(message=[cancel_message], title="Operation Cancelled", icon='WARNING')
+                prefs().operation_progress_message = f"{self.current_operation_type} cancelled." # For the brief moment before UI hides
                 return {'CANCELLED'}
-            self.report({'INFO'}, f"{self.current_operation_type} complete. {self.processed_files_count}/{self.total_files} files processed.")
-            prefs().operation_progress_message = f"{self.current_operation_type} complete."
+            else: # Operation completed successfully
+                completion_status = "Dry run complete" if prefs().dry_run else "Complete"
+                
+                report_message = (
+                    f"{self.current_operation_type} {completion_status.lower()}.\n"
+                    f"{self.processed_files_count}/{self.total_files} files processed.\n"
+                    f"Source: {self.current_source_path}\n"
+                    f"Target: {self.current_target_path}"
+                )
+                if prefs().dry_run and self.total_files > 0: 
+                    report_message += "\n(Dry Run - No files were actually copied/deleted)"
+
+                report_icon = 'INFO' # Default
+                if self.current_operation_type == 'BACKUP':
+                    report_icon = 'COLORSET_03_VEC'
+                elif self.current_operation_type == 'RESTORE':
+                    report_icon = 'COLORSET_04_VEC'
+
+                self.report({'INFO'}, report_message)
+                self.ShowReport(message=report_message.split('\n'), title=f"{self.current_operation_type} Report", icon=report_icon)
+                prefs().operation_progress_message = f"{self.current_operation_type} {completion_status.lower()}." # For the brief moment before UI hides
             return {'FINISHED'}
 
         if event.type == 'TIMER':
@@ -242,7 +262,13 @@ class OT_BackupManager(Operator):
             # context.window_manager.progress_update(progress_value) # Replaced
             prefs().operation_progress_value = progress_value
             prefs().operation_progress_message = f"{self.current_operation_type}: {self.processed_files_count}/{self.total_files} files..."
-            
+
+            # Force redraw of the preferences area to update the progress bar
+            for window in context.window_manager.windows:
+                for area in window.screen.areas:
+                    if area.type == 'PREFERENCES':
+                        area.tag_redraw()
+                        break # Found and tagged, no need to check other areas in this window
         return {'PASS_THROUGH'} # Allow other events to be processed
 
 
@@ -292,8 +318,18 @@ class OT_BackupManager(Operator):
                     return {'CANCELLED'}
                 
                 if self.total_files == 0 and not prefs().dry_run:
-                    self.report({'INFO'}, f"No files to {self.current_operation_type.lower()} from {self.current_source_path}.")
+                    report_message = f"No files to {self.current_operation_type.lower()}"
+                    if self.current_source_path:
+                         report_message += f" from {self.current_source_path}"
+                    if prefs().dry_run:
+                        report_message += " (Dry Run)."
+                    else:
+                        report_message += "."
+                    self.report({'INFO'}, report_message)
+                    self.ShowReport(message=report_message.split('\n'), title="Operation Status", icon='INFO')
+                    # No need to set prefs().show_operation_progress as modal won't start
                     return {'FINISHED'}
+
 
                 # context.window_manager.progress_begin(0, 100) # Replaced with custom UI
                 prefs().show_operation_progress = True
@@ -331,14 +367,29 @@ class OT_BackupManager(Operator):
                     try:
                         if not prefs().dry_run:
                             shutil.rmtree(target_path)
-                        print(f"\nDeleted Backup: {target_path}")
-                        self.report({'INFO'}, f"Deleted: {target_path}")
+                        
+                        action_verb = "Would delete" if prefs().dry_run else "Deleted"
+                        report_msg_line1 = f"{action_verb} backup:"
+                        report_msg_line2 = target_path
+                        self.report({'INFO'}, f"{report_msg_line1} {report_msg_line2}")
+                        self.ShowReport(message=[report_msg_line1, report_msg_line2], title="Delete Backup Report", icon='COLORSET_01_VEC')
+                        if prefs().debug or prefs().dry_run:
+                             print(f"\n{action_verb} Backup: {target_path}")
+
                     except OSError as e:
-                        print(f"\nFailed to delete {target_path}: {e}")
-                        self.report({'WARNING'}, f"Failed to delete {target_path}: {e}")
+                        action_verb = "Failed to (dry run) delete" if prefs().dry_run else "Failed to delete"
+                        error_msg_line1 = f"{action_verb} {target_path}:"
+                        error_msg_line2 = str(e)
+                        self.report({'WARNING'}, f"{error_msg_line1} {error_msg_line2}")
+                        self.ShowReport(message=[error_msg_line1, error_msg_line2], title="Delete Backup Error", icon='WARNING')
+                        if prefs().debug: # Keep print for debug
+                            print(f"\n{action_verb} {target_path}: {e}")
                 else:
-                    print(f"\nBackup to delete not found: {target_path}")
-                    self.report({'INFO'}, f"Not found, nothing to delete: {target_path}")
+                    not_found_msg = f"Not found, nothing to delete: {target_path}"
+                    self.report({'INFO'}, not_found_msg)
+                    self.ShowReport(message=[f"Not found, nothing to delete:", target_path], title="Delete Backup Report", icon='INFO')
+                    if prefs().debug: # Keep print for debug
+                        print(f"\nBackup to delete not found: {target_path}")
 
             elif self.button_input == 'BATCH_RESTORE': # TODO: Adapt BATCH
                 for version in pref_restore_versions: # Iterate over the list from preferences
@@ -439,7 +490,7 @@ class OT_BackupManager(Operator):
                     print(f"DEBUG: (took: {(_search_end_sr - _search_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE END")
 
         else:
-            self.ShowReport(["Specify a Backup Path"] , "Backup Path missing", 'COLORSET_04_VEC')
+            self.ShowReport(["Specify a Backup Path"] , "Backup Path missing", 'ERROR')
         return {'FINISHED'}
 
     def _execute_single_backup_restore_blocking(self, source_path, target_path, operation_type):
@@ -469,10 +520,33 @@ class OT_BackupManager(Operator):
                             relative_dir = os.path.relpath(dirpath, source_path)
                             dest_file = os.path.join(target_path, relative_dir if relative_dir != '.' else '', filename)
                             os.makedirs(os.path.dirname(dest_file), exist_ok=True)
-                            shutil.copy2(src_file, dest_file)
-                self.report({'INFO'}, f"{operation_type} for {os.path.basename(source_path)} complete.")
+                            shutil.copy2(src_file, dest_file) # This line is skipped in dry_run
+                
+                completion_status = "Dry run complete" if prefs().dry_run else "Complete"
+                report_message = (
+                    f"{operation_type} for {os.path.basename(source_path)} {completion_status.lower()}.\n"
+                    f"Source: {source_path}\n"
+                    f"Target: {target_path}"
+                )
+                if prefs().dry_run:
+                    # We don't have an exact file count here for blocking mode without re-scanning,
+                    # so the message is simpler.
+                    report_message += "\n(Dry Run - No files were actually copied/deleted)"
+                
+                report_icon = 'INFO' # Default
+                if operation_type == 'BACKUP':
+                    report_icon = 'COLORSET_03_VEC'
+                elif operation_type == 'RESTORE':
+                    report_icon = 'COLORSET_04_VEC'
+                self.report({'INFO'}, report_message)
+                self.ShowReport(message=report_message.split('\n'), title=f"{operation_type} Report", icon=report_icon)
+
             except Exception as e:
-                self.report({'ERROR'}, f"{operation_type} for {os.path.basename(source_path)} failed: {e}")
+                error_report_msg = f"{operation_type} for {os.path.basename(source_path)} failed: {e}\nSource: {source_path}\nTarget: {target_path}"
+                self.report({'ERROR'}, error_report_msg)
+                self.ShowReport(message=error_report_msg.split('\n'), title=f"{operation_type} Error", icon='ERROR')
         else:
-            self.report({'WARNING'}, f"Source for {operation_type} not found: {source_path}")
+            warning_report_msg = f"Source for {operation_type} not found: {source_path}"
+            self.report({'WARNING'}, warning_report_msg)
+            self.ShowReport(message=warning_report_msg.split('\n'), title=f"{operation_type} Warning", icon='WARNING')
     
