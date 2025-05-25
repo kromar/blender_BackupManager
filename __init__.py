@@ -28,6 +28,7 @@ import importlib
 # Always import the modules first so they are in the namespace
 from . import preferences
 from . import core
+from .core import OT_BackupManagerWindow # Import the new window operator
 
 import bpy.app.timers # Import timers module
 
@@ -57,26 +58,22 @@ def prefs():
     user_preferences = bpy.context.preferences
     return user_preferences.addons[__package__].preferences
 
-class BM_MT_BR(Menu):
-    bl_label = 'Backup and Restore'
-    # bl_idname should be unique, typically ADDONNAME_MT_menuname
-    bl_idname = 'BM_MT_BR'
-
-    def draw(self, context):
-        pass
-
-
+# Define classes to be registered
 classes = (
     core.OT_BackupManager,
+    core.OT_AbortOperation,
+    core.OT_ShowFinalReport, # Register the new operator for popups
+    core.OT_BackupManagerWindow, # Register the new window operator
     preferences.BM_Preferences,
-    BM_MT_BR,
-    )
+    # BM_MT_BR, # Removed as we are placing the operator directly in the File menu
+)
 
 
 def menus_draw_fn(self, context: Context) -> None:
     """Callback to add main menu entry."""
     layout = self.layout    
-    layout.menu(BM_MT_BR.bl_idname)   
+    # layout.menu(BM_MT_BR.bl_idname, text="Backup Manager") # Old: Adds a submenu
+    layout.operator(OT_BackupManagerWindow.bl_idname, text="Backup Manager", icon='WINDOW') # New: Adds operator directly
     
 
 # The BM_MT_BR menu is empty. If this menu is intended to be used, its draw() method needs content.
@@ -127,17 +124,16 @@ def register():
         print("DEBUG: register(): Registered _initial_version_scan_timer with first_interval=0.1s.")
 
     # bpy.types.TOPBAR_MT_file_new.append(backupandrestore_menu_fn) # Example: Add to File > New
-    # bpy.types.TOPBAR_MT_file.append(menus_draw_fn) # If BM_MT_BR is populated
+    bpy.types.TOPBAR_MT_file.append(menus_draw_fn) # Add "Backup Manager" submenu to File menu
 
 
 def unregister():
-    # No timer to unregister in this approach
     # Ensure the initial scan timer is unregistered if it's still pending
     if bpy.app.timers.is_registered(_initial_version_scan_timer):
         bpy.app.timers.unregister(_initial_version_scan_timer)
     [bpy.utils.unregister_class(c) for c in classes]
     # bpy.types.TOPBAR_MT_file_new.remove(backupandrestore_menu_fn)
-    # bpy.types.TOPBAR_MT_file.remove(menus_draw_fn)
+    bpy.types.TOPBAR_MT_file.remove(menus_draw_fn)
 
 if __name__ == "__main__":
     register()

@@ -273,11 +273,11 @@ class BM_Preferences(AddonPreferences):
                                     description="Display last change date and size for backup/restore paths. Calculated on demand.",
                                     default=True,
                                     update=_on_show_path_details_changed)
-    # --- Progress UI Properties ---
+    
     show_operation_progress: BoolProperty(default=False) # Internal: Controls visibility of progress UI
     operation_progress_value: FloatProperty(default=0.0, min=0.0, max=100.0, subtype='PERCENTAGE')
     operation_progress_message: StringProperty(default="Waiting...")
-
+    abort_operation_requested: BoolProperty(default=False) # Flag to signal abort from UI
     
     advanced_mode: BoolProperty(name="Advanced", 
                                 description="Advanced backup and restore options", 
@@ -393,7 +393,13 @@ class BM_Preferences(AddonPreferences):
         if self.show_operation_progress:
             progress_box = col.box()
             progress_box.label(text=self.operation_progress_message)
-            progress_box.prop(self, "operation_progress_value", text="Progress", slider=True)
+            
+            # Row for progress bar and abort button
+            row_progress = progress_box.row(align=True)
+            # Use standard Blender progress bar (slider), allow it to expand
+            row_progress.prop(self, "operation_progress_value", text="", slider=True)
+            # Add Abort button next to the progress bar
+            row_progress.operator("bm.abort_operation", text="", icon='CANCEL')
 
         row = col.row()        
         row.prop(self, "tabs", expand=True)

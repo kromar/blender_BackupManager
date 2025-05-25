@@ -70,6 +70,19 @@ def find_versions(filepath):
     return version_list
 
 
+class OT_AbortOperation(Operator):
+    """Operator to signal cancellation of the ongoing backup/restore operation."""
+    bl_idname = "bm.abort_operation"
+    bl_label = "Abort Backup/Restore"
+    bl_description = "Requests cancellation of the current operation"
+
+    def execute(self, context):
+        prefs().abort_operation_requested = True
+        # The modal operator will pick this up and handle the actual cancellation.
+        if prefs().debug:
+            print("DEBUG: OT_AbortOperation executed, abort_operation_requested set to True.")
+        return {'FINISHED'}
+    
     
 class OT_BackupManager(Operator):
     ''' run backup & restore '''
@@ -201,13 +214,23 @@ class OT_BackupManager(Operator):
         return True
 
     def modal(self, context, event):
-        if event.type == 'ESC' or not self.files_to_process and self.processed_files_count == self.total_files:
+        # Capture the state of the abort request flag at the beginning of this modal event
+        was_aborted_by_ui_button = prefs().abort_operation_requested
+
+        # Check for abort request first or ESC key
+        if was_aborted_by_ui_button or event.type == 'ESC' or \
+           (not self.files_to_process and self.processed_files_count == self.total_files):
             prefs().show_operation_progress = False
+            
             if self._timer: # Ensure timer is removed
                 context.window_manager.event_timer_remove(self._timer)
                 self._timer = None
 
-            if event.type == 'ESC':
+            # Reset the flag now that its state (was_aborted_by_ui_button) has been used for the decision to exit the modal.
+            if was_aborted_by_ui_button:
+                prefs().abort_operation_requested = False
+
+            if event.type == 'ESC' or was_aborted_by_ui_button: # Use the captured state
                 cancel_message = f"{self.current_operation_type} cancelled by user."
                 self.report({'WARNING'}, cancel_message)
                 self.ShowReport(message=[cancel_message], title="Operation Cancelled", icon='WARNING')
@@ -330,12 +353,9 @@ class OT_BackupManager(Operator):
                     # No need to set prefs().show_operation_progress as modal won't start
                     return {'FINISHED'}
 
-
-                # context.window_manager.progress_begin(0, 100) # Replaced with custom UI
                 prefs().show_operation_progress = True
                 prefs().operation_progress_value = 0
                 prefs().operation_progress_message = f"Starting {self.current_operation_type}..."
-
                 self._timer = context.window_manager.event_timer_add(0.01, window=context.window) # Short interval for responsiveness
                 context.window_manager.modal_handler_add(self)
                 return {'RUNNING_MODAL'}
