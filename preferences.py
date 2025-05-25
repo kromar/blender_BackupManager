@@ -273,6 +273,11 @@ class BM_Preferences(AddonPreferences):
                                     description="Display last change date and size for backup/restore paths. Calculated on demand.",
                                     default=True,
                                     update=_on_show_path_details_changed)
+    # --- Progress UI Properties ---
+    show_operation_progress: BoolProperty(default=False) # Internal: Controls visibility of progress UI
+    operation_progress_value: FloatProperty(default=0.0, min=0.0, max=100.0, subtype='PERCENTAGE')
+    operation_progress_message: StringProperty(default="Waiting...")
+
     
     advanced_mode: BoolProperty(name="Advanced", 
                                 description="Advanced backup and restore options", 
@@ -383,6 +388,13 @@ class BM_Preferences(AddonPreferences):
         # TAB BAR
         layout.use_property_split = False
         col = layout.column(align=True) #.split(factor=0.5)  
+
+        # --- Operation Progress UI ---
+        if self.show_operation_progress:
+            progress_box = col.box()
+            progress_box.label(text=self.operation_progress_message)
+            progress_box.prop(self, "operation_progress_value", text="Progress", slider=True)
+
         row = col.row()        
         row.prop(self, "tabs", expand=True)
         #row.direction = 'VERTICAL'
