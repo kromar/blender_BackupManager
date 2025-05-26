@@ -110,52 +110,6 @@ def menus_draw_fn(self, context: Context) -> None:
 #     layout.operator("bm.run_backup_manager", text="Run Backup", icon='COLORSET_03_VEC').button_input = 'BACKUP'     
 #     layout.operator("bm.run_backup_manager", text="Run Restore", icon='COLORSET_04_VEC').button_input = 'RESTORE' 
 
-def _initial_version_scan_timer():
-    """Timer to perform the initial version scan shortly after registration."""
-    try:
-        prefs_instance = prefs_func() # Use renamed function
-        
-        # Determine debug state safely
-        _debug_active_timer = prefs_instance.debug if prefs_instance and hasattr(prefs_instance, 'debug') else False
-
-        if not prefs_instance:
-            print("ERROR: Backup Manager: _initial_version_scan_timer: Addon preferences not available. Timer cannot proceed.")
-            return None # Stop the timer
-
-        # Check if the initial scan has already been done for this registration cycle
-        if preferences.BM_Preferences._initial_scan_done:
-            if _debug_active_timer: print("DEBUG: _initial_version_scan_timer: Initial scan already done, unregistering timer.")
-            return None # Stop the timer
-
-        if _debug_active_timer: print(f"DEBUG: _initial_version_scan_timer: Performing initial version scan for tabs: {prefs_instance.tabs}.")
-        
-        # Determine the search mode based on the currently active tab in preferences.
-        if hasattr(prefs_instance, 'tabs'):
-            search_mode = f'SEARCH_{prefs_instance.tabs}'
-            if hasattr(bpy.ops.bm, 'run_backup_manager'):
-                bpy.ops.bm.run_backup_manager(button_input=search_mode)
-                if hasattr(preferences, 'BM_Preferences'): # Ensure module and class are available
-                    preferences.BM_Preferences._initial_scan_done = True
-                if _debug_active_timer: print("DEBUG: _initial_version_scan_timer: Scan complete, timer finished.")
-            else:
-                if _debug_active_timer: print("ERROR: _initial_version_scan_timer: bpy.ops.bm.run_backup_manager not found.")
-        else:
-            if _debug_active_timer: print("ERROR: _initial_version_scan_timer: prefs_instance.tabs not available.")
-        
-        return None # Stop the timer after running once
-        
-    except Exception as e:
-        # Attempt to get debug state again for error logging, carefully
-        _debug_err_check = False
-        try: 
-            _prefs_for_err = prefs_func()
-            if _prefs_for_err and hasattr(_prefs_for_err, 'debug'):
-                _debug_err_check = _prefs_for_err.debug
-        except: pass # Ignore errors getting debug state here
-        if _debug_err_check: print(f"ERROR: Backup Manager: Error in _initial_version_scan_timer: {e}")
-        else: print(f"ERROR: Backup Manager: Error in _initial_version_scan_timer (debug state unknown): {e}")
-        return None # Stop the timer on error
-
 def register():
     global _registered_classes
     _registered_classes.clear() # Clear from any previous registration attempt in this session
@@ -209,19 +163,31 @@ def register():
     
     # Reset the initial scan flag on registration
     if hasattr(preferences, 'BM_Preferences'):
-        preferences.BM_Preferences._initial_scan_done = False
-    
-    if bpy.app.timers.is_registered(_initial_version_scan_timer):
-        if _debug_active: print("DEBUG: register(): _initial_version_scan_timer was already registered. Removing before re-registering.")
-        bpy.app.timers.unregister(_initial_version_scan_timer)
-    bpy.app.timers.register(_initial_version_scan_timer, first_interval=0.1) # Register the function defined in this file
-    if _debug_active: print("DEBUG: register(): Scheduled _initial_version_scan_timer.")
+        preferences.BM_Preferences._initial_scan_done = False # Ensure this refers to the actual flag in BM_Preferences
+         
+    # Explicitly reset transient preference properties to their defaults.
+    # This ensures that even if old values were somehow loaded from userpref.blend
+    # (e.g., from before SKIP_SAVE was added or due to property definition changes),
+    # they are reset to a clean state for the new session.
+    try:
+        prefs_instance = bpy.context.preferences.addons[__name__].preferences
+        prefs_instance.show_operation_progress = False  # Default
+        prefs_instance.operation_progress_value = 0.0   # Default (property is 0-100 factor)
+        prefs_instance.operation_progress_message = "Waiting..."  # Default
+        prefs_instance.abort_operation_requested = False  # Default
+        prefs_instance.path_details_scan_done_once = False # Default
+
+        if prefs_instance.debug:
+            print(f"DEBUG: {__name__} registered. Transient preference properties explicitly reset to defaults.")
+    except Exception as e:
+        print(f"ERROR: {__name__}: Could not reset transient preferences during registration: {e}")
 
     try:
         bpy.types.TOPBAR_MT_file.append(menus_draw_fn)
     except Exception as e: # Catch error if append fails (e.g. during headless run)
         if _debug_active: print(f"DEBUG: register(): Could not append menu_draw_fn to TOPBAR_MT_file: {e}")
     if _debug_active: print("DEBUG: Backup Manager register() FINISHED.")
+
 
 def unregister():
     global _registered_classes
@@ -236,11 +202,6 @@ def unregister():
 
     if _debug_active: print("DEBUG: Backup Manager unregister() CALLED")
 
-    # Ensure the initial scan timer is unregistered if it's still pending
-    if bpy.app.timers.is_registered(_initial_version_scan_timer):
-        bpy.app.timers.unregister(_initial_version_scan_timer)
-        if _debug_active: print("DEBUG: unregister(): Unregistered _initial_version_scan_timer.")
-    
     try:
         bpy.types.TOPBAR_MT_file.remove(menus_draw_fn)
     except Exception as e: # Can error if not found

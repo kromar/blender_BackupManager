@@ -371,8 +371,7 @@ class OT_BackupManagerWindow(Operator):
             if _debug_draw:
                 timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
                 # Adjust for 0-1 scale for debug display
-                progress_val_for_debug = prefs_instance.operation_progress_value * 100.0 # For display in log
-                progress_val_str = f"{progress_val_for_debug:.1f}% (raw: {prefs_instance.operation_progress_value:.3f})" if prefs_instance.show_operation_progress else "N/A (hidden)"
+                progress_val_str = f"{prefs_instance.operation_progress_value:.1f}%" if prefs_instance.show_operation_progress else "N/A (hidden)"
                 op_message = prefs_instance.operation_progress_message if prefs_instance.show_operation_progress else "N/A (hidden)"
                 print(f"DEBUG: [{timestamp}] OT_BackupManagerWindow.draw() CALLED. Progress: {progress_val_str}, Msg: '{op_message}', show_op_progress: {prefs_instance.show_operation_progress}, Tabs: {self.tabs}")
                 _start_time_draw_obj = datetime.now()
@@ -394,12 +393,15 @@ class OT_BackupManagerWindow(Operator):
                 if prefs_instance.operation_progress_message:
                     op_status_col.label(text=prefs_instance.operation_progress_message)
                 
-                # Display the progress value as a progress bar with no text on the bar itself.
-                # operation_progress_value is a 0.0-1.0 factor.
-                op_status_col.progress(factor=prefs_instance.operation_progress_value, text="")
+                # Create a new row for the progress bar and abort button
+                progress_row = op_status_col.row(align=True)
+
+                # Display the progress value as a slider (without its own text label)
+                # operation_progress_value is a 0.0-100.0 factor. The text="" hides the label to its left.
+                progress_row.prop(prefs_instance, "operation_progress_value", slider=True, text="")
                                 
                 # Abort button
-                op_status_col.operator("bm.abort_operation", text="Abort Current Operation", icon='CANCEL')
+                progress_row.operator("bm.abort_operation", text="", icon='CANCEL') # Text removed for compactness
 
             # --- Tabs for Backup/Restore ---
             layout.prop(self, "tabs", expand=True) # Use the operator's own tabs property
@@ -412,6 +414,7 @@ class OT_BackupManagerWindow(Operator):
             if _debug_draw and _start_time_draw_obj:
                 _end_time_draw_obj = datetime.now()
                 print(f"DEBUG: (took: {(_end_time_draw_obj - _start_time_draw_obj).total_seconds():.6f}s) OT_BackupManagerWindow.draw() END")
+                print("-" * 70) # Add a separator line
 
         except Exception as e:
             print(f"ERROR: Backup Manager: Error in OT_BackupManagerWindow.draw() (prefs_instance might be None): {e}")
@@ -460,15 +463,21 @@ class OT_BackupManagerWindow(Operator):
         
         self.tabs = prefs_instance.tabs # Initialize window tabs from preferences
 
-        # Trigger initial scan for path details if shown
-        if prefs_instance.show_path_details:
-            paths = preferences.get_paths_for_details(prefs_instance)
-            prefs_instance._update_path_details_for_paths(paths) 
+        # Explicitly trigger the version list update (which includes the SEARCH operator call)
+        # and subsequent path detail scan (if show_path_details is true).
+        # This ensures that the necessary scans are performed on first window open,
+        # as the update chain via self.tabs -> _update_window_tabs -> prefs.tabs
+        # might not fire if the tab values are already synchronized.
+        if _debug_active:
+            print(f"DEBUG: OT_BackupManagerWindow.invoke() - Explicitly calling prefs_instance.update_version_list(context) for initial scan.")
+        prefs_instance.update_version_list(context)
+        # The call to update_version_list will handle path details if prefs_instance.show_path_details is true,
+        # so the separate path detail scan previously here is no longer needed.
 
         # Always add the timer for the modal UI window.
         # The modal() method will manage its activity based on show_operation_progress.
         if self._timer is None:
-            self._timer = context.window_manager.event_timer_add(0.1) # Make timer global, not window-bound
+            self._timer = context.window_manager.event_timer_add(0.0) # Make timer global, not window-bound
             if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.invoke() - UI Update Timer ADDED (global): {self._timer}")
 
         context.window_manager.modal_handler_add(self)
@@ -503,8 +512,7 @@ class OT_BackupManagerWindow(Operator):
             if _debug_active:
                 timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
                 print(f"DEBUG: [{timestamp}] OT_BackupManagerWindow.modal() (TIMER) event.")
-                progress_val_for_debug = prefs_instance.operation_progress_value * 100.0 # Adjust for 0-1 scale
-                print(f"DEBUG: ... self._timer: {self._timer}, show_op_progress: {prefs_instance.show_operation_progress}, current_progress_val: {progress_val_for_debug:.1f}% (raw: {prefs_instance.operation_progress_value:.3f})")
+                print(f"DEBUG: ... self._timer: {self._timer}, show_op_progress: {prefs_instance.show_operation_progress}, current_progress_val: {prefs_instance.operation_progress_value:.1f}%")
                 print(f"DEBUG: ... Invoking context.area.type: {context.area.type if context.area else 'N/A'}")
 
             # For invoke_props_dialog, the dialog is its own window. The modal() method's 'context'
@@ -517,21 +525,14 @@ class OT_BackupManagerWindow(Operator):
                 print(f"DEBUG: ... All areas in all windows tagged for redraw.")
 
             if prefs_instance.show_operation_progress:
-                # If a simple tag_redraw isn't enough for the dialog,
-                # try a more forceful redraw mechanism when progress is active.
-                try:
-                    bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-                    if _debug_active:
-                        print("DEBUG: ... Called bpy.ops.wm.redraw_timer() to force dialog update.")
-                except Exception as e_redraw_timer:
-                    if _debug_active:
-                        print(f"DEBUG: ... Error calling bpy.ops.wm.redraw_timer(): {e_redraw_timer}")
+                # The tag_redraw() loop above should be sufficient.
+                # Aggressive redraw_timer can cause flickering.
 
                 # Operation is in progress, timer should continue.
                 # Debug message for this state is already part of the initial timer log block
                 # Safeguard: If timer was somehow removed while an operation is supposed to be in progress, re-add it.
                 if self._timer is None:
-                    self._timer = context.window_manager.event_timer_add(0.1) # Make timer global
+                    self._timer = context.window_manager.event_timer_add(0.0) # Make timer global
                     if _debug_active: print(f"DEBUG: ... UI Update Timer RE-ADDED (global) for active operation.")
 
             else: # Operation not in progress or finished
@@ -600,6 +601,12 @@ class OT_BackupManager(Operator):
     current_target_path: str = ""
     current_operation_type: str = "" # 'BACKUP' or 'RESTORE'
     _progress_started_on_wm: bool = False # True if Blender's WM progress has been started
+    # --- Batch operation state variables ---
+    is_batch_operation: bool = False
+    batch_operations_list: list = []
+    current_batch_item_index: int = 0
+    total_batch_items: int = 0
+    batch_report_lines: list = [] # To accumulate reports from each sub-operation
 
     ignore_backup = []
     ignore_restore = []
@@ -683,7 +690,11 @@ class OT_BackupManager(Operator):
             if prefs_instance_for_cancel:
                 prefs_instance_for_cancel.show_operation_progress = False
                 prefs_instance_for_cancel.operation_progress_message = f"{self.current_operation_type if hasattr(self, 'current_operation_type') and self.current_operation_type else 'Operation'} cancelled (operator cleanup)."
-                prefs_instance_for_cancel.operation_progress_value = 0.0
+                if self.is_batch_operation:
+                    prefs_instance_for_cancel.operation_progress_message = f"Batch operation cancelled."
+                self.is_batch_operation = False # Reset batch flag
+
+                prefs_instance_for_cancel.operation_progress_value = 0.0 # Reset progress value
                 prefs_instance_for_cancel.abort_operation_requested = False # Reset this flag too
                 if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): show_operation_progress and abort_operation_requested reset.")
         except Exception as e:
@@ -761,9 +772,96 @@ class OT_BackupManager(Operator):
             print(f"Total files to process: {self.total_files}")
         return True
 
+    def _process_next_batch_item_or_finish(self, context):
+        """
+        Sets up the next item in a batch operation for modal processing,
+        or finalizes the batch if all items are done.
+        Returns {'RUNNING_MODAL'} if a new item is started modally,
+        {'FINISHED'} if batch is complete or no items to process initially.
+        """
+        pref_instance = prefs() # Get fresh preferences
+
+        if self.current_batch_item_index < self.total_batch_items:
+            source_path, target_path, op_type, version_name = self.batch_operations_list[self.current_batch_item_index]
+            self.current_source_path = source_path
+            self.current_target_path = target_path
+            self.current_operation_type = op_type
+
+            item_name_for_log = version_name # Use the version name for logging
+
+            if pref_instance.clean_path and os.path.exists(self.current_target_path) and self.current_operation_type == 'BACKUP':
+                if pref_instance.debug: print(f"DEBUG: Batch: Attempting to clean path for {item_name_for_log}: {self.current_target_path}")
+                try:
+                    if not pref_instance.dry_run: shutil.rmtree(self.current_target_path)
+                    cleaned_msg = f"Cleaned path for {item_name_for_log}: {self.current_target_path}"
+                    if pref_instance.debug or pref_instance.dry_run: print(cleaned_msg)
+                    self.batch_report_lines.append(f"INFO: {cleaned_msg}")
+                except OSError as e:
+                    fail_clean_msg = f"Failed to clean path for {item_name_for_log} ({self.current_target_path}): {e}"
+                    if pref_instance.debug: print(f"ERROR: {fail_clean_msg}")
+                    self.batch_report_lines.append(f"WARNING: {fail_clean_msg}")
+
+            if not self._prepare_file_list(): # Populates self.files_to_process, self.total_files
+                err_msg = f"Batch item {self.current_batch_item_index + 1}/{self.total_batch_items} ({op_type} {item_name_for_log}): Error preparing file list. Skipping."
+                self.report({'WARNING'}, err_msg)
+                self.batch_report_lines.append(f"WARNING: {err_msg}")
+                pref_instance.operation_progress_message = err_msg
+                self.current_batch_item_index += 1
+                return self._process_next_batch_item_or_finish(context) # Try next
+
+            if self.total_files == 0:
+                no_files_msg = f"Batch item {self.current_batch_item_index + 1}/{self.total_batch_items} ({op_type} {item_name_for_log}): No files to process. Skipping."
+                self.report({'INFO'}, no_files_msg)
+                self.batch_report_lines.append(f"INFO: {no_files_msg}")
+                pref_instance.operation_progress_message = no_files_msg
+                self.current_batch_item_index += 1
+                return self._process_next_batch_item_or_finish(context) # Try next
+
+            # Item has files, set up for modal processing
+            self.processed_files_count = 0 # Reset for the new item
+            initial_message = f"Batch {self.current_operation_type} ({self.current_batch_item_index + 1}/{self.total_batch_items} - {item_name_for_log}): Starting... ({self.total_files} files)"
+            self.report({'INFO'}, initial_message) # Report to Blender status bar
+            pref_instance.show_operation_progress = True
+            pref_instance.operation_progress_message = initial_message
+            pref_instance.operation_progress_value = 0.0
+            
+            if self._timer is None:
+                self._timer = context.window_manager.event_timer_add(0.0, window=context.window)
+                if pref_instance.debug: print(f"DEBUG: Batch: Timer ADDED for item {self.current_batch_item_index + 1} ('{item_name_for_log}')")
+            # Modal handler should already be active from the initial execute call for the batch.
+            return {'RUNNING_MODAL'} # Signal that an item is ready for modal processing
+        else:
+            # All batch items processed
+            self.is_batch_operation = False # Reset flag
+            final_batch_message = f"Batch operation complete. Processed {self.total_batch_items} items."
+            self.report({'INFO'}, final_batch_message)
+            
+            report_title = "Batch Operation Report"
+            overall_op_type = "Operation"
+            if self.batch_operations_list:
+                 overall_op_type = self.batch_operations_list[0][2] # Get op_type from first item
+                 report_title = f"Batch {overall_op_type} Report"
+
+            final_report_lines = [final_batch_message] + self.batch_report_lines[:]
+            bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static(
+                final_report_lines, report_title, 'INFO'
+            ), first_interval=0.01)
+
+            pref_instance.show_operation_progress = False
+            pref_instance.operation_progress_message = final_batch_message
+            pref_instance.operation_progress_value = 100.0
+            pref_instance.abort_operation_requested = False # Reset abort flag
+            
+            if self._timer: # Clean up timer if it was from the last item
+                context.window_manager.event_timer_remove(self._timer)
+                self._timer = None
+                if pref_instance.debug: print(f"DEBUG: Batch: Final timer removed.")
+            return {'FINISHED'}
+
     def modal(self, context, event):
+        pref_instance = prefs() # Get fresh preferences
         # Capture the state of the abort request flag at the beginning of this modal event
-        was_aborted_by_ui_button = prefs().abort_operation_requested
+        was_aborted_by_ui_button = pref_instance.abort_operation_requested
         
         # Check for abort request first or ESC key
         # Or if all files are processed (files_to_process is empty AND processed_files_count matches total_files)
@@ -772,70 +870,95 @@ class OT_BackupManager(Operator):
            (not self.files_to_process and self.processed_files_count >= self.total_files and self.total_files > 0) or \
            (self.total_files == 0 and self.processed_files_count == 0): # Handles case of no files to process initially
 
-             # Original timer removal
+            # Timer for the *just completed* item (or an item that had 0 files)
             if self._timer:
                 context.window_manager.event_timer_remove(self._timer)
                 self._timer = None
-                if prefs().debug: print(f"DEBUG: OT_BackupManager.modal(): Timer removed (finish/cancel condition).")
-
+                if pref_instance.debug: print(f"DEBUG: OT_BackupManager.modal(): Timer removed for completed/cancelled item.")
 
             # Reset the flag now that its state (was_aborted_by_ui_button) has been used for the decision to exit the modal.
             if was_aborted_by_ui_button:
-                prefs().abort_operation_requested = False
+                pref_instance.abort_operation_requested = False # Reset for next potential operation
 
             if event.type == 'ESC' or was_aborted_by_ui_button:
-                cancel_message = f"{self.current_operation_type} cancelled by user."
+                op_description = f"{self.current_operation_type}"
+                if self.is_batch_operation:
+                    op_description = f"Batch {self.current_operation_type} (item {self.current_batch_item_index + 1}/{self.total_batch_items})"
+                
+                cancel_message = f"{op_description} cancelled by user."
                 self.report({'WARNING'}, cancel_message)
                 bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static([cancel_message], "Operation Cancelled", "WARNING"), first_interval=0.01)
-                # Update prefs message for the window label
-                prefs().operation_progress_message = f"{self.current_operation_type} cancelled."
-                prefs().operation_progress_value = 0.0 # Reset progress value (0.0 is correct for 0-1 scale)
-                prefs().show_operation_progress = False # Signal OT_BackupManagerWindow to stop its timer
+                
+                pref_instance.operation_progress_message = cancel_message
+                pref_instance.operation_progress_value = 0.0 
+                pref_instance.show_operation_progress = False 
+                self.is_batch_operation = False # Ensure batch mode is exited
                 return {'CANCELLED'}
             else: # Operation completed successfully or no files to process
-                completion_status = "Dry run complete" if prefs().dry_run else "Complete"
-                
-                # Ensure processed_files_count doesn't exceed total_files for display
+                # This block handles completion of an individual item (could be part of a batch or a single op)
+                completion_status_item = "Dry run complete" if pref_instance.dry_run else "Complete"
                 display_processed_count = min(self.processed_files_count, self.total_files)
+                version_name_for_item_report = os.path.basename(self.current_source_path) if self.current_operation_type == 'BACKUP' else os.path.basename(self.current_target_path)
+                if self.is_batch_operation and self.current_batch_item_index < self.total_batch_items:
+                     version_name_for_item_report = self.batch_operations_list[self.current_batch_item_index][3] # Get version_name
 
-                report_message_lines = [
-                    f"{self.current_operation_type} {completion_status.lower()}.",
-                    f"{display_processed_count}/{self.total_files} files processed."
-                ]
-                if self.current_source_path: report_message_lines.append(f"Source: {self.current_source_path}")
-                if self.current_target_path: report_message_lines.append(f"Target: {self.current_target_path}")
+                item_report_msg = f"Item '{version_name_for_item_report}' ({self.current_operation_type}) {completion_status_item.lower()}: {display_processed_count}/{self.total_files} files."
+                if pref_instance.dry_run and self.total_files > 0: item_report_msg += " (Dry Run)"
 
-                if prefs().dry_run and self.total_files > 0: 
-                    report_message_lines.append("(Dry Run - No files were actually copied/deleted)")
+                if self.is_batch_operation:
+                    self.batch_report_lines.append(f"INFO: {item_report_msg}")
+                    if pref_instance.debug: print(f"DEBUG: Batch item reported: {item_report_msg}")
+                    
+                    self.current_batch_item_index += 1
+                    result_next_item = self._process_next_batch_item_or_finish(context)
+                    
+                    if result_next_item == {'RUNNING_MODAL'}:
+                        # New item is set up, its timer is running. Modal loop continues.
+                        return {'PASS_THROUGH'} 
+                    else: # {'FINISHED'} - batch fully complete
+                        # _process_next_batch_item_or_finish handled final report and prefs update
+                        return {'FINISHED'}
+                else: # Single operation completed
+                    report_message_lines = [
+                        f"{self.current_operation_type} {completion_status_item.lower()}.",
+                        f"{display_processed_count}/{self.total_files} files processed."
+                    ]
+                    if self.current_source_path: report_message_lines.append(f"Source: {self.current_source_path}")
+                    if self.current_target_path: report_message_lines.append(f"Target: {self.current_target_path}")
+                    if pref_instance.dry_run and self.total_files > 0: 
+                        report_message_lines.append("(Dry Run - No files were actually copied/deleted)")
 
-                report_icon = 'INFO' 
-                if hasattr(self, 'current_operation_type') and self.current_operation_type:
-                    if self.current_operation_type == 'BACKUP':
-                        report_icon = 'COLORSET_03_VEC'
-                    elif self.current_operation_type == 'RESTORE':
-                        report_icon = 'COLORSET_04_VEC'
-                
-                operation_type_for_report = self.current_operation_type if hasattr(self, 'current_operation_type') else "Operation"
-                bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static(report_message_lines, f"{operation_type_for_report} Report", report_icon), first_interval=0.01)
-                self.report({'INFO'}, " ".join(report_message_lines)) 
-                # Update prefs message for the window label
-                prefs().operation_progress_message = f"{self.current_operation_type} {completion_status.lower()}."
-                prefs().operation_progress_value = 1.0 # Set progress to 100% (1.0 for 0-1 scale)
-                prefs().show_operation_progress = False # Signal OT_BackupManagerWindow to stop its timer
-            return {'FINISHED'}
+                    report_icon = 'INFO' 
+                    if self.current_operation_type == 'BACKUP': report_icon = 'COLORSET_03_VEC'
+                    elif self.current_operation_type == 'RESTORE': report_icon = 'COLORSET_04_VEC'
+                    
+                    bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static(
+                        report_message_lines, f"{self.current_operation_type} Report", report_icon
+                    ), first_interval=0.01)
+                    self.report({'INFO'}, " ".join(report_message_lines)) 
+                    
+                    pref_instance.operation_progress_message = f"{self.current_operation_type} {completion_status_item.lower()}."
+                    pref_instance.operation_progress_value = 100.0 
+                    pref_instance.show_operation_progress = False 
+                    pref_instance.abort_operation_requested = False # Reset abort flag
+                    return {'FINISHED'}
 
         if event.type == 'TIMER':
             if not self.files_to_process: 
                 # This state (timer event but no files left) should lead to FINISHED via the top condition
                 # in the next event cycle. Update progress one last time for safety.
                 if self.total_files > 0:
-                    progress_percent = (self.processed_files_count / self.total_files) * 100.0
+                    current_progress_val = (self.processed_files_count / self.total_files) * 100.0
                 else: # No files to begin with
-                    progress_percent = 100.0
-                # Update message for window label and status bar
-                current_message = f"{self.current_operation_type}: {self.processed_files_count}/{self.total_files} files ({progress_percent:.1f}%) - Finalizing..."
-                prefs().operation_progress_message = current_message
-                prefs().operation_progress_value = progress_percent / 100.0 # Scale to 0-1
+                    current_progress_val = 100.0
+                
+                finalizing_msg = f"{self.current_operation_type}: {self.processed_files_count}/{self.total_files} files ({current_progress_val:.1f}%) - Finalizing..."
+                if self.is_batch_operation:
+                    version_name_finalize = self.batch_operations_list[self.current_batch_item_index][3] if self.current_batch_item_index < self.total_batch_items else "item"
+                    finalizing_msg = f"Batch {self.current_operation_type} ({self.current_batch_item_index + 1}/{self.total_batch_items} - {version_name_finalize}): Finalizing..."
+
+                pref_instance.operation_progress_message = finalizing_msg
+                pref_instance.operation_progress_value = current_progress_val
                 return {'PASS_THROUGH'} # Let the next cycle handle termination via top conditions
 
             # Process a batch of files
@@ -849,7 +972,7 @@ class OT_BackupManager(Operator):
                     try:
                         os.makedirs(os.path.dirname(dest_file), exist_ok=True)
                         shutil.copy2(src_file, dest_file)
-                    except Exception as e:
+                    except (OSError, shutil.Error) as e: # Catch more specific errors
                         print(f"Error copying {src_file} to {dest_file}: {e}")
                         # Consider collecting errors for a summary report
                 
@@ -857,23 +980,31 @@ class OT_BackupManager(Operator):
             
             # Update progress after processing the batch
             if self.total_files > 0:
-                progress_percent = (self.processed_files_count / self.total_files) * 100.0
+                current_progress_val = (self.processed_files_count / self.total_files) * 100.0
             else: 
-                progress_percent = 100.0 # Should be caught by initial total_files == 0 check
+                current_progress_val = 100.0 # Should be caught by initial total_files == 0 check
             
             # Update the message string for window label and status bar
-            current_message = f"{self.current_operation_type}: {self.processed_files_count}/{self.total_files} files ({progress_percent:.1f}%)"
-            prefs().operation_progress_message = current_message
-            prefs().operation_progress_value = progress_percent / 100.0 # Scale to 0-1
-            if prefs().debug:
+            progress_display_message = f"{self.current_operation_type}: {self.processed_files_count}/{self.total_files} files ({current_progress_val:.1f}%)"
+            if self.is_batch_operation:
+                version_name_progress = "item"
+                if self.current_batch_item_index < len(self.batch_operations_list): # Check bounds
+                    version_name_progress = self.batch_operations_list[self.current_batch_item_index][3] # version_name
+                
+                progress_display_message = (
+                    f"Batch {self.current_operation_type} ({self.current_batch_item_index + 1}/{self.total_batch_items} - {version_name_progress}): "
+                    f"{self.processed_files_count}/{self.total_files} files ({current_progress_val:.1f}%)"
+                )
+            pref_instance.operation_progress_message = progress_display_message
+            pref_instance.operation_progress_value = current_progress_val
+            if pref_instance.debug:
                 timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                debug_progress_display = prefs().operation_progress_value * 100.0 # For display in log
-                print(f"DEBUG: [{timestamp}] OT_BackupManager.modal() (TIMER) updated progress to: {debug_progress_display:.1f}% (raw: {prefs().operation_progress_value:.3f}), Msg: '{prefs().operation_progress_message}'")
+                print(f"DEBUG: [{timestamp}] OT_BackupManager.modal() (TIMER) updated progress to: {pref_instance.operation_progress_value:.1f}%, Msg: '{pref_instance.operation_progress_message}'")
 
         return {'PASS_THROUGH'} # Allow other events to be processed
 
-
     def execute(self, context): 
+        pref_instance = prefs() # Get fresh preferences
         pref_backup_versions = preferences.BM_Preferences.backup_version_list
         pref_restore_versions = preferences.BM_Preferences.restore_version_list
 
@@ -881,30 +1012,30 @@ class OT_BackupManager(Operator):
             print("\n\nbutton_input: ", self.button_input)                    
         
         if prefs().backup_path:
-            self.current_operation_type = "" # Reset
+            self.current_operation_type = "" # Reset for single ops
+            self.is_batch_operation = False # Reset for single ops
 
             if self.button_input in {'BACKUP', 'RESTORE'}:
                 self.current_operation_type = self.button_input
-                if not prefs().advanced_mode:            
+                if not pref_instance.advanced_mode:            
                     if self.button_input == 'BACKUP':
-                        self.current_source_path = prefs().blender_user_path
-                        self.current_target_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version))
+                        self.current_source_path = pref_instance.blender_user_path
+                        self.current_target_path = os.path.join(pref_instance.backup_path, str(pref_instance.active_blender_version))
                     else: # RESTORE
-                        self.current_source_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version))
-                        self.current_target_path = prefs().blender_user_path
+                        self.current_source_path = os.path.join(pref_instance.backup_path, str(pref_instance.active_blender_version))
+                        self.current_target_path = pref_instance.blender_user_path
                 else:    
                     if self.button_input == 'BACKUP':
-                        self.current_source_path = os.path.join(os.path.dirname(prefs().blender_user_path),  prefs().backup_versions)
-                        if prefs().custom_version_toggle:
-                            self.current_target_path = os.path.join(prefs().backup_path, str(prefs().custom_version))
+                        self.current_source_path = os.path.join(os.path.dirname(pref_instance.blender_user_path),  pref_instance.backup_versions)
+                        if pref_instance.custom_version_toggle:
+                            self.current_target_path = os.path.join(pref_instance.backup_path, str(pref_instance.custom_version))
                         else: 
-                            self.current_target_path = os.path.join(prefs().backup_path, prefs().restore_versions) # Should be backup_versions for target?
                             # Corrected: If not custom, target for backup should be based on source version name
-                            self.current_target_path = os.path.join(prefs().backup_path, prefs().backup_versions)
+                            self.current_target_path = os.path.join(pref_instance.backup_path, pref_instance.backup_versions)
 
                     else: # RESTORE
-                        self.current_source_path = os.path.join(prefs().backup_path, prefs().restore_versions)
-                        self.current_target_path = os.path.join(os.path.dirname(prefs().blender_user_path),  prefs().backup_versions)
+                        self.current_source_path = os.path.join(pref_instance.backup_path, pref_instance.restore_versions)
+                        self.current_target_path = os.path.join(os.path.dirname(pref_instance.blender_user_path),  pref_instance.backup_versions)
 
                 if prefs().clean_path and os.path.exists(self.current_target_path) and self.button_input == 'BACKUP': # Clean only for backup
                     if prefs().debug: print(f"Attempting to clean path: {self.current_target_path}")
@@ -923,15 +1054,15 @@ class OT_BackupManager(Operator):
                     if self.current_source_path:
                          report_message += f" from {self.current_source_path}"
                     
-                    if prefs().dry_run: # Clarify dry run message for 0 files
+                    if pref_instance.dry_run: # Clarify dry run message for 0 files
                         report_message += " (Dry Run - no files would have been processed)."
                     else:
                         report_message += "."
 
 
                     self.report({'INFO'}, report_message) # Report to Blender status bar
-                    prefs().show_operation_progress = False # No modal progress needed
-                    prefs().operation_progress_message = report_message # For window if open
+                    pref_instance.show_operation_progress = False # No modal progress needed
+                    pref_instance.operation_progress_message = report_message # For window if open
 
                     # Determine title and icon for the deferred report
                     op_type_for_report = self.current_operation_type if self.current_operation_type else "Operation"
@@ -949,40 +1080,63 @@ class OT_BackupManager(Operator):
                     ), first_interval=0.01)
                     return {'FINISHED'}
 
-                initial_message = f"Starting {self.current_operation_type}... (0/{self.total_files} files)"
+                initial_message = f"Starting {self.current_operation_type}... ({self.total_files} files)"
                 self.report({'INFO'}, initial_message) # Report initial status to Blender status bar
                 
                 # Set preferences for the addon window's display
-                prefs().show_operation_progress = True
-                prefs().operation_progress_message = initial_message # For the window label
-                prefs().operation_progress_value = 0.0 # Initialize progress value
+                pref_instance.show_operation_progress = True
+                pref_instance.operation_progress_message = initial_message # For the window label
+                pref_instance.operation_progress_value = 0.0 # Initialize progress value
                 
                 self._timer = context.window_manager.event_timer_add(0.0, window=context.window) # Adjusted interval
                 
                 context.window_manager.modal_handler_add(self)
                 return {'RUNNING_MODAL'}
-            elif self.button_input == 'BATCH_BACKUP': # TODO: Adapt BATCH to use modal logic sequentially
+            
+            elif self.button_input == 'BATCH_BACKUP':
+                self.is_batch_operation = True
+                self.batch_operations_list.clear()
+                self.batch_report_lines.clear()
                 for version in pref_backup_versions: # Iterate over the list from preferences
-                    if prefs().debug:
-                        print(version[0])
-                    source_path = os.path.join(os.path.dirname(prefs().blender_user_path),  version[0])
-                    target_path = os.path.join(prefs().backup_path, version[0])
-                    # This needs to be adapted to call the modal setup for each.
-                    # For now, it will run the old blocking way if run_backup was a separate method.
-                    # With run_backup logic integrated, this needs a loop that re-invokes the operator
-                    # or a more complex internal loop that re-initializes the modal state.
-                    # For simplicity, this will be blocking for now or needs a separate operator.
-                    self.report({'INFO'}, f"Batch Backup for {version[0]} - (Modal progress for batch not yet fully implemented, runs blocking)")
-                    self._execute_single_backup_restore_blocking(source_path, target_path, 'BACKUP')
-             
+                    version_name = version[0]
+                    source_path = os.path.join(os.path.dirname(pref_instance.blender_user_path), version_name)
+                    target_path = os.path.join(pref_instance.backup_path, version_name)
+                    self.batch_operations_list.append((source_path, target_path, 'BACKUP', version_name))
+                self.total_batch_items = len(self.batch_operations_list)
+                self.current_batch_item_index = 0
+                if self.total_batch_items == 0:
+                    self.report({'INFO'}, "No items found for batch backup.")
+                    self.is_batch_operation = False # Reset
+                    return {'FINISHED'}
+                context.window_manager.modal_handler_add(self) # Add modal handler ONCE for the whole batch
+                return self._process_next_batch_item_or_finish(context)
+
+            elif self.button_input == 'BATCH_RESTORE':
+                self.is_batch_operation = True
+                self.batch_operations_list.clear()
+                self.batch_report_lines.clear()
+                for version in pref_restore_versions: # Iterate over the list from preferences
+                    version_name = version[0]
+                    source_path = os.path.join(pref_instance.backup_path, version_name)
+                    target_path = os.path.join(os.path.dirname(pref_instance.blender_user_path),  version_name)
+                    self.batch_operations_list.append((source_path, target_path, 'RESTORE', version_name))
+                self.total_batch_items = len(self.batch_operations_list)
+                self.current_batch_item_index = 0
+                if self.total_batch_items == 0:
+                    self.report({'INFO'}, "No items found for batch restore.")
+                    self.is_batch_operation = False # Reset
+                    return {'FINISHED'}
+                context.window_manager.modal_handler_add(self) # Add modal handler ONCE for the whole batch
+                return self._process_next_batch_item_or_finish(context)
+
             elif self.button_input == 'DELETE_BACKUP':
-                if not prefs().advanced_mode:            
-                    target_path = os.path.join(prefs().backup_path, str(prefs().active_blender_version)).replace("\\", "/")                    
+                if not pref_instance.advanced_mode:            
+                    target_path = os.path.join(pref_instance.backup_path, str(pref_instance.active_blender_version)).replace("\\", "/")                    
                 else:                                                 
-                    if prefs().custom_version_toggle:
-                        target_path = os.path.join(prefs().backup_path, str(prefs().custom_version))
+                    if pref_instance.custom_version_toggle:
+                        target_path = os.path.join(pref_instance.backup_path, str(pref_instance.custom_version))
                     else:                
-                        target_path = os.path.join(prefs().backup_path, prefs().restore_versions)
+                        target_path = os.path.join(pref_instance.backup_path, pref_instance.restore_versions)
 
                 if os.path.exists(target_path):
                     try:
@@ -993,12 +1147,12 @@ class OT_BackupManager(Operator):
                         report_msg_line1 = f"{action_verb} backup:"
                         report_msg_line2 = target_path
                         self.report({'INFO'}, f"{report_msg_line1} {report_msg_line2}")
-                        OT_BackupManager.ShowReport_static(message=[report_msg_line1, report_msg_line2], title="Delete Backup Report", icon='COLORSET_01_VEC')
-                        if prefs().debug or prefs().dry_run:
+                        bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static([report_msg_line1, report_msg_line2], "Delete Backup Report", 'COLORSET_01_VEC'), first_interval=0.01)
+                        if pref_instance.debug or pref_instance.dry_run:
                              print(f"\n{action_verb} Backup: {target_path}")
 
                     except OSError as e:
-                        action_verb = "Failed to (dry run) delete" if prefs().dry_run else "Failed to delete"
+                        action_verb = "Failed to (dry run) delete" if pref_instance.dry_run else "Failed to delete"
                         error_msg_line1 = f"{action_verb} {target_path}:"
                         error_msg_line2 = str(e)
                         self.report({'WARNING'}, f"{error_msg_line1} {error_msg_line2}")
@@ -1008,19 +1162,9 @@ class OT_BackupManager(Operator):
                 else:
                     not_found_msg = f"Not found, nothing to delete: {target_path}"
                     self.report({'INFO'}, not_found_msg)
-                    OT_BackupManager.ShowReport_static(message=[f"Not found, nothing to delete:", target_path], title="Delete Backup Report", icon='INFO')
-                    if prefs().debug: # Keep print for debug
+                    bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static([f"Not found, nothing to delete:", target_path], "Delete Backup Report", 'INFO'), first_interval=0.01)
+                    if pref_instance.debug: # Keep print for debug
                         print(f"\nBackup to delete not found: {target_path}")
-
-            elif self.button_input == 'BATCH_RESTORE': # TODO: Adapt BATCH
-                for version in pref_restore_versions: # Iterate over the list from preferences
-                    if prefs().debug:
-                        print(version[0])
-                    source_path = os.path.join(prefs().backup_path, version[0])
-                    target_path = os.path.join(os.path.dirname(prefs().blender_user_path),  version[0])
-                    self.report({'INFO'}, f"Batch Restore for {version[0]} - (Modal progress for batch not yet fully implemented, runs blocking)")
-                    self._execute_single_backup_restore_blocking(source_path, target_path, 'RESTORE')
-           
 
             elif self.button_input == 'SEARCH_BACKUP':
                 _search_start_sb = None
@@ -1113,61 +1257,4 @@ class OT_BackupManager(Operator):
         else:
             OT_BackupManager.ShowReport_static(["Specify a Backup Path"] , "Backup Path missing", 'ERROR')
         return {'FINISHED'}
-
-    def _execute_single_backup_restore_blocking(self, source_path, target_path, operation_type):
-        """ Helper for BATCH operations to run the old blocking way for now. """
-        if prefs().debug:
-            print(f"Executing blocking {operation_type}: {source_path} -> {target_path}")
-
-        self.current_source_path = source_path
-        self.current_target_path = target_path
-        self.current_operation_type = operation_type
-
-        if operation_type == 'BACKUP' and prefs().clean_path and os.path.exists(target_path):
-            if not prefs().dry_run: shutil.rmtree(target_path)
-
-        self.create_ignore_pattern()
-        current_ignore_list = self.ignore_backup if operation_type == 'BACKUP' else self.ignore_restore
-
-        if os.path.isdir(source_path):
-            try:
-                if not prefs().dry_run:
-                    # Simplified recursive copy for the blocking version
-                    for dirpath, dirnames, filenames in os.walk(source_path):
-                        dirnames[:] = [d for d in dirnames if not any(fnmatch.fnmatch(d, pat) for pat in current_ignore_list)]
-                        for filename in filenames:
-                            if any(fnmatch.fnmatch(filename, pat) for pat in current_ignore_list): continue
-                            src_file = os.path.join(dirpath, filename)
-                            relative_dir = os.path.relpath(dirpath, source_path)
-                            dest_file = os.path.join(target_path, relative_dir if relative_dir != '.' else '', filename)
-                            os.makedirs(os.path.dirname(dest_file), exist_ok=True)
-                            shutil.copy2(src_file, dest_file) # This line is skipped in dry_run
-                
-                completion_status = "Dry run complete" if prefs().dry_run else "Complete"
-                report_message = (
-                    f"{operation_type} for {os.path.basename(source_path)} {completion_status.lower()}.\n"
-                    f"Source: {source_path}\n"
-                    f"Target: {target_path}"
-                )
-                if prefs().dry_run:
-                    # We don't have an exact file count here for blocking mode without re-scanning,
-                    # so the message is simpler.
-                    report_message += "\n(Dry Run - No files were actually copied/deleted)"
-                
-                report_icon = 'INFO' # Default
-                if operation_type == 'BACKUP':
-                    report_icon = 'COLORSET_03_VEC'
-                elif operation_type == 'RESTORE':
-                    report_icon = 'COLORSET_04_VEC'
-                self.report({'INFO'}, report_message)
-                OT_BackupManager.ShowReport_static(message=report_message.split('\n'), title=f"{operation_type} Report", icon=report_icon)
-
-            except Exception as e:
-                error_report_msg = f"{operation_type} for {os.path.basename(source_path)} failed: {e}\nSource: {source_path}\nTarget: {target_path}"
-                self.report({'ERROR'}, error_report_msg)
-                OT_BackupManager.ShowReport_static(message=error_report_msg.split('\n'), title=f"{operation_type} Error", icon='ERROR')
-        else:
-            warning_report_msg = f"Source for {operation_type} not found: {source_path}"
-            self.report({'WARNING'}, warning_report_msg)
-            OT_BackupManager.ShowReport_static(message=warning_report_msg.split('\n'), title=f"{operation_type} Warning", icon='WARNING')
     

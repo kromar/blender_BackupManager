@@ -304,10 +304,10 @@ class BM_Preferences(AddonPreferences):
         options={'SKIP_SAVE'} # Internal: Controls visibility of progress UI, should not persist.
     )
     operation_progress_value: FloatProperty(
-        default=0.0, 
-        min=0.0, 
-        max=1.0,  # Changed max to 1.0 for FACTOR subtype
-        subtype='FACTOR', # Changed subtype to FACTOR
+        default=0.0,
+        min=0.0,
+        max=100.0,  # Back to 0-100 range
+        subtype='PERCENTAGE', # Back to PERCENTAGE subtype
         options={'SKIP_SAVE'} # Internal: Progress value, should not persist.
     )
     operation_progress_message: StringProperty(
