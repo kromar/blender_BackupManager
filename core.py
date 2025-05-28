@@ -17,7 +17,7 @@
 # ##### END GPL LICENSE BLOCK #####
 
 
-import bpy
+import bpy, subprocess, sys, os # Added subprocess, sys. os was already effectively imported via other uses.
 import os, blf, gpu # Import blf and gpu for custom drawing
 import shutil
 import fnmatch # For pattern matching in ignore list
@@ -87,6 +87,177 @@ class OT_AbortOperation(Operator):
             print("DEBUG: OT_AbortOperation executed, abort_operation_requested set to True.")
         return {'FINISHED'}
 
+class OT_QuitBlenderNoSave(bpy.types.Operator):
+    """Quits Blender without saving current user preferences."""
+    bl_idname = "bm.quit_blender_no_save"
+    bl_label = "Quit & Attempt Restart"
+    bl_description = "Attempts to start a new Blender instance, then quits the current one. If 'Save on Quit' is enabled in Blender's preferences, you will be warned."
+
+    @classmethod
+    def poll(cls, context):
+        return True # Always allow attempting to quit
+
+    def invoke(self, context, event):
+        # It's good practice to get addon_prefs once, especially if debug is checked multiple times.
+        # However, ensure prefs() doesn't fail if context is minimal during early invoke.
+        addon_prefs_instance = None
+        try:
+            addon_prefs_instance = prefs()
+        except Exception as e:
+            print(f"DEBUG: OT_QuitBlenderNoSave.invoke: Could not retrieve addon preferences for debug logging: {e}")
+
+        prefs_view = context.preferences.view
+
+        if addon_prefs_instance and addon_prefs_instance.debug:
+            print(f"DEBUG: OT_QuitBlenderNoSave.invoke():")
+            print(f"  context: {context}")
+            print(f"  context.preferences: {context.preferences}")
+            print(f"  context.preferences.view (prefs_view): {prefs_view}")
+            if prefs_view:
+                print(f"  type(prefs_view): {type(prefs_view)}")
+                try:
+                    print(f"  dir(prefs_view): {dir(prefs_view)}")
+                except Exception as e_dir:
+                    print(f"  Error getting dir(prefs_view): {e_dir}")
+                print(f"  Has 'use_save_on_quit' attribute?: {hasattr(prefs_view, 'use_save_on_quit')}")
+
+        # The original logic, now with the debug prints above it.
+        # This line will still raise an AttributeError if 'use_save_on_quit' is missing.
+        # The debug output should help understand why.
+        if prefs_view and hasattr(prefs_view, 'use_save_on_quit') and prefs_view.use_save_on_quit:
+            # 'Save on Quit' is ON. We need to warn the user.
+            return context.window_manager.invoke_confirm(self, event)
+        else:
+            # 'Save on Quit' is OFF, or attribute is missing (hasattr was False), or prefs_view is None.
+            # If attribute is missing, we proceed as if it's OFF to avoid the dialog,
+            # but the execute method will log this uncertainty.
+            return self.execute(context)
+
+    def execute(self, context):
+        prefs_view = context.preferences.view
+        addon_prefs = prefs() # Get addon preferences for debug
+        
+        if addon_prefs.debug:
+            print(f"DEBUG: OT_QuitBlenderNoSave.execute():")
+            print(f"  context: {context}")
+            print(f"  context.preferences: {context.preferences}")
+            print(f"  context.preferences.view (prefs_view): {prefs_view}")
+            if prefs_view:
+                print(f"  type(prefs_view): {type(prefs_view)}")
+                try:
+                    print(f"  dir(prefs_view): {dir(prefs_view)}")
+                except Exception as e_dir:
+                    print(f"  Error getting dir(prefs_view): {e_dir}")
+                print(f"  Has 'use_save_on_quit' attribute?: {hasattr(prefs_view, 'use_save_on_quit')}")
+
+        # This is the line from the traceback.
+        # We check hasattr again to be safe and for clearer logging.
+        blender_will_save_on_quit = False # Default assumption
+        if prefs_view and hasattr(prefs_view, 'use_save_on_quit'):
+            blender_will_save_on_quit = prefs_view.use_save_on_quit
+        elif prefs_view: # prefs_view exists but hasattr was False
+            if addon_prefs.debug:
+                print("WARNING: OT_QuitBlenderNoSave.execute: 'use_save_on_quit' attribute missing on PreferencesView object. Assuming Blender will save preferences for safety.")
+            blender_will_save_on_quit = True # Assume worst-case for logging if attribute is missing
+        else: # prefs_view is None
+             if addon_prefs.debug:
+                print("WARNING: OT_QuitBlenderNoSave.execute: prefs_view is None. Assuming Blender will save preferences for safety.")
+             blender_will_save_on_quit = True
+
+        # --- Attempt to launch new Blender instance ---
+        blender_exe = bpy.app.binary_path
+        new_instance_launched_successfully = False
+        if blender_exe and os.path.exists(blender_exe): # Check if path is valid
+            try:
+                if addon_prefs.debug:
+                    print(f"DEBUG: OT_QuitBlenderNoSave: Attempting to launch new Blender instance from: {blender_exe}")
+
+                args = [blender_exe]
+                kwargs = {}
+
+                if sys.platform == "win32":
+                    DETACHED_PROCESS = 0x00000008 # subprocess.DETACHED_PROCESS
+                    kwargs['creationflags'] = DETACHED_PROCESS
+                elif sys.platform == "darwin": # macOS
+                    pass # No special flags usually needed
+                else: # Linux and other POSIX
+                    kwargs['start_new_session'] = True
+
+                subprocess.Popen(args, **kwargs)
+                new_instance_launched_successfully = True
+                if addon_prefs.debug:
+                    print(f"DEBUG: OT_QuitBlenderNoSave: New Blender instance launch command issued.")
+                    if sys.platform == "win32" and 'creationflags' in kwargs:
+                         print(f"DEBUG: OT_QuitBlenderNoSave: Using creationflags={kwargs['creationflags']}")
+                    elif 'start_new_session' in kwargs:
+                         print(f"DEBUG: OT_QuitBlenderNoSave: Using start_new_session=True")
+
+            except Exception as e:
+                if addon_prefs.debug:
+                    print(f"ERROR: OT_QuitBlenderNoSave: Failed to launch new Blender instance: {e}")
+        else:
+            if addon_prefs.debug:
+                print(f"DEBUG: OT_QuitBlenderNoSave: Blender executable path not found or invalid: '{blender_exe}'. Skipping new instance launch.")
+
+        if blender_will_save_on_quit:
+            # This path is taken if invoke_confirm was accepted by the user.
+            if addon_prefs.debug:
+                print("DEBUG: OT_QuitBlenderNoSave: Quitting Blender. 'Save on Quit' is ON. "
+                      "User was warned; preferences WILL be saved by Blender.")
+            # The warning should have made it clear that preferences *will* be saved.
+        else:
+            # 'Save on Quit' is OFF.
+            if addon_prefs.debug: print("DEBUG: OT_QuitBlenderNoSave: Quitting Blender. 'Save on Quit' is OFF. Preferences will NOT be saved by Blender.")
+        
+        if addon_prefs.debug:
+            if new_instance_launched_successfully:
+                print("DEBUG: OT_QuitBlenderNoSave: New instance launch command succeeded. Proceeding to quit current instance.")
+            else:
+                print("DEBUG: OT_QuitBlenderNoSave: New instance launch failed or was skipped. Proceeding to quit current instance.")
+
+        # --- Proceed with quitting the current Blender instance ---
+        bpy.ops.wm.quit_blender()
+        return {'FINISHED'}
+
+    # This draw method is for the confirmation dialog when use_save_on_quit is True
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column()
+        col.label(text="Blender's 'Save Preferences on Quit' is currently ENABLED.", icon='ERROR')
+        col.separator()
+        col.label(text="If you proceed, Blender will save its current in-memory preferences when quitting.")
+        col.label(text="This will likely overwrite the 'userpref.blend' file you just restored.")
+        col.separator()
+        col.label(text="To ensure the restored 'userpref.blend' is used on next startup:")
+        box = col.box()
+        box.label(text="1. Select 'Cancel' on this dialog (see details below).")
+        box.label(text="2. Go to: Edit > Preferences > Save & Load.")
+        box.label(text="3. Uncheck the 'Save on Quit' option.")
+        box.label(text="4. Manually quit Blender (File > Quit).")
+        box.label(text="5. Restart Blender. Your restored preferences should now be active.")
+        box.label(text="   (You can re-enable 'Save on Quit' after restarting, if desired).")
+        col.separator()
+        col.label(text=f"Choosing '{self.bl_label}' (OK) below will quit this Blender session,")
+        col.label(text="and it WILL save its current preferences due to the global setting.")
+        col.label(text="An attempt will then be made to start a new Blender instance.")
+        col.separator()
+        col.label(text="Choosing 'Cancel' will abort this quit/restart attempt by the addon.")
+
+
+class OT_CloseReportDialog(bpy.types.Operator):
+    """Closes the report dialog without taking further action."""
+    bl_idname = "bm.close_report_dialog"
+    bl_label = "Don't Quit Now"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        # This operator's purpose is just to be a clickable item in the popup
+        # that allows the popup to close without triggering the quit sequence.
+        if prefs().debug:
+            print("DEBUG: OT_CloseReportDialog executed (User chose not to quit/restart from report).")
+        return {'FINISHED'}
+
+
 class OT_ShowFinalReport(bpy.types.Operator):
     """Operator to display a popup message. Used by timers for deferred reports."""
     bl_idname = "bm.show_final_report"
@@ -98,15 +269,19 @@ class OT_ShowFinalReport(bpy.types.Operator):
     _icon: str = "INFO"
     _lines: list = []
     _timer = None # Timer for the modal part
+    _show_restart_button: bool = False
+    _restart_operator_idname: str = ""
 
     @classmethod
-    def set_report_data(cls, lines, title, icon):
+    def set_report_data(cls, lines, title, icon, show_restart=False, restart_op_idname=""):
         """Sets the data to be displayed by the popup."""
         cls._lines = lines
         cls._title = title
         cls._icon = icon
+        cls._show_restart_button = show_restart
+        cls._restart_operator_idname = restart_op_idname
         if prefs().debug:
-            print(f"DEBUG: OT_ShowFinalReport.set_report_data: Title='{cls._title}', Icon='{cls._icon}', Lines={cls._lines}")
+            print(f"DEBUG: OT_ShowFinalReport.set_report_data: Title='{cls._title}', Icon='{cls._icon}', Lines={cls._lines}, ShowRestart={cls._show_restart_button}, RestartOp='{cls._restart_operator_idname}'")
 
     def invoke(self, context, event): # event is not used here but is part of the signature
         """Invokes the operator, sets up a modal timer to display the popup."""
@@ -128,6 +303,15 @@ class OT_ShowFinalReport(bpy.types.Operator):
             def draw_for_popup(self_menu, context_inner):
                 for line in OT_ShowFinalReport._lines:
                     self_menu.layout.label(text=line)
+                if OT_ShowFinalReport._show_restart_button and OT_ShowFinalReport._restart_operator_idname:
+                    self_menu.layout.separator()
+                    self_menu.layout.label(text="Next Step:")
+                    # The button text is defined by the operator's bl_label
+                    op_quit = self_menu.layout.operator(OT_ShowFinalReport._restart_operator_idname)
+                    
+                    # Add a button to simply close the report
+                    op_close = self_menu.layout.operator(OT_CloseReportDialog.bl_idname)
+
             
             context.window_manager.popup_menu(draw_for_popup, title=OT_ShowFinalReport._title, icon=OT_ShowFinalReport._icon)
             return {'FINISHED'}
@@ -152,8 +336,7 @@ class OT_ShowFinalReport(bpy.types.Operator):
 class OT_BackupManagerWindow(Operator):
     bl_idname = "bm.open_backup_manager_window"
     bl_label = "Backup Manager"
-    bl_options = {'REGISTER'} # No UNDO needed for a UI window
-    _timer = None # For periodic UI updates (e.g., progress, path details)
+    bl_options = {'REGISTER'} # No UNDO needed for a UI window    
 
 
     def _update_window_tabs(self, context):
@@ -379,10 +562,21 @@ class OT_BackupManagerWindow(Operator):
             # --- Top section for global settings ---
             # Ensure prefs_instance is valid before using it for drawing
             col_top = layout.column(align=True)
-            col_top.prop(prefs_instance, 'backup_path')            
+            col_top.prop(prefs_instance, 'backup_path')          
             col_top.prop(prefs_instance, 'ignore_files')
+            
+            row_system_id = col_top.row()
+            row_system_id.enabled = False
+            row_system_id.prop(prefs_instance, "system_id")
+            col_top.prop(prefs_instance, "use_system_id")
+            
             col_top.prop(prefs_instance, 'debug')
             col_top.prop(prefs_instance, 'show_path_details')
+            col_top.prop(prefs_instance, "show_operation_progress")
+
+            #col_top.prop(prefs_instance, "blender_user_path")
+            #col_top.prop(prefs_instance, "config_path")
+            
 
             # --- Progress UI ---
             if prefs_instance.show_operation_progress:
@@ -474,13 +668,6 @@ class OT_BackupManagerWindow(Operator):
         # The call to update_version_list will handle path details if prefs_instance.show_path_details is true,
         # so the separate path detail scan previously here is no longer needed.
 
-        # Always add the timer for the modal UI window.
-        # The modal() method will manage its activity based on show_operation_progress.
-        if self._timer is None:
-            self._timer = context.window_manager.event_timer_add(0.0) # Make timer global, not window-bound
-            if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.invoke() - UI Update Timer ADDED (global): {self._timer}")
-
-        context.window_manager.modal_handler_add(self)
 
         # Use invoke_props_dialog to open the window.
         # The operator's draw() method will be called by Blender to populate the dialog.
@@ -488,67 +675,10 @@ class OT_BackupManagerWindow(Operator):
         if _debug_active:
             print(f"DEBUG: OT_BackupManagerWindow.invoke() EXIT. invoke_props_dialog returned: {result}. Self: {self}")
         # If invoke_props_dialog returns {'RUNNING_MODAL'}, our modal() method will also run.
+        return result
 
-        return {'RUNNING_MODAL'} # Crucial for the modal() method to keep running
-
-    def modal(self, context, event):
-        prefs_instance = prefs() # Get fresh prefs
-        _debug_active = prefs_instance.debug if prefs_instance else False
-
-        if not context.window:
-            if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.modal() - context.window is None, cancelling.")
-            return self.cancel(context)
-
-        if not prefs_instance: # Should not happen if invoke checks, but safeguard
-            print(f"ERROR: OT_BackupManagerWindow.modal() - Failed to get preferences, cancelling.")
-            return self.cancel(context)
-
-        if event.type == 'ESC': # Allow ESC to close the window
-             if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.modal() - ESC detected, cancelling.")
-             self.cancel(context) # Perform cleanup
-             return {'CANCELLED'} # Modal operator itself returns CANCELLED
-        
-        if event.type == 'TIMER':
-            if _debug_active:
-                timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                print(f"DEBUG: [{timestamp}] OT_BackupManagerWindow.modal() (TIMER) event.")
-                print(f"DEBUG: ... self._timer: {self._timer}, show_op_progress: {prefs_instance.show_operation_progress}, current_progress_val: {prefs_instance.operation_progress_value:.1f}%")
-                print(f"DEBUG: ... Invoking context.area.type: {context.area.type if context.area else 'N/A'}")
-
-            # For invoke_props_dialog, the dialog is its own window. The modal() method's 'context'
-            # is from the invoking window. We must ensure the dialog window itself is tagged for redraw.
-            # Iterating all areas of all windows is the most robust way to catch the dialog.
-            for wm_window in context.window_manager.windows:
-                for area in wm_window.screen.areas:
-                    area.tag_redraw() # Tag each area individually
-            if _debug_active: # Log after the loop
-                print(f"DEBUG: ... All areas in all windows tagged for redraw.")
-
-            if prefs_instance.show_operation_progress:
-                # The tag_redraw() loop above should be sufficient.
-                # Aggressive redraw_timer can cause flickering.
-
-                # Operation is in progress, timer should continue.
-                # Debug message for this state is already part of the initial timer log block
-                # Safeguard: If timer was somehow removed while an operation is supposed to be in progress, re-add it.
-                if self._timer is None:
-                    self._timer = context.window_manager.event_timer_add(0.0) # Make timer global
-                    if _debug_active: print(f"DEBUG: ... UI Update Timer RE-ADDED (global) for active operation.")
-
-            else: # Operation not in progress or finished
-                if self._timer: # If timer is still around
-                    # And no operation is in progress, we can remove this UI update timer.
-                    context.window_manager.event_timer_remove(self._timer)
-                    self._timer = None
-                    if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.modal() (TIMER) - Operation not in progress, UI timer removed.")
-                    # The redraw tagged above (and potentially redraw_timer if it ran one last time) will handle displaying the final UI state.
-        
-        # If we were handling button clicks for a fully custom UI, it would be here.
-        # For now, we only care about the timer and ESC.
-        if event.type in {'RIGHTMOUSE', 'LEFTMOUSE'}: # Example event handling
-            pass # Handle mouse clicks if drawing custom buttons
-
-        return {'PASS_THROUGH'}
+    # The modal() method is removed as the operator is no longer self-modal.
+    # invoke_props_dialog handles the dialog's modality.
 
     def cancel(self, context):
         # Use the robust prefs() function from core.py
@@ -562,14 +692,6 @@ class OT_BackupManagerWindow(Operator):
             pass # Ignore errors getting prefs during cancel, prioritize cleanup
         if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() ENTER. Context: {context}, Self: {self}")
         
-        if self._timer:
-            if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Timer found, removing. Timer: {self._timer}")
-            try:
-                context.window_manager.event_timer_remove(self._timer)
-            except Exception as e: # Timer might already be gone
-                if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Error removing timer (might be already gone): {e}")
-            self._timer = None
-
         # If an operation (from OT_BackupManager) is in progress, request it to abort.
         try:
             # prefs_instance_for_cancel is already the robust preferences object
@@ -580,8 +702,9 @@ class OT_BackupManagerWindow(Operator):
             if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Error accessing prefs to request operation abort: {e}")
             
         if _debug_active:
-            print(f"DEBUG: OT_BackupManagerWindow.cancel() EXIT. Returning {{'CANCELLED'}}. Self: {self}")
-        # Blender expects cancel() to return None
+            print(f"DEBUG: OT_BackupManagerWindow.cancel() EXIT. Self: {self}")
+        # Operator.cancel() is expected to do cleanup.
+        # If invoke_props_dialog calls this, it handles the {'CANCELLED'} state internally.
 
                 
 class OT_BackupManager(Operator):
@@ -712,10 +835,14 @@ class OT_BackupManager(Operator):
         bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
 
     @staticmethod
-    def _deferred_show_report_static(message_lines, title, icon):
+    def _deferred_show_report_static(message_lines, title, icon, show_restart=False, restart_op_idname=""):
         if prefs().debug: 
-            print(f"DEBUG: _deferred_show_report_static: Preparing to invoke bm.show_final_report. Title='{title}'")
-        OT_ShowFinalReport.set_report_data(lines=message_lines, title=title, icon=icon)
+            print(f"DEBUG: _deferred_show_report_static: Preparing to invoke bm.show_final_report. Title='{title}', ShowRestart={show_restart}, RestartOp='{restart_op_idname}'")
+        OT_ShowFinalReport.set_report_data(lines=message_lines, 
+                                           title=title, 
+                                           icon=icon, 
+                                           show_restart=show_restart, 
+                                           restart_op_idname=restart_op_idname)
         bpy.ops.bm.show_final_report('INVOKE_SCREEN')
         return None # Stop the timer
 
@@ -840,11 +967,18 @@ class OT_BackupManager(Operator):
             overall_op_type = "Operation"
             if self.batch_operations_list:
                  overall_op_type = self.batch_operations_list[0][2] # Get op_type from first item
-                 report_title = f"Batch {overall_op_type} Report"
+                 report_title = f"Batch {overall_op_type.capitalize()} Report"
+
+            show_restart_btn_batch = False
+            if overall_op_type == 'RESTORE': # Show restart info even on dry run for simulation
+                self.batch_report_lines.append("") # Add a blank line for spacing
+                self.batch_report_lines.append("IMPORTANT: For restored settings to fully apply, this Blender session must be ended.")
+                self.batch_report_lines.append(f"Use the '{OT_QuitBlenderNoSave.bl_label}' button in the report. You will be guided on preference saving.")
+                show_restart_btn_batch = True
 
             final_report_lines = [final_batch_message] + self.batch_report_lines[:]
             bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static(
-                final_report_lines, report_title, 'INFO'
+                final_report_lines, report_title, 'INFO', show_restart=show_restart_btn_batch, restart_op_idname="bm.quit_blender_no_save"
             ), first_interval=0.01)
 
             pref_instance.show_operation_progress = False
@@ -919,6 +1053,15 @@ class OT_BackupManager(Operator):
                         # _process_next_batch_item_or_finish handled final report and prefs update
                         return {'FINISHED'}
                 else: # Single operation completed
+                    # Initialize show_restart_btn and prepare report_message_lines *before* scheduling the report
+                    show_restart_btn = False
+                    report_message_lines = [
+                        f"{self.current_operation_type} {completion_status_item.lower()}.",
+                        f"{display_processed_count}/{self.total_files} files processed."
+                    ]
+                    if self.current_source_path: report_message_lines.append(f"Source: {self.current_source_path}")
+                    if self.current_target_path: report_message_lines.append(f"Target: {self.current_target_path}")
+
                     report_message_lines = [
                         f"{self.current_operation_type} {completion_status_item.lower()}.",
                         f"{display_processed_count}/{self.total_files} files processed."
@@ -928,12 +1071,23 @@ class OT_BackupManager(Operator):
                     if pref_instance.dry_run and self.total_files > 0: 
                         report_message_lines.append("(Dry Run - No files were actually copied/deleted)")
 
+                    # Add restart instructions if it's a successful non-dry run RESTORE
+                    if self.current_operation_type == 'RESTORE': # Show restart info even on dry run for simulation
+                        report_message_lines.append("") # Add a blank line for spacing
+                        report_message_lines.append("IMPORTANT: For restored settings to fully apply, this Blender session must be ended.")
+                        report_message_lines.append(f"Use the '{OT_QuitBlenderNoSave.bl_label}' button below. You will be guided on preference saving.")
+                        show_restart_btn = True
+
                     report_icon = 'INFO' 
                     if self.current_operation_type == 'BACKUP': report_icon = 'COLORSET_03_VEC'
                     elif self.current_operation_type == 'RESTORE': report_icon = 'COLORSET_04_VEC'
                     
+                    # Capture self.current_operation_type for the lambda
+                    op_type_for_report_title = self.current_operation_type
+                    
                     bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static(
-                        report_message_lines, f"{self.current_operation_type} Report", report_icon
+                        report_message_lines, f"{op_type_for_report_title} Report", report_icon,
+                        show_restart=show_restart_btn, restart_op_idname="bm.quit_blender_no_save"
                     ), first_interval=0.01)
                     self.report({'INFO'}, " ".join(report_message_lines)) 
                     
@@ -942,6 +1096,7 @@ class OT_BackupManager(Operator):
                     pref_instance.show_operation_progress = False 
                     pref_instance.abort_operation_requested = False # Reset abort flag
                     return {'FINISHED'}
+
 
         if event.type == 'TIMER':
             if not self.files_to_process: 
@@ -1000,6 +1155,15 @@ class OT_BackupManager(Operator):
             if pref_instance.debug:
                 timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
                 print(f"DEBUG: [{timestamp}] OT_BackupManager.modal() (TIMER) updated progress to: {pref_instance.operation_progress_value:.1f}%, Msg: '{pref_instance.operation_progress_message}'")
+
+            # Force redraw of UI to show progress, including the Backup Manager window if it's open
+            for wm_window_iter in context.window_manager.windows:
+                for area_iter in wm_window_iter.screen.areas:
+                    area_iter.tag_redraw()
+            if pref_instance.debug:
+                # This log can be very verbose, so it's commented out by default.
+                # print(f"DEBUG: OT_BackupManager.modal() (TIMER) tagged all areas for redraw at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}.")
+                pass
 
         return {'PASS_THROUGH'} # Allow other events to be processed
 

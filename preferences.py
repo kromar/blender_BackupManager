@@ -438,7 +438,6 @@ class BM_Preferences(AddonPreferences):
     
         col_prefs_settings.prop(self, "backup_path", text="Main Backup Location")
         col_prefs_settings.prop(self, "debug", text="Debug Logging")
-        
         col_prefs_settings.separator()
         col_prefs_settings.label(text="Progress Bar Appearance:")
         col_prefs_settings.prop(self, "override_progress_bar_color")

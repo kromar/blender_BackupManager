@@ -127,6 +127,7 @@ def register():
         core.OT_BackupManager,
         core.OT_AbortOperation,
         core.OT_ShowFinalReport,
+        core.OT_QuitBlenderNoSave, # Add the new operator
         core.OT_BackupManagerWindow,
     )
 
