@@ -604,11 +604,39 @@ class OT_BackupManagerWindow(Operator):
             settings_to_disable_group.prop(prefs_instance, 'backup_path')
             #col_top.prop(prefs_instance, 'ignore_files') # Still commented out
             settings_to_disable_group.prop(prefs_instance, 'show_path_details')
-
-            # Debug can remain enabled
-            col_top.separator() # Separator after the potentially disabled group
+            
+            # Debug 
             col_top.prop(prefs_instance, 'debug')  
             col_top.separator()   
+
+            if prefs_instance.debug: # Only show system paths if debug is enabled
+                col_top.separator()
+
+                # Blender System Paths (Read-Only)
+                box_system_paths_display = col_top.box()
+                col_system_paths_display = box_system_paths_display.column(align=True)
+                col_system_paths_display.label(text="Blender System Paths (Read-Only - Debug):")
+
+                # Blender Installation Path
+                blender_install_path = os.path.dirname(bpy.app.binary_path)
+                row_install = col_system_paths_display.row(align=True)
+                row_install.label(text="Installation Path:")
+                op_install = row_install.operator(preferences.OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text="")
+                op_install.path_to_open = blender_install_path
+                col_system_paths_display.label(text=blender_install_path)
+
+                # User Version Folder Path
+                row_user_version_folder = col_system_paths_display.row(align=True)
+                row_user_version_folder.label(text="User Version Folder:")
+                op_user_version_folder = row_user_version_folder.operator(preferences.OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text="")
+                op_user_version_folder.path_to_open = prefs_instance.blender_user_path
+                col_system_paths_display.label(text=prefs_instance.blender_user_path)
+
+                # User Config Subfolder Path is already available via prefs_instance.config_path
+                # No need to construct it manually here as it's already a preference property.
+                # We can add it here if desired, similar to the preferences panel.
+
+
 
             # --- Save Preferences Button ---
             # Conditionally show the "Save Preferences" button.

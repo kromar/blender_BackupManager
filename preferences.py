@@ -110,6 +110,43 @@ def _calculate_path_size_str(path_to_scan):
                 )
     except Exception: return "Size: error"
 
+class OT_OpenPathInExplorer(bpy.types.Operator):
+    """Operator to open a given path in the system's file explorer."""
+    bl_idname = "bm.open_path_in_explorer"
+    bl_label = "Open Folder"
+    bl_description = "Open the specified path in the system file explorer"
+    bl_options = {'INTERNAL'} # Hide from F3 operator search
+
+    path_to_open: StringProperty(
+        name="Path",
+        description="The file or directory path to open"
+    )
+
+    def execute(self, context):
+        if not self.path_to_open:
+            self.report({'WARNING'}, "No path specified to open.")
+            return {'CANCELLED'}
+
+        normalized_path = os.path.normpath(self.path_to_open)
+
+        if not os.path.exists(normalized_path):
+            self.report({'WARNING'}, f"Path does not exist: {normalized_path}")
+            return {'CANCELLED'}
+
+        try:
+            # If it's a file, open its containing directory. Otherwise, open the path directly (assuming it's a directory).
+            target_to_open_in_explorer = os.path.dirname(normalized_path) if os.path.isfile(normalized_path) else normalized_path
+
+            if not os.path.isdir(target_to_open_in_explorer): # Final check
+                self.report({'WARNING'}, f"Cannot open: Not a valid directory: {target_to_open_in_explorer}")
+                return {'CANCELLED'}
+            
+            bpy.ops.wm.path_open(filepath=target_to_open_in_explorer)
+            return {'FINISHED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"Could not open path '{normalized_path}': {e}")
+            return {'CANCELLED'}
+
 class BM_Preferences(AddonPreferences):
     bl_idname = __package__  
     this_version = str(bpy.app.version[0]) + '.' + str(bpy.app.version[1])  
@@ -492,20 +529,53 @@ class BM_Preferences(AddonPreferences):
         layout.operator(core.OT_BackupManagerWindow.bl_idname, text="Open Backup Manager Window", icon='DISK_DRIVE')
 
         layout.separator()
-        box = layout.box()
-        col = box.column(align=True)
-        col.prop(self, "backup_path", text="Main Backup Location", icon='FILE_FOLDER')
+        
+        # Box for path settings and appearance
+        box_settings = layout.box()
+        col_settings = box_settings.column(align=True)
 
-        box.separator()
-        col = box.column(align=True)
-        col.label(text="Progress Bar Appearance:")
-        row = col.row(align=True)
-        row.prop(self, "override_progress_bar_color", text="Override Color", icon='COLOR')
+        # Main Backup Location
+        col_settings.label(text="Storage Location:")
+        row_backup_path = col_settings.row(align=True)
+        row_backup_path.prop(self, "backup_path", text="Main Backup Location")
+        op_backup_loc = row_backup_path.operator(OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text="")
+        op_backup_loc.path_to_open = self.backup_path
+        
+        if self.debug: # Only show system paths if debug is enabled
+            col_settings.separator()
+
+            # Blender System Paths (Read-Only)
+            col_settings.label(text="Blender System Paths (Read-Only - Debug):")
+
+            # Blender Installation Path
+            blender_install_path = os.path.dirname(bpy.app.binary_path)
+            row_install = col_settings.row(align=True)
+            row_install.label(text="Installation Path:")
+            row_install.label(text=blender_install_path)
+            op_install = row_install.operator(OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text="")
+            op_install.path_to_open = blender_install_path
+
+            # User Version Folder Path
+            row_user_version_folder = col_settings.row(align=True)
+            row_user_version_folder.label(text="User Version Folder:")
+            row_user_version_folder.label(text=self.blender_user_path)
+            op_user_version_folder = row_user_version_folder.operator(OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text="")
+            op_user_version_folder.path_to_open = self.blender_user_path
+
+            # User Config Subfolder Path (e.g., .../VERSION/config)
+            row_config_subfolder = col_settings.row(align=True)
+            row_config_subfolder.label(text="User Config Subfolder:")
+            row_config_subfolder.label(text=self.config_path)
+            op_config_subfolder = row_config_subfolder.operator(OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text="")
+            op_config_subfolder.path_to_open = self.config_path
+
+        col_settings.separator()
+        col_settings.label(text="Progress Bar Appearance:")
+        row_override_color = col_settings.row(align=True)
+        row_override_color.prop(self, "override_progress_bar_color", text="Override Color", icon='COLOR')
         if self.override_progress_bar_color:
-            row = col.row(align=True)
-            row.prop(self, "custom_progress_bar_color", text="")
-
-
+            row_custom_color = col_settings.row(align=True)
+            row_custom_color.prop(self, "custom_progress_bar_color", text="")
 
     def draw_backup_age(self, col, path):       
         # Access class attribute

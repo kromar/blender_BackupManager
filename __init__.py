@@ -175,6 +175,7 @@ def register():
     # Define the classes to register, AddonPreferences first
     classes_to_register_dynamically = (
         preferences.BM_Preferences,
+        preferences.OT_OpenPathInExplorer,
         core.OT_BackupManager,
         core.OT_AbortOperation,
         core.OT_ShowFinalReport,
@@ -275,4 +276,3 @@ def unregister():
                 print(f"ERROR: Backup Manager: Failed to unregister class {cls_to_unreg.__name__}: {e}")
         # Clear the list after unregistering all classes
         _registered_classes.clear()
-
