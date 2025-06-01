@@ -732,10 +732,7 @@ class OT_BackupManagerWindow(Operator):
         # might not fire if the tab values are already synchronized.
         if _debug_active:
             print(f"DEBUG: OT_BackupManagerWindow.invoke() - Explicitly calling prefs_instance.update_version_list(context) for initial scan.")
-        prefs_instance.update_version_list(context)
-        # The call to update_version_list will handle path details if prefs_instance.show_path_details is true,
-        # so the separate path detail scan previously here is no longer needed.
-
+        prefs_instance._update_backup_path_and_versions(context)
 
         # Use invoke_props_dialog to open the window.
         # The operator's draw() method will be called by Blender to populate the dialog.

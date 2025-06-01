@@ -119,52 +119,85 @@ class BM_Preferences(AddonPreferences):
     backup_version_list = [(initial_version, initial_version, '')] # Standardize to 3-element tuple
     restore_version_list = [(initial_version, initial_version, '')] # Standardize to 3-element tuple
     
-    def update_version_list(self, context):
+    def _update_backup_path_and_versions(self, context):
+        """
+        Central update handler for backup_path and related UI settings.
+        Ensures backup_path is consistent with use_system_id, then refreshes version lists and details.
+        """
+        if self.debug:
+            print("\n" + "-"*10 + f" _update_backup_path_and_versions (NEW FRAME) for tabs: {self.tabs} " + "-"*10 + "\n")
+            _start_time_main_update = datetime.now()
+            print(f"DEBUG: _update_backup_path_and_versions START. Current backup_path: '{self.backup_path}', use_system_id: {self.use_system_id}")
+
+        # Step 1: Ensure backup_path consistency with use_system_id
+        _current_bp_val = self.backup_path
+        _made_change_to_bp_for_consistency = False
+
+        if self.system_id and _current_bp_val: # Only proceed if system_id and current path are valid
+            normalized_current_path = os.path.normpath(_current_bp_val)
+            # Ensure system_id is treated as a single, clean directory name
+            clean_system_id_name = self.system_id.strip(os.sep)
+            system_id_suffix_to_check = os.sep + clean_system_id_name
+
+            path_ends_with_system_id = normalized_current_path.endswith(system_id_suffix_to_check)
+
+            if self.use_system_id:
+                if not path_ends_with_system_id and clean_system_id_name: # Append if not present and system_id is non-empty
+                    new_path = os.path.join(_current_bp_val, clean_system_id_name)
+                    if os.path.normpath(new_path) != normalized_current_path:
+                        if self.debug: print(f"DEBUG: _update_backup_path_and_versions: Appending system_id. Path changing from '{_current_bp_val}' to '{new_path}'")
+                        self.backup_path = new_path
+                        _made_change_to_bp_for_consistency = True
+            else: # use_system_id is False
+                if path_ends_with_system_id: # Strip if present
+                    base_path = normalized_current_path[:-len(system_id_suffix_to_check)]
+                    if base_path and os.path.normpath(base_path) != normalized_current_path: # Ensure base_path is not empty and a real change occurs
+                        if self.debug: print(f"DEBUG: _update_backup_path_and_versions: Stripping system_id. Path changing from '{_current_bp_val}' to '{base_path}'")
+                        self.backup_path = base_path
+                        _made_change_to_bp_for_consistency = True
+        
+        if _made_change_to_bp_for_consistency:
+            if self.debug: print(f"DEBUG: _update_backup_path_and_versions: self.backup_path was modified for consistency. Exiting to re-enter update cycle. New path: '{self.backup_path}'")
+            return # Exit because self.backup_path was changed, this update function will run again.
+
+        # Step 2: Original logic (clear caches, search versions, update path details)
+        # This part only runs if no early return happened due to consistency changes.
         if self.debug:
             # Clear caches when version lists are being updated
-            # if hasattr(self, '_age_cache'): # No longer needed with class attribute
             BM_Preferences._age_cache.clear()
-            if self.debug: print("DEBUG: update_version_list: Cleared _age_cache.")
-            # if hasattr(self, '_size_cache'): # No longer needed with class attribute
+            print("DEBUG: _update_backup_path_and_versions: Cleared _age_cache.")
             BM_Preferences._size_cache.clear()
-            if self.debug: print("DEBUG: update_version_list: Cleared _size_cache.")
-            # print("DEBUG: Cleared age and size caches due to version list update.") # Slightly redundant with above
-            print("\n" + "-"*10 + " update_version_list (NEW UPDATE FRAME) " + "-"*10 + "\n") # Visual separator
-            _start_time_uvl = datetime.now()
-            print(f"DEBUG: update_version_list START for tabs: {self.tabs}")
+            print("DEBUG: _update_backup_path_and_versions: Cleared _size_cache.")
+
         if self.debug:
-            print("update_version_list: ", f'SEARCH_{self.tabs}')
-        if self.debug:
-            _call_time_uvl = datetime.now()
-            print(f"DEBUG: update_version_list CALLING bpy.ops.bm.run_backup_manager with SEARCH_{self.tabs}")
+            _call_time_search_op = datetime.now()
+            print(f"DEBUG: _update_backup_path_and_versions: CALLING bpy.ops.bm.run_backup_manager with SEARCH_{self.tabs}")
         try:
             bpy.ops.bm.run_backup_manager(button_input=f'SEARCH_{self.tabs}')
         except Exception as e:
-            # If this happens during script reload, the operator might not be available.
-            print(f"ERROR: Backup Manager: Error calling bpy.ops.bm.run_backup_manager in update_version_list (likely during script reload): {e}")
-            # Optionally, clear the version lists or handle the error to prevent further issues
+            print(f"ERROR: Backup Manager: Error calling bpy.ops.bm.run_backup_manager in _update_backup_path_and_versions (likely during script reload): {e}")
             return # Stop further processing in this update if the op call failed
         if self.debug:
-            _end_time_uvl = datetime.now()
-            print(f"DEBUG: (took: {(_end_time_uvl - _call_time_uvl).total_seconds():.6f}s) update_version_list FINISHED bpy.ops.bm.run_backup_manager. Total update_version_list time: {(_end_time_uvl - _start_time_uvl).total_seconds():.6f}s")
+            _end_time_search_op = datetime.now()
+            print(f"DEBUG: (took: {(_end_time_search_op - _call_time_search_op).total_seconds():.6f}s) _update_backup_path_and_versions: FINISHED bpy.ops.bm.run_backup_manager.")
         
-        # Mark the initial scan as done if this was the first time update_version_list was called
         BM_Preferences._initial_scan_done = True
         
-        # After version lists are updated by the operator,
-        # explicitly recalculate path details if they are meant to be shown.
         if self.show_path_details:
             if self.debug:
-                print("DEBUG: update_version_list: show_path_details is True, recalculating details after version list update.")
+                print("DEBUG: _update_backup_path_and_versions: show_path_details is True, recalculating details.")
             paths = get_paths_for_details(self)
-            if self.debug: print(f"DEBUG: update_version_list: paths_to_update = {paths}")
             if self._update_path_details_for_paths(paths):
-                if context and hasattr(context, 'area') and context.area: # Ensure context and area are valid
+                if context and hasattr(context, 'area') and context.area:
                     context.area.tag_redraw()
                 elif self.debug:
-                    print("DEBUG: update_version_list: context or context.area not available for tag_redraw after detail update.")
+                    print("DEBUG: _update_backup_path_and_versions: context or context.area not available for tag_redraw after detail update.")
         elif self.debug: # This else corresponds to "if self.show_path_details:"
-            print("DEBUG: update_version_list: show_path_details is False, not recalculating details.")
+            print("DEBUG: _update_backup_path_and_versions: show_path_details is False, not recalculating details.")
+        
+        if self.debug and _start_time_main_update:
+            _end_time_main_update = datetime.now()
+            print(f"DEBUG: (Total took: {(_end_time_main_update - _start_time_main_update).total_seconds():.6f}s) _update_backup_path_and_versions END")
     
     # Calculate the initial default backup path safely ONCE when the class is defined.
     # This function call happens during module import / class definition.
@@ -172,22 +205,45 @@ class BM_Preferences(AddonPreferences):
 
     def update_system_id(self, context):
         """Updates the backup_path when use_system_id is toggled."""
-        base_dir = get_default_base_temp_dir() # Get the consistent base temporary directory
-        if self.use_system_id:
-            new_backup_path = os.path.join(base_dir, '!backupmanager', self.system_id)
-        else:            
-            new_backup_path = os.path.join(base_dir, '!backupmanager')
-        
-        self.backup_path = new_backup_path # Assigning here will trigger backup_path's update function
+        if self.debug: print(f"DEBUG: update_system_id (for use_system_id toggle) CALLED. use_system_id is now {self.use_system_id}. Current backup_path: '{self.backup_path}'")
 
-        if self.debug:
-            print(f"DEBUG: update_system_id: self.backup_path changed to: {self.backup_path}")
+        current_path = self.backup_path
+        if not current_path or not self.system_id: # Safety check
+            if self.debug: print("DEBUG: update_system_id: Current path or system_id is empty, cannot modify path.")
+            # Trigger the main update anyway to refresh lists based on current state
+            self._update_backup_path_and_versions(context)
+            return
+
+        normalized_current_path = os.path.normpath(current_path)
+        clean_system_id_name = self.system_id.strip(os.sep)
+        system_id_suffix_to_check = os.sep + clean_system_id_name
+        path_ends_with_system_id = normalized_current_path.endswith(system_id_suffix_to_check)
+        
+        new_path_candidate = None
+
+        if self.use_system_id: # User wants system_id in path
+            if not path_ends_with_system_id and clean_system_id_name:
+                new_path_candidate = os.path.join(current_path, clean_system_id_name)
+        else: # User does NOT want system_id in path
+            if path_ends_with_system_id:
+                potential_base = normalized_current_path[:-len(system_id_suffix_to_check)]
+                if potential_base: 
+                    new_path_candidate = potential_base
+
+        if new_path_candidate and os.path.normpath(new_path_candidate) != normalized_current_path:
+            if self.debug: print(f"DEBUG: update_system_id: Changing backup_path from '{current_path}' to '{new_path_candidate}'")
+            self.backup_path = new_path_candidate # This assignment will trigger _update_backup_path_and_versions
+        elif self.debug:
+            print(f"DEBUG: update_system_id: backup_path ('{current_path}') already consistent or no change needed. Triggering full update.")
+            # Even if path doesn't change here, lists might need refresh based on the toggle.
+            # The main update function will handle consistency again, then refresh lists.
+            self._update_backup_path_and_versions(context)
 
     backup_path: StringProperty(name="Backup Path", 
                                 description="Backup Location", 
                                 subtype='DIR_PATH', 
                                 default=_initial_default_backup_path, 
-                                update=update_version_list)
+                                update=_update_backup_path_and_versions)
     
     blender_user_path: StringProperty(default=bpy.utils.resource_path(type='USER'))
     
@@ -197,7 +253,7 @@ class BM_Preferences(AddonPreferences):
     tabs: EnumProperty(name="Tabs", 
                        items=preferences_tabs, 
                        default="BACKUP",
-                       update=update_version_list)   
+                       update=_update_backup_path_and_versions)
     
     config_path: StringProperty(name="config_path",
                                 description="config_path", 
@@ -324,25 +380,25 @@ class BM_Preferences(AddonPreferences):
     
     advanced_mode: BoolProperty(name="Advanced", 
                                 description="Advanced backup and restore options", 
-                                update=update_version_list,
+                                update=_update_backup_path_and_versions,
                                 default=True)  # default = True
     
     expand_version_selection: BoolProperty(name="Expand Versions", 
                                            description="Switch between dropdown and expanded version layout",
-                                           update=update_version_list,
+                                           update=_update_backup_path_and_versions,
                                            default=True)  # default = True
     
     custom_version: StringProperty(name="Custom Version", 
                                    description="Custom version folder", 
                                    subtype='NONE', 
                                    default='custom',
-                                   update=_on_version_or_custom_changed)
+                                   update=_on_version_or_custom_changed) # This specific update is fine for path details
     
     # BACKUP  (custom_version_toggle was defined twice, keeping this one as it's grouped with other backup options)
     custom_version_toggle: BoolProperty(name="Custom Version", 
                                         description="Set your custom backup version", 
                                         default=False,  # default = False
-                                        update=update_version_list,
+                                        update=_update_backup_path_and_versions,
                                         )
 
     clean_path: BoolProperty(name="Clean Backup", 
@@ -365,7 +421,7 @@ class BM_Preferences(AddonPreferences):
     backup_versions: EnumProperty(items=populate_backuplist,
                                   name="Backup",  
                                   description="Choose the version to backup", 
-                                  update=_on_version_or_custom_changed)
+                                  update=_on_version_or_custom_changed) # This specific update is fine for path details
     
     backup_cache: BoolProperty(name="cache", description="backup_cache", default=False)   # default = False      
     backup_bookmarks: BoolProperty(name="bookmarks", description="backup_bookmarks", default=True)   # default = True   
@@ -396,7 +452,7 @@ class BM_Preferences(AddonPreferences):
     restore_versions: EnumProperty(items=populate_restorelist, 
                                    name="Restore", 
                                    description="Choose the version to Resotre", 
-                                   update=_on_version_or_custom_changed)
+                                   update=_on_version_or_custom_changed) # This specific update is fine for path details
     
     restore_cache: BoolProperty(name="cache", description="restore_cache", default=False)  # default = False  
     restore_bookmarks: BoolProperty(name="bookmarks", description="restore_bookmarks", default=True)    # default = True
