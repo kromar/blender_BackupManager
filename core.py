@@ -105,26 +105,25 @@ class OT_QuitBlenderNoSave(bpy.types.Operator):
             addon_prefs_instance = prefs()
         except Exception as e:
             print(f"DEBUG: OT_QuitBlenderNoSave.invoke: Could not retrieve addon preferences for debug logging: {e}")
-
-        prefs_view = context.preferences.view
+        
+        prefs_main = context.preferences # Use bpy.context.preferences for global auto-save setting
 
         if addon_prefs_instance and addon_prefs_instance.debug:
             print(f"DEBUG: OT_QuitBlenderNoSave.invoke():")
             print(f"  context: {context}")
             print(f"  context.preferences: {context.preferences}")
-            print(f"  context.preferences.view (prefs_view): {prefs_view}")
-            if prefs_view:
-                print(f"  type(prefs_view): {type(prefs_view)}")
+            print(f"  type(prefs_main): {type(prefs_main)}")
+            if prefs_main:
                 try:
-                    print(f"  dir(prefs_view): {dir(prefs_view)}")
+                    print(f"  dir(prefs_main): {dir(prefs_main)}")
                 except Exception as e_dir:
-                    print(f"  Error getting dir(prefs_view): {e_dir}")
-                print(f"  Has 'use_save_on_quit' attribute?: {hasattr(prefs_view, 'use_save_on_quit')}")
+                    print(f"  Error getting dir(prefs_main): {e_dir}")
+                print(f"  Has 'use_preferences_save' attribute?: {hasattr(prefs_main, 'use_preferences_save')}")
 
         # The original logic, now with the debug prints above it.
-        # This line will still raise an AttributeError if 'use_save_on_quit' is missing.
+        # This line will still raise an AttributeError if 'use_preferences_save' is missing.
         # The debug output should help understand why.
-        if prefs_view and hasattr(prefs_view, 'use_save_on_quit') and prefs_view.use_save_on_quit:
+        if prefs_main and hasattr(prefs_main, 'use_preferences_save') and prefs_main.use_preferences_save:
             # 'Save on Quit' is ON. We need to warn the user.
             return context.window_manager.invoke_confirm(self, event)
         else:
@@ -132,32 +131,31 @@ class OT_QuitBlenderNoSave(bpy.types.Operator):
             # If attribute is missing, we proceed as if it's OFF to avoid the dialog,
             # but the execute method will log this uncertainty.
             return self.execute(context)
-
+    
     def execute(self, context):
-        prefs_view = context.preferences.view
+        prefs_main = context.preferences # Use bpy.context.preferences
         addon_prefs = prefs() # Get addon preferences for debug
         
         if addon_prefs.debug:
             print(f"DEBUG: OT_QuitBlenderNoSave.execute():")
             print(f"  context: {context}")
             print(f"  context.preferences: {context.preferences}")
-            print(f"  context.preferences.view (prefs_view): {prefs_view}")
-            if prefs_view:
-                print(f"  type(prefs_view): {type(prefs_view)}")
+            print(f"  type(prefs_main): {type(prefs_main)}")
+            if prefs_main:
                 try:
-                    print(f"  dir(prefs_view): {dir(prefs_view)}")
+                    print(f"  dir(prefs_main): {dir(prefs_main)}")
                 except Exception as e_dir:
-                    print(f"  Error getting dir(prefs_view): {e_dir}")
-                print(f"  Has 'use_save_on_quit' attribute?: {hasattr(prefs_view, 'use_save_on_quit')}")
+                    print(f"  Error getting dir(prefs_main): {e_dir}")
+                print(f"  Has 'use_preferences_save' attribute?: {hasattr(prefs_main, 'use_preferences_save')}")
 
         # This is the line from the traceback.
         # We check hasattr again to be safe and for clearer logging.
         blender_will_save_on_quit = False # Default assumption
-        if prefs_view and hasattr(prefs_view, 'use_save_on_quit'):
-            blender_will_save_on_quit = prefs_view.use_save_on_quit
-        elif prefs_view: # prefs_view exists but hasattr was False
+        if prefs_main and hasattr(prefs_main, 'use_preferences_save'):
+            blender_will_save_on_quit = prefs_main.use_preferences_save
+        elif prefs_main: # prefs_main exists but hasattr was False
             if addon_prefs.debug:
-                print("WARNING: OT_QuitBlenderNoSave.execute: 'use_save_on_quit' attribute missing on PreferencesView object. Assuming Blender will save preferences for safety.")
+                print("WARNING: OT_QuitBlenderNoSave.execute: 'use_preferences_save' attribute missing on Preferences object. Assuming Blender will save preferences for safety.")
             blender_will_save_on_quit = True # Assume worst-case for logging if attribute is missing
         else: # prefs_view is None
              if addon_prefs.debug:
@@ -614,19 +612,35 @@ class OT_BackupManagerWindow(Operator):
             col_top.separator()   
 
             # --- Save Preferences Button ---
-            save_prefs_row = layout.row(align=True)
-            save_prefs_row.enabled = not is_operation_running # Disable if operation is running
+            # Conditionally show the "Save Preferences" button.
+            # Only show it if Blender's "Save Preferences on Quit" is OFF.
+            prefs_main = context.preferences # Use bpy.context.preferences
+            show_manual_save_button = True # Default to showing the button
 
-            # Check if preferences have unsaved changes (shows '*' in Blender UI)
-            label_text = "Save Preferences"
-            if bpy.context.preferences.is_dirty:
-                label_text += " *"
-            
-            # Proper alignment for the button within the row
-            save_prefs_row.label(text="") # Spacer on the left
-            save_prefs_button_col = save_prefs_row.column()
-            save_prefs_button_col.scale_x = 0.5 # Make button narrower
-            save_prefs_button_col.operator("wm.save_userpref", text=label_text, icon='PREFERENCES')
+            if prefs_main and hasattr(prefs_main, 'use_preferences_save'):
+                if prefs_main.use_preferences_save: # If 'Auto-Save Preferences' is ON
+                    show_manual_save_button = False # Then DO NOT show the manual save button
+                    if _debug_draw:
+                        print("DEBUG: OT_BackupManagerWindow.draw(): Blender's 'Save on Quit' is ON. Hiding manual 'Save Preferences' button.")
+                elif _debug_draw: # 'Save on Quit' is OFF
+                     print("DEBUG: OT_BackupManagerWindow.draw(): Blender's 'Save on Quit' is OFF. Showing manual 'Save Preferences' button.")
+            elif _debug_draw: # Could not determine 'Save on Quit' state
+                print("DEBUG: OT_BackupManagerWindow.draw(): Could not determine Blender's 'Save on Quit' state. Defaulting to show manual 'Save Preferences' button.")
+
+            if show_manual_save_button:
+                save_prefs_row = layout.row(align=True)
+                save_prefs_row.enabled = not is_operation_running # Disable if operation is running
+
+                # Check if preferences have unsaved changes (shows '*' in Blender UI)
+                label_text = "Save Preferences"
+                if bpy.context.preferences.is_dirty:
+                    label_text += " *"
+                
+                # Proper alignment for the button within the row
+                save_prefs_row.label(text="") # Spacer on the left
+                save_prefs_button_col = save_prefs_row.column()
+                save_prefs_button_col.scale_x = 0.5 # Make button narrower
+                save_prefs_button_col.operator("wm.save_userpref", text=label_text, icon='PREFERENCES')
             
             # --- Tabs for Backup/Restore ---      
             layout.use_property_split = False
@@ -1247,10 +1261,10 @@ class OT_BackupManager(Operator):
                         self.current_target_path = os.path.join(pref_instance.backup_path, str(pref_instance.active_blender_version))
                     elif self.button_input == 'RESTORE':
                         # --- Temporarily disable 'Save on Quit' for RESTORE operation ---
-                        prefs_view = context.preferences.view
-                        if prefs_view and hasattr(prefs_view, 'use_save_on_quit'):
-                            if prefs_view.use_save_on_quit: # Only change if it was True
-                                prefs_view.use_save_on_quit = False
+                        prefs_main = context.preferences # Use bpy.context.preferences
+                        if prefs_main and hasattr(prefs_main, 'use_preferences_save'):
+                            if prefs_main.use_preferences_save: # Only change if it was True
+                                prefs_main.use_preferences_save = False
                                 if pref_instance.debug:
                                     print(f"DEBUG: OT_BackupManager.execute RESTORE (non-advanced): Temporarily disabled 'Save Preferences on Quit'.")
                         elif pref_instance.debug:
@@ -1268,10 +1282,10 @@ class OT_BackupManager(Operator):
                             self.current_target_path = os.path.join(pref_instance.backup_path, pref_instance.backup_versions)
                     elif self.button_input == 'RESTORE':
                         # --- Temporarily disable 'Save on Quit' for RESTORE operation (Advanced) ---
-                        prefs_view = context.preferences.view
-                        if prefs_view and hasattr(prefs_view, 'use_save_on_quit'):
-                            if prefs_view.use_save_on_quit: # Only change if it was True
-                                prefs_view.use_save_on_quit = False
+                        prefs_main = context.preferences # Use bpy.context.preferences
+                        if prefs_main and hasattr(prefs_main, 'use_preferences_save'):
+                            if prefs_main.use_preferences_save: # Only change if it was True
+                                prefs_main.use_preferences_save = False
                                 if pref_instance.debug:
                                     print(f"DEBUG: OT_BackupManager.execute RESTORE (advanced): Temporarily disabled 'Save Preferences on Quit'.")
                         elif pref_instance.debug:
@@ -1356,10 +1370,10 @@ class OT_BackupManager(Operator):
 
             elif self.button_input == 'BATCH_RESTORE':
                 # --- Temporarily disable 'Save on Quit' for BATCH_RESTORE operation ---
-                prefs_view = context.preferences.view
-                if prefs_view and hasattr(prefs_view, 'use_save_on_quit'):
-                    if prefs_view.use_save_on_quit: # Only change if it was True
-                        prefs_view.use_save_on_quit = False
+                prefs_main = context.preferences # Use bpy.context.preferences
+                if prefs_main and hasattr(prefs_main, 'use_preferences_save'):
+                    if prefs_main.use_preferences_save: # Only change if it was True
+                        prefs_main.use_preferences_save = False
                         if pref_instance.debug:
                             print(f"DEBUG: OT_BackupManager.execute BATCH_RESTORE: Temporarily disabled 'Save Preferences on Quit' for the batch.")
                 elif pref_instance.debug:
