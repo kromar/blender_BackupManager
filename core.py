@@ -381,8 +381,10 @@ class OT_BackupManagerWindow(Operator):
 
     tabs: EnumProperty(
         name="Operation Mode",
-        items=[("BACKUP", "Backup", "Switch to Backup mode"),
-               ("RESTORE", "Restore", "Switch to Restore mode")],
+        items=[
+            ("BACKUP", "Backup", "Switch to Backup mode", "COLORSET_03_VEC", 0),
+            ("RESTORE", "Restore", "Switch to Restore mode", "COLORSET_04_VEC", 1)
+        ],
         default="BACKUP",
         update=_update_window_tabs
     )
