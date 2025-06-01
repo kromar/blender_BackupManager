@@ -22,6 +22,7 @@ import importlib
 # Third-party imports (Blender API)
 import bpy
 from bpy.types import Context
+from datetime import datetime # Added for debug timestamps
 
 # --- Module Reloading ---
 # These will be populated by reload_addon_modules or initial import
@@ -82,24 +83,81 @@ def prefs_func(): # Renamed from prefs to avoid conflict with 'preferences' modu
 
 def menus_draw_fn(self, context: Context) -> None:
     """Callback to add main menu entry."""
-    layout = self.layout    
-    if core and hasattr(core, 'OT_BackupManagerWindow'):
-        # Diagnostic: Check if Blender's operator system recognizes the bl_idname
-        op_idname = core.OT_BackupManagerWindow.bl_idname
-        if hasattr(bpy.ops.bm, op_idname.split('.')[-1]): # Check if 'bm.open_backup_manager_window' is known as 'bpy.ops.bm.open_backup_manager_window'
+    layout = self.layout
+    # --- Debug flag retrieval (early, for use in this function) ---
+    _local_debug_active = False
+    _addon_prefs_for_debug_check = None # Renamed to avoid conflict if it remains None
+    try:
+        # Try to get prefs once for debug flag and potential reuse
+        _addon_prefs_for_debug_check = prefs_func()
+        if _addon_prefs_for_debug_check and hasattr(_addon_prefs_for_debug_check, 'debug'):
+            _local_debug_active = _addon_prefs_for_debug_check.debug
+    except Exception:
+        # If prefs_func() fails here, _local_debug_active remains False.
+        # This is acceptable as we can't log debug messages without prefs.
+        pass
+
+    if _local_debug_active:
+        print(f"DEBUG __init__.menus_draw_fn: Entered. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
+
+    # Ensure the core module and the operator class are loaded
+    if not core or not hasattr(core, 'OT_BackupManagerWindow'):
+        layout.label(text="Backup Manager (Operator Error)", icon='ERROR')
+        if _local_debug_active: print("DEBUG __init__.menus_draw_fn: core or OT_BackupManagerWindow missing.")
+        return
+
+    op_idname = core.OT_BackupManagerWindow.bl_idname
+    # Check if the operator is actually registered and available in bpy.ops.bm
+    # op_idname.split('.')[-1] would be 'open_backup_manager_window'
+    if not hasattr(bpy.ops.bm, op_idname.split('.')[-1]):
+        layout.label(text=f"Backup Manager (Op Missing)", icon='ERROR')
+        if _local_debug_active: print(f"DEBUG __init__.menus_draw_fn: Operator {op_idname} missing in bpy.ops.bm.")
+        return
+
+    # Try to get preferences to check operation status
+    # Reuse _addon_prefs_for_debug_check if it was successfully retrieved
+    addon_prefs = _addon_prefs_for_debug_check
+    if addon_prefs is None: # If it failed to fetch earlier or was None from the start
+        try:
+            addon_prefs = prefs_func()
+        except Exception as e_prefs_get:
+            if _local_debug_active:
+                print(f"ERROR __init__.menus_draw_fn: Exception getting addon_prefs: {e_prefs_get}")
+            # Fallback: draw default button if prefs are inaccessible
             layout.operator(op_idname, text="Backup Manager", icon='WINDOW')
-        else:
-            _debug_menu_draw = False
-            try:
-                _debug_menu_draw = prefs_func().debug
-            except Exception: # Catch errors if prefs_func() fails (e.g. during very early UI draw)
-                pass # Keep _debug_menu_draw as False
-            layout.label(text=f"Backup Manager (Op '{op_idname.split('.')[-1]}' unavailable)") # Shorter error for menu
-            if _debug_menu_draw:
-                print(f"DEBUG: menus_draw_fn: bpy.ops.bm does not have {op_idname.split('.')[-1]}. Available: {dir(bpy.ops.bm)}")
-    else:
-        layout.label(text="Backup Manager Window (Error: Operator not loaded)")
+            if _local_debug_active: print(f"DEBUG __init__.menus_draw_fn: Drew default operator due to prefs error. Exiting. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
+            return
+
+    button_text = "Backup Manager"
+    button_icon = 'WINDOW' # Default icon
+
+    if _local_debug_active:
+        sop_value = 'N/A (prefs None or attr missing)'
+        if addon_prefs and hasattr(addon_prefs, 'show_operation_progress'):
+            sop_value = addon_prefs.show_operation_progress
+        print(f"DEBUG __init__.menus_draw_fn: addon_prefs {'IS valid' if addon_prefs else 'IS NONE'}. show_operation_progress = {sop_value}")
+
+    if addon_prefs and hasattr(addon_prefs, 'show_operation_progress') and addon_prefs.show_operation_progress:
+        if _local_debug_active:
+            print(f"DEBUG __init__.menus_draw_fn: Condition MET. Setting text/icon to 'Running...'.")
+        button_text = "Backup Manager (Running...)"
+        button_icon = 'COLORSET_09_VEC' # Icon indicating activity/warning
+    elif _local_debug_active: # Only print if debug is on and condition was false
+        print(f"DEBUG __init__.menus_draw_fn: Condition NOT MET for 'Running...' state.")
+
+    try:
+        layout.operator(op_idname, text=button_text, icon=button_icon)
+        if _local_debug_active:
+            print(f"DEBUG __init__.menus_draw_fn: Operator drawn with text='{button_text}', icon='{button_icon}'.")
+    except Exception as e:
+        # Log the error if layout.operator fails, to help diagnose
+        print(f"ERROR: Backup Manager: menus_draw_fn failed to draw operator '{op_idname}'. Exception: {type(e).__name__}: {e}")
+        # If drawing the operator fails, we log the error but do not display a fallback UI error label in the menu.
+        # The menu item for the addon will simply be absent if this occurs.
+        pass
     
+    if _local_debug_active:
+        print(f"DEBUG __init__.menus_draw_fn: Exiting. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
 
 # The BM_MT_BR menu is empty. If this menu is intended to be used, its draw() method needs content.
 # The backupandrestore_menu_fn seems intended for a different menu type or location.

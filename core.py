@@ -573,6 +573,8 @@ class OT_BackupManagerWindow(Operator):
                 print(f"DEBUG: [{timestamp}] OT_BackupManagerWindow.draw() CALLED. Progress: {progress_val_str}, Msg: '{op_message}', show_op_progress: {prefs_instance.show_operation_progress}, Tabs: {self.tabs}")
                 _start_time_draw_obj = datetime.now()
            
+            is_operation_running = prefs_instance.show_operation_progress
+
 
             # --- Top section for global settings ---
             box_top = layout.box()
@@ -580,32 +582,42 @@ class OT_BackupManagerWindow(Operator):
             col_top.use_property_split = True
             col_top.separator()
            
+            # System ID is always read-only display
             row_system_id = col_top.row()
             row_system_id.enabled = False
             row_system_id.prop(prefs_instance, "system_id")            
-            col_top.prop(prefs_instance, "use_system_id")
-            col_top.separator()
 
-            col_top.prop(prefs_instance, 'backup_path')          
-            #col_top.prop(prefs_instance, 'ignore_files')
-            col_top.separator()
-            
-            col_top.prop(prefs_instance, 'show_path_details')   
+            # Group settings that should be disabled during an operation
+            settings_to_disable_group = col_top.column()
+            settings_to_disable_group.enabled = not is_operation_running
+            settings_to_disable_group.prop(prefs_instance, "use_system_id")
+            settings_to_disable_group.prop(prefs_instance, 'backup_path')
+            #col_top.prop(prefs_instance, 'ignore_files') # Still commented out
+            settings_to_disable_group.prop(prefs_instance, 'show_path_details')
+
+            # Debug can remain enabled
+            col_top.separator() # Separator after the potentially disabled group
             col_top.prop(prefs_instance, 'debug')  
             col_top.separator()   
 
             # --- Save Preferences Button ---
-            # This button is for saving the addon preferences, not Blender's global preferences.
-            row = layout.row(align=True)
+            save_prefs_row = layout.row(align=True)
+            save_prefs_row.enabled = not is_operation_running # Disable if operation is running
+
             # Check if preferences have unsaved changes (shows '*' in Blender UI)
             label_text = "Save Preferences"
             if bpy.context.preferences.is_dirty:
                 label_text += " *"
-            row.label(text='')
-            sub = row.column()
-            sub.scale_x = 0.5 # Slightly narrower for this column
-            sub.operator("wm.save_userpref", text=label_text, icon='PREFERENCES')
             
+            # Proper alignment for the button within the row
+            save_prefs_row.label(text="") # Spacer on the left
+            save_prefs_button_col = save_prefs_row.column()
+            save_prefs_button_col.scale_x = 0.5 # Make button narrower
+            save_prefs_button_col.operator("wm.save_userpref", text=label_text, icon='PREFERENCES')
+            
+            # --- Tabs for Backup/Restore ---      
+            layout.use_property_split = False
+            layout.prop(self, "tabs", expand=False) # Use the operator's own tabs property
 
             # --- Progress UI ---
             if prefs_instance.show_operation_progress:
@@ -626,10 +638,10 @@ class OT_BackupManagerWindow(Operator):
                 # Abort button
                 progress_row.operator("bm.abort_operation", text="", icon='CANCEL') # Text removed for compactness
 
-            # --- Tabs for Backup/Restore ---      
-            layout.use_property_split = False
-            layout.prop(self, "tabs", expand=False) # Use the operator's own tabs property
+            # --- Tab content for Backup/Restore --- 
             tab_content_box = layout.box() # Box for the content of the selected tab
+            tab_content_box.enabled = not is_operation_running # Disable tab content if operation is running
+
             if self.tabs == "BACKUP":
                 self._draw_backup_tab(tab_content_box, context, prefs_instance)
             elif self.tabs == "RESTORE":
