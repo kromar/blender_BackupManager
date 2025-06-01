@@ -320,37 +320,65 @@ class OT_ShowFinalReport(bpy.types.Operator):
 
     def cancel(self, context):
         """Ensures timer is cleaned up if the operator is cancelled externally (e.g., during unregister)."""
-        # Use the robust prefs() function from core.py
         _debug_active = False # Default to False for safety during cancel
+        prefs_instance_for_cancel = None # Initialize to avoid UnboundLocalError if try fails early
         try:
             prefs_instance_for_cancel = prefs()
-            if prefs_instance_for_cancel:
+            if prefs_instance_for_cancel: # Check if prefs() returned a valid object
                 _debug_active = prefs_instance_for_cancel.debug
         except Exception:
             pass # Ignore errors getting prefs during cancel, prioritize cleanup
 
+        if self._timer: # Check if the timer exists
+            try:
+                context.window_manager.event_timer_remove(self._timer)
+                if _debug_active: print(f"DEBUG: OT_ShowFinalReport.cancel(): Timer removed.")
+            except Exception as e: # Catch potential errors during timer removal
+                if _debug_active: print(f"DEBUG: OT_ShowFinalReport.cancel(): Error removing timer: {e}")
+            self._timer = None # Ensure it's cleared
+
         if _debug_active:
             print(f"DEBUG: OT_ShowFinalReport.cancel() EXIT.")
         # Blender expects cancel() to return None
-
 class OT_BackupManagerWindow(Operator):
     bl_idname = "bm.open_backup_manager_window"
     bl_label = "Backup Manager"
     bl_options = {'REGISTER'} # No UNDO needed for a UI window    
 
+    _cancelled: bool = False # Instance variable to track cancellation state
 
     def _update_window_tabs(self, context):
         """Ensures BM_Preferences.tabs is updated when this window's tabs change, triggering searches."""
+        # --- Early exit conditions for stale instance ---
+        if self._cancelled:
+            # Minimal logging if possible, avoid complex operations
+            # print(f"DEBUG: OT_BackupManagerWindow._update_window_tabs - Bailing out: _cancelled is True. Self: {self}")
+            return
+
+        prefs_instance = None
         try:
             prefs_instance = prefs()
-            if prefs_instance.tabs != self.tabs:
-                prefs_instance.tabs = self.tabs # This will call BM_Preferences.update_version_list
+            if not prefs_instance: # If prefs() returns None or an invalid object
+                # print(f"DEBUG: OT_BackupManagerWindow._update_window_tabs - Bailing out: prefs() returned None/invalid. Self: {self}")
+                return
         except Exception as e:
-            # During script reload, prefs() might fail or self might be in an inconsistent state.
-            # It's hard to safely use self.debug here.
-            print(f"ERROR: Backup Manager: Error in OT_BackupManagerWindow._update_window_tabs (likely during script reload): {e}")
-            # Avoid further operations if prefs are not accessible or an error occurred.
-            
+            # If prefs() itself raises an exception (e.g., addon not found during unregister/register)
+            print(f"ERROR: Backup Manager: Error in OT_BackupManagerWindow._update_window_tabs (accessing prefs): {e}. Self: {self}")
+            return
+        
+        # --- Proceed with original logic if checks passed ---
+        if prefs_instance.tabs != self.tabs:
+            if prefs_instance.debug: # Safe to use prefs_instance.debug now
+                print(f"DEBUG: OT_BackupManagerWindow._update_window_tabs: self.tabs ('{self.tabs}') != prefs.tabs ('{prefs_instance.tabs}'). Updating prefs.tabs. Self: {self}")
+            try:
+                prefs_instance.tabs = self.tabs # This will call BM_Preferences.update_version_list
+            except Exception as e_update:
+                 # Catch errors during the actual update of prefs_instance.tabs
+                 if prefs_instance.debug:
+                    print(f"ERROR: Backup Manager: Error in OT_BackupManagerWindow._update_window_tabs (updating prefs.tabs): {e_update}. Self: {self}")
+                 # Decide if further action is needed, e.g., report error to user or log
+
+
     tabs: EnumProperty(
         name="Operation Mode",
         items=[("BACKUP", "Backup", "Switch to Backup mode"),
@@ -544,11 +572,30 @@ class OT_BackupManagerWindow(Operator):
     def draw(self, context): # Standard signature for invoke_props_dialog
         layout = self.layout # Provided by invoke_props_dialog
         prefs_instance = None
+        _debug_draw = False # Default
 
+        # --- Early exit conditions for stale instance ---
+        if self._cancelled: # Check if the instance itself was marked as cancelled
+            layout.label(text="Window closing (operator cancelled)...")
+            # print(f"DEBUG: OT_BackupManagerWindow.draw() - Bailing out: _cancelled is True. Self: {self}")
+            return
+
+        # Attempt to get preferences and set debug flag safely
         try:
             prefs_instance = prefs() # Get current addon preferences
+            if not prefs_instance: # If prefs() returns None or an invalid object
+                layout.label(text="Window closing (preferences unavailable)...")
+                # print(f"DEBUG: OT_BackupManagerWindow.draw() - Bailing out: prefs() returned None/invalid. Self: {self}")
+                return
+            _debug_draw = prefs_instance.debug # Safe to access .debug now
+        except Exception as e:
+            # If prefs() itself raises an exception (e.g., addon not found during unregister/register)
+            layout.label(text=f"Window closing (error accessing preferences: {e})...")
+            # print(f"DEBUG: OT_BackupManagerWindow.draw() - Bailing out: Exception in prefs(): {e}. Self: {self}")
+            return
 
-            _debug_draw = prefs_instance.debug if prefs_instance else False
+        # --- Proceed with normal drawing if all checks passed ---
+        try:
             _start_time_draw_obj = None # Use a different name to avoid conflict if prefs_instance is None initially
 
             if _debug_draw:
@@ -560,23 +607,21 @@ class OT_BackupManagerWindow(Operator):
                 _start_time_draw_obj = datetime.now()
 
             # --- Top section for global settings ---
-            # Ensure prefs_instance is valid before using it for drawing
+            # prefs_instance is now confirmed to be valid here
             col_top = layout.column(align=True)
-            col_top.prop(prefs_instance, 'backup_path')          
-            col_top.prop(prefs_instance, 'ignore_files')
-            
+            col_top.separator()
+           
             row_system_id = col_top.row()
             row_system_id.enabled = False
             row_system_id.prop(prefs_instance, "system_id")
+            
             col_top.prop(prefs_instance, "use_system_id")
+
+            col_top.prop(prefs_instance, 'backup_path')          
+            col_top.prop(prefs_instance, 'ignore_files')            
             
             col_top.prop(prefs_instance, 'debug')
-            col_top.prop(prefs_instance, 'show_path_details')
-            col_top.prop(prefs_instance, "show_operation_progress")
-
-            #col_top.prop(prefs_instance, "blender_user_path")
-            #col_top.prop(prefs_instance, "config_path")
-            
+            col_top.prop(prefs_instance, 'show_path_details')            
 
             # --- Progress UI ---
             if prefs_instance.show_operation_progress:
@@ -598,7 +643,7 @@ class OT_BackupManagerWindow(Operator):
                 progress_row.operator("bm.abort_operation", text="", icon='CANCEL') # Text removed for compactness
 
             # --- Tabs for Backup/Restore ---
-            layout.prop(self, "tabs", expand=True) # Use the operator's own tabs property
+            layout.prop(self, "tabs", expand=False) # Use the operator's own tabs property
             tab_content_box = layout.box() # Box for the content of the selected tab
             if self.tabs == "BACKUP":
                 self._draw_backup_tab(tab_content_box, context, prefs_instance)
@@ -611,7 +656,7 @@ class OT_BackupManagerWindow(Operator):
                 print("-" * 70) # Add a separator line
 
         except Exception as e:
-            print(f"ERROR: Backup Manager: Error in OT_BackupManagerWindow.draw() (prefs_instance might be None): {e}")
+            print(f"ERROR: Backup Manager: Error during OT_BackupManagerWindow.draw() main block: {e}")
             layout.label(text=f"Error drawing Backup Manager window: {e}")
 
 
@@ -642,6 +687,8 @@ class OT_BackupManagerWindow(Operator):
         return {'FINISHED'} # Signal successful completion.
 
     def invoke(self, context, event):
+        self._cancelled = False # Reset cancellation flag on new invocation
+
         prefs_instance = prefs()
 
         # Critical check: If preferences are not available, cancel immediately.
@@ -681,6 +728,8 @@ class OT_BackupManagerWindow(Operator):
     # invoke_props_dialog handles the dialog's modality.
 
     def cancel(self, context):
+        self._cancelled = True # Mark this instance as cancelled
+
         # Use the robust prefs() function from core.py
         _debug_active = False # Default to False for safety during cancel
         prefs_instance_for_cancel = None
@@ -690,22 +739,21 @@ class OT_BackupManagerWindow(Operator):
                 _debug_active = prefs_instance_for_cancel.debug
         except Exception:
             pass # Ignore errors getting prefs during cancel, prioritize cleanup
-        if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() ENTER. Context: {context}, Self: {self}")
+        if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() ENTER. Context: {context}, Self: {self}, _cancelled set to True.")
         
         # If an operation (from OT_BackupManager) is in progress, request it to abort.
         try:
             # prefs_instance_for_cancel is already the robust preferences object
             if prefs_instance_for_cancel and prefs_instance_for_cancel.show_operation_progress: # Check if OT_BackupManager is likely active
-                if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Operation in progress, setting abort_operation_requested.")
+                if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Operation in progress, setting abort_operation_requested. Self: {self}")
                 prefs_instance_for_cancel.abort_operation_requested = True
         except Exception as e:
-            if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Error accessing prefs to request operation abort: {e}")
+            if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Error accessing prefs to request operation abort: {e}. Self: {self}")
             
         if _debug_active:
             print(f"DEBUG: OT_BackupManagerWindow.cancel() EXIT. Self: {self}")
         # Operator.cancel() is expected to do cleanup.
         # If invoke_props_dialog calls this, it handles the {'CANCELLED'} state internally.
-
                 
 class OT_BackupManager(Operator):
     ''' run backup & restore '''

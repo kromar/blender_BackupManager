@@ -176,7 +176,6 @@ def register():
         prefs_instance.operation_progress_value = 0.0   # Default (property is 0-100 factor)
         prefs_instance.operation_progress_message = "Waiting..."  # Default
         prefs_instance.abort_operation_requested = False  # Default
-        prefs_instance.path_details_scan_done_once = False # Default
 
         if prefs_instance.debug:
             print(f"DEBUG: {__name__} registered. Transient preference properties explicitly reset to defaults.")
