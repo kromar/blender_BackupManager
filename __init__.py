@@ -159,15 +159,7 @@ def menus_draw_fn(self, context: Context) -> None:
     if _local_debug_active:
         print(f"DEBUG __init__.menus_draw_fn: Exiting. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
 
-# The BM_MT_BR menu is empty. If this menu is intended to be used, its draw() method needs content.
-# The backupandrestore_menu_fn seems intended for a different menu type or location.
-# Keeping them commented out as they don't seem actively used in the preferences panel context.
-# def backupandrestore_menu_fn(self, context: Context) -> None:
-#     """Menu Callback for the export operator."""
-#     layout = self.layout
-#     layout.operator("bm.run_backup_manager", text="Run Backup", icon='COLORSET_03_VEC').button_input = 'BACKUP'     
-#     layout.operator("bm.run_backup_manager", text="Run Restore", icon='COLORSET_04_VEC').button_input = 'RESTORE' 
-
+# Register and unregister functions
 def register():
     global _registered_classes
     _registered_classes.clear() # Clear from any previous registration attempt in this session
@@ -185,7 +177,8 @@ def register():
         core.OT_BackupManager,
         core.OT_AbortOperation,
         core.OT_ShowFinalReport,
-        core.OT_QuitBlenderNoSave, # Add the new operator
+        core.OT_QuitBlenderNoSave,
+        core.OT_CloseReportDialog,
         core.OT_BackupManagerWindow,
     )
 

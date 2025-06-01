@@ -90,7 +90,7 @@ class OT_AbortOperation(Operator):
 class OT_QuitBlenderNoSave(bpy.types.Operator):
     """Quits Blender without saving current user preferences."""
     bl_idname = "bm.quit_blender_no_save"
-    bl_label = "Quit & Attempt Restart"
+    bl_label = "Quit & Restart Blender"
     bl_description = "Attempts to start a new Blender instance, then quits the current one. If 'Save on Quit' is enabled in Blender's preferences, you will be warned."
 
     @classmethod
@@ -269,7 +269,6 @@ class OT_ShowFinalReport(bpy.types.Operator):
     _icon: str = "INFO"
     _lines: list = []
     _timer = None # Timer for the modal part
-    # _timer will be removed as this operator will no longer be modal itself.
     _show_restart_button: bool = False
     _restart_operator_idname: str = ""
 
@@ -282,26 +281,40 @@ class OT_ShowFinalReport(bpy.types.Operator):
         cls._show_restart_button = show_restart
         cls._restart_operator_idname = restart_op_idname
         if prefs().debug:
-            print(f"DEBUG: OT_ShowFinalReport.set_report_data: Title='{cls._title}', Icon='{cls._icon}', Lines={cls._lines}, ShowRestart={cls._show_restart_button}, RestartOp='{cls._restart_operator_idname}'")
+            print(f"DEBUG: OT_ShowFinalReport.set_report_data: Title='{cls._title}', Icon='{cls._icon}', Lines={len(cls._lines)}, ShowRestart={cls._show_restart_button}, RestartOp='{cls._restart_operator_idname}'")
 
-    def execute(self, context):
+    def execute(self, context): #@NoSelf
         """Displays the popup report directly."""
         if prefs().debug:
             print(f"DEBUG: OT_ShowFinalReport.execute: Displaying popup. Title='{OT_ShowFinalReport._title}'")
 
-            def draw_for_popup(self_menu, context_inner):
-                for line in OT_ShowFinalReport._lines:
-                    self_menu.layout.label(text=line)
-                if OT_ShowFinalReport._show_restart_button and OT_ShowFinalReport._restart_operator_idname:
-                    self_menu.layout.separator()
-                    self_menu.layout.label(text="Next Step:")
-                    # The button text is defined by the operator's bl_label
-                    op_quit = self_menu.layout.operator(OT_ShowFinalReport._restart_operator_idname)
-                    
-                    # Add a button to simply close the report
-                    op_close = self_menu.layout.operator(OT_CloseReportDialog.bl_idname)
+        # --- This function defines what's drawn in the popup ---
+        def draw_for_popup(self_menu, context_inner): # 'self_menu' is the Menu instance, 'context_inner' is the context for the popup
+            layout = self_menu.layout
+            for line in OT_ShowFinalReport._lines:
+                layout.label(text=line)
+            
+            if OT_ShowFinalReport._show_restart_button and OT_ShowFinalReport._restart_operator_idname:
+                layout.separator()
+                # Place the restart and close buttons in a single row for side-by-side layout
+                row = layout.row(align=True)
+                row.operator(OT_ShowFinalReport._restart_operator_idname, icon='FILE_REFRESH')
+                row.operator(OT_CloseReportDialog.bl_idname, icon='CANCEL')
 
-            context.window_manager.popup_menu(draw_for_popup, title=OT_ShowFinalReport._title, icon=OT_ShowFinalReport._icon)
+        context.window_manager.popup_menu(draw_for_popup, title=OT_ShowFinalReport._title, icon=OT_ShowFinalReport._icon)
+        return {'FINISHED'}
+
+class OT_CloseReportDialog(bpy.types.Operator):
+    """Closes the report dialog without taking further action."""
+    bl_idname = "bm.close_report_dialog"
+    bl_label = "Don't Quit Now"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        # This operator's purpose is just to be a clickable item in the popup
+        # that allows the popup to close without triggering the quit sequence.
+        if prefs().debug:
+            print("DEBUG: OT_CloseReportDialog executed (User chose not to quit/restart from report).")
         return {'FINISHED'}
 
 class OT_BackupManagerWindow(Operator):
@@ -1020,7 +1033,7 @@ class OT_BackupManager(Operator):
             if overall_op_type == 'RESTORE': # Show restart info even on dry run for simulation
                 self.batch_report_lines.append("") # Add a blank line for spacing
                 self.batch_report_lines.append("IMPORTANT: For restored settings to fully apply, this Blender session must be ended.")
-                self.batch_report_lines.append(f"Use the '{OT_QuitBlenderNoSave.bl_label}' button in the report. You will be guided on preference saving.")
+                self.batch_report_lines.append(f"Use the '{OT_QuitBlenderNoSave.bl_label}' button in the report.")
                 show_restart_btn_batch = True
 
             final_report_lines = [final_batch_message] + self.batch_report_lines[:]
@@ -1122,7 +1135,7 @@ class OT_BackupManager(Operator):
                     if self.current_operation_type == 'RESTORE': # Show restart info even on dry run for simulation
                         report_message_lines.append("") # Add a blank line for spacing
                         report_message_lines.append("IMPORTANT: For restored settings to fully apply, this Blender session must be ended.")
-                        report_message_lines.append(f"Use the '{OT_QuitBlenderNoSave.bl_label}' button below. You will be guided on preference saving.")
+                        report_message_lines.append(f"Use the '{OT_QuitBlenderNoSave.bl_label}' button below.")
                         show_restart_btn = True
 
                     report_icon = 'INFO' 
@@ -1232,19 +1245,38 @@ class OT_BackupManager(Operator):
                     if self.button_input == 'BACKUP':
                         self.current_source_path = pref_instance.blender_user_path
                         self.current_target_path = os.path.join(pref_instance.backup_path, str(pref_instance.active_blender_version))
-                    else: # RESTORE
+                    elif self.button_input == 'RESTORE':
+                        # --- Temporarily disable 'Save on Quit' for RESTORE operation ---
+                        prefs_view = context.preferences.view
+                        if prefs_view and hasattr(prefs_view, 'use_save_on_quit'):
+                            if prefs_view.use_save_on_quit: # Only change if it was True
+                                prefs_view.use_save_on_quit = False
+                                if pref_instance.debug:
+                                    print(f"DEBUG: OT_BackupManager.execute RESTORE (non-advanced): Temporarily disabled 'Save Preferences on Quit'.")
+                        elif pref_instance.debug:
+                            print(f"DEBUG: OT_BackupManager.execute RESTORE (non-advanced): Could not access 'use_save_on_quit'.")
+                        # --- Set paths for non-advanced RESTORE ---
                         self.current_source_path = os.path.join(pref_instance.backup_path, str(pref_instance.active_blender_version))
                         self.current_target_path = pref_instance.blender_user_path
                 else:    
-                    if self.button_input == 'BACKUP':
+                    if self.button_input == 'BACKUP': # Advanced Mode Backup
                         self.current_source_path = os.path.join(os.path.dirname(pref_instance.blender_user_path),  pref_instance.backup_versions)
                         if pref_instance.custom_version_toggle:
                             self.current_target_path = os.path.join(pref_instance.backup_path, str(pref_instance.custom_version))
                         else: 
                             # Corrected: If not custom, target for backup should be based on source version name
                             self.current_target_path = os.path.join(pref_instance.backup_path, pref_instance.backup_versions)
-
-                    else: # RESTORE
+                    elif self.button_input == 'RESTORE':
+                        # --- Temporarily disable 'Save on Quit' for RESTORE operation (Advanced) ---
+                        prefs_view = context.preferences.view
+                        if prefs_view and hasattr(prefs_view, 'use_save_on_quit'):
+                            if prefs_view.use_save_on_quit: # Only change if it was True
+                                prefs_view.use_save_on_quit = False
+                                if pref_instance.debug:
+                                    print(f"DEBUG: OT_BackupManager.execute RESTORE (advanced): Temporarily disabled 'Save Preferences on Quit'.")
+                        elif pref_instance.debug:
+                            print(f"DEBUG: OT_BackupManager.execute RESTORE (advanced): Could not access 'use_save_on_quit'.")
+                        # --- Set paths for advanced RESTORE ---
                         self.current_source_path = os.path.join(pref_instance.backup_path, pref_instance.restore_versions)
                         self.current_target_path = os.path.join(os.path.dirname(pref_instance.blender_user_path),  pref_instance.backup_versions)
 
@@ -1323,6 +1355,16 @@ class OT_BackupManager(Operator):
                 return self._process_next_batch_item_or_finish(context)
 
             elif self.button_input == 'BATCH_RESTORE':
+                # --- Temporarily disable 'Save on Quit' for BATCH_RESTORE operation ---
+                prefs_view = context.preferences.view
+                if prefs_view and hasattr(prefs_view, 'use_save_on_quit'):
+                    if prefs_view.use_save_on_quit: # Only change if it was True
+                        prefs_view.use_save_on_quit = False
+                        if pref_instance.debug:
+                            print(f"DEBUG: OT_BackupManager.execute BATCH_RESTORE: Temporarily disabled 'Save Preferences on Quit' for the batch.")
+                elif pref_instance.debug:
+                    print(f"DEBUG: OT_BackupManager.execute BATCH_RESTORE: Could not access 'use_save_on_quit' to disable it for the batch.")
+                # --- End temporary disable ---
                 self.is_batch_operation = True
                 self.batch_operations_list.clear()
                 self.batch_report_lines.clear()
