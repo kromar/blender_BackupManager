@@ -61,7 +61,7 @@ bl_info = {
     "name": "Backup Manager",
     "description": "Backup and Restore your Blender configuration files",
     "author": "Daniel Grauer",
-    "version": (1, 2, 2), # Consider incrementing version after changes
+    "version": (1, 3, 0), # Consider incrementing version after changes
     "blender": (3, 0, 0),
     "location": "Preferences",
     "category": "!System",
