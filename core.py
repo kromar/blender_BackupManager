@@ -933,11 +933,9 @@ class OT_BackupManager(Operator):
                 else:
                     dest_file = os.path.join(self.current_target_path, relative_dir, filename)
 
-                # Basic check to prevent copying a directory into itself if paths are misconfigured
-                # This is a simplified check; robust cycle detection is more complex.
-                if os.path.commonpath([src_file, dest_file]) == os.path.normpath(src_file) and \
-                   os.path.commonpath([src_file, dest_file]) == os.path.normpath(dest_file):
-                    if prefs().debug: print(f"Skipping copy, source and destination might be problematic: {src_file} -> {dest_file}")
+                # This check prevents copying a file onto itself if src and dest resolve to the same path.
+                if os.path.normpath(src_file) == os.path.normpath(dest_file):
+                    if prefs().debug: print(f"Skipping copy, source and destination are the same file: {src_file}")
                     continue
 
                 self.files_to_process.append((src_file, dest_file))
