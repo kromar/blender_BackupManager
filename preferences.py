@@ -96,14 +96,18 @@ def _calculate_path_age_str(path_to_scan):
         if not files: return "Last change: no data (empty)"
         latest_file = max(files, key=os.path.getmtime)
         backup_age = str(datetime.now() - datetime.fromtimestamp(os.path.getmtime(latest_file))).split('.')[0]
-        return "Last change: " + backup_age
+        return f"Last change: {backup_age}"        
     except Exception: return "Last change: error"
 
 def _calculate_path_size_str(path_to_scan):
     try:
         if not path_to_scan or not os.path.isdir(path_to_scan): return "Size: N/A" # Should be pre-filtered
         size = sum(os.path.getsize(os.path.join(dp, f)) for dp, dn, filenames in os.walk(path_to_scan) for f in filenames)
-        return "Size: " + str(round(size * 0.000001, 2)) + " MB  (" + "{:,}".format(size) + " bytes)"
+        return (
+                    f"Size: {str(round(size * 1e-06, 2))} MB  ("
+                    + "{:,}".format(size)
+                    + " bytes)"
+                )
     except Exception: return "Size: error"
 
 class BM_Preferences(AddonPreferences):
@@ -585,10 +589,6 @@ class BM_Preferences(AddonPreferences):
             # Advanced options
             col = box1.column()   
             col.scale_x = 0.8   
-            # Redundant debug prints, populate_backuplist already logs list state
-            # if self.debug:
-            #     print(f"DEBUG: draw_backup (Advanced): expand={self.expand_version_selection}, val='{self.backup_versions}'")
-            #     print(f"DEBUG: draw_backup (Advanced): BM_Preferences.backup_version_list (len={len(BM_Preferences.backup_version_list)})")
             col.prop(self, 'backup_versions', text='Backup From', expand = self.expand_version_selection) 
     
             col = box2.column()   
@@ -598,10 +598,7 @@ class BM_Preferences(AddonPreferences):
             else:      
                 col.scale_x = 0.8 
                 col.prop(self, 'restore_versions', text='Backup To', expand = self.expand_version_selection)
-                # Redundant debug prints
-                # if self.debug:
-                #     print(f"DEBUG: draw_backup (Advanced, Backup To): expand={self.expand_version_selection}, val='{self.restore_versions}'")
-            
+                
             self.draw_selection(box)
 
         col = row.column()   
@@ -626,7 +623,7 @@ class BM_Preferences(AddonPreferences):
         col = box1.column()
         if not self.advanced_mode:            
             path = os.path.join(self.backup_path, str(self.active_blender_version))
-            col.label(text = "Restore From: " + str(self.active_blender_version), icon='COLORSET_04_VEC')   
+            col.label(text = f"Restore From: {self.active_blender_version}", icon='COLORSET_04_VEC')
             col.label(text = path)                  
             if self.show_path_details:
                 self.draw_backup_age(col, path) 
@@ -661,18 +658,10 @@ class BM_Preferences(AddonPreferences):
             # Advanced options
             col = box1.column() 
             col.scale_x = 0.8
-            # Redundant debug prints
-            # if self.debug:
-            #     print(f"DEBUG: draw_restore (Advanced): expand={self.expand_version_selection}, val='{self.restore_versions}'")
-            #     print(f"DEBUG: draw_restore (Advanced): BM_Preferences.restore_version_list (len={len(BM_Preferences.restore_version_list)})")
             col.prop(self, 'restore_versions', text='Restore From', expand = self.expand_version_selection) 
             
             col = box2.column()  
             col.scale_x = 0.8                 
-            # Redundant debug prints
-            # if self.debug:
-            #     print(f"DEBUG: draw_restore (Advanced, Restore To): expand={self.expand_version_selection}, val='{self.backup_versions}'")
-            #     print(f"DEBUG: draw_restore (Advanced, Restore To): BM_Preferences.backup_version_list (len={len(BM_Preferences.backup_version_list)})")
             col.prop(self, 'backup_versions', text='Restore To', expand = self.expand_version_selection)
 
             self.draw_selection(box)

@@ -18,14 +18,15 @@
 
 
 import bpy, subprocess, sys, os # Added subprocess, sys. os was already effectively imported via other uses.
-import os, blf, gpu # Import blf and gpu for custom drawing
+import os
 import shutil
 import fnmatch # For pattern matching in ignore list
-import re # Moved from create_ignore_pattern
+import re as regular_expression
 from datetime import datetime # Added for debug timestamps
 from bpy.types import Operator
-from bpy.props import StringProperty, EnumProperty, FloatProperty, IntProperty
+from bpy.props import StringProperty, EnumProperty
 from . import preferences
+from .preferences import BM_Preferences
 
 
 def prefs():
@@ -109,16 +110,8 @@ class OT_QuitBlenderNoSave(bpy.types.Operator):
         prefs_main = context.preferences # Use bpy.context.preferences for global auto-save setting
 
         if addon_prefs_instance and addon_prefs_instance.debug:
-            print(f"DEBUG: OT_QuitBlenderNoSave.invoke():")
-            print(f"  context: {context}")
-            print(f"  context.preferences: {context.preferences}")
-            print(f"  type(prefs_main): {type(prefs_main)}")
-            if prefs_main:
-                try:
-                    print(f"  dir(prefs_main): {dir(prefs_main)}")
-                except Exception as e_dir:
-                    print(f"  Error getting dir(prefs_main): {e_dir}")
-                print(f"  Has 'use_preferences_save' attribute?: {hasattr(prefs_main, 'use_preferences_save')}")
+            print(f"DEBUG: OT_QuitBlenderNoSave.invoke(): Context preferences type: {type(context.preferences)}, "
+                  f"Has 'use_preferences_save': {hasattr(context.preferences, 'use_preferences_save')}")
 
         # The original logic, now with the debug prints above it.
         # This line will still raise an AttributeError if 'use_preferences_save' is missing.
@@ -165,7 +158,7 @@ class OT_QuitBlenderNoSave(bpy.types.Operator):
         # --- Attempt to launch new Blender instance ---
         blender_exe = bpy.app.binary_path
         new_instance_launched_successfully = False
-        if blender_exe and os.path.exists(blender_exe): # Check if path is valid
+        if blender_exe and blender_exe is not None and os.path.exists(blender_exe): # Check if path is valid and not None
             try:
                 if addon_prefs.debug:
                     print(f"DEBUG: OT_QuitBlenderNoSave: Attempting to launch new Blender instance from: {blender_exe}")
@@ -178,17 +171,34 @@ class OT_QuitBlenderNoSave(bpy.types.Operator):
                     kwargs['creationflags'] = DETACHED_PROCESS
                 elif sys.platform == "darwin": # macOS
                     pass # No special flags usually needed
-                else: # Linux and other POSIX
+                elif sys.platform.startswith("linux"): # Linux and other POSIX
                     kwargs['start_new_session'] = True
 
-                subprocess.Popen(args, **kwargs)
+                try:
+                    subprocess.Popen(args, **kwargs)
+                except FileNotFoundError as e:
+                    if addon_prefs.debug:
+                        print(f"ERROR: OT_QuitBlenderNoSave: Blender executable not found: {e}")
+                        import traceback
+                        traceback.print_exc()
+                except PermissionError as e:
+                    if addon_prefs.debug:
+                        print(f"ERROR: OT_QuitBlenderNoSave: Permission denied when launching Blender: {e}")
+                        import traceback
+                        traceback.print_exc()
+                except Exception as e:
+                    if addon_prefs.debug:
+                        print(f"ERROR: OT_QuitBlenderNoSave: Unexpected error occurred: {e}")
+                        import traceback
+                        traceback.print_exc()
+
                 new_instance_launched_successfully = True
                 if addon_prefs.debug:
                     print(f"DEBUG: OT_QuitBlenderNoSave: New Blender instance launch command issued.")
                     if sys.platform == "win32" and 'creationflags' in kwargs:
                          print(f"DEBUG: OT_QuitBlenderNoSave: Using creationflags={kwargs['creationflags']}")
                     elif 'start_new_session' in kwargs:
-                         print(f"DEBUG: OT_QuitBlenderNoSave: Using start_new_session=True")
+                        print(f"DEBUG: OT_QuitBlenderNoSave: Using start_new_session={kwargs['start_new_session']}")
 
             except Exception as e:
                 if addon_prefs.debug:
@@ -302,18 +312,6 @@ class OT_ShowFinalReport(bpy.types.Operator):
         context.window_manager.popup_menu(draw_for_popup, title=OT_ShowFinalReport._title, icon=OT_ShowFinalReport._icon)
         return {'FINISHED'}
 
-class OT_CloseReportDialog(bpy.types.Operator):
-    """Closes the report dialog without taking further action."""
-    bl_idname = "bm.close_report_dialog"
-    bl_label = "Don't Quit Now"
-    bl_options = {'INTERNAL'}
-
-    def execute(self, context):
-        # This operator's purpose is just to be a clickable item in the popup
-        # that allows the popup to close without triggering the quit sequence.
-        if prefs().debug:
-            print("DEBUG: OT_CloseReportDialog executed (User chose not to quit/restart from report).")
-        return {'FINISHED'}
 
 class OT_BackupManagerWindow(Operator):
     """Open the Backup Manager window."""
@@ -372,7 +370,7 @@ class OT_BackupManagerWindow(Operator):
         if not path_to_check or not os.path.isdir(path_to_check): # Basic check before cache lookup
             layout.label(text="Last change: Path N/A")
             return
-        display_text = preferences.BM_Preferences._age_cache.get(path_to_check)
+        display_text = BM_Preferences._age_cache.get(path_to_check)
         if display_text is None:
             display_text = "Last change: Calculating..."
             if prefs_instance.debug:
@@ -387,7 +385,7 @@ class OT_BackupManagerWindow(Operator):
         if not path_to_check or not os.path.isdir(path_to_check): # Basic check
             layout.label(text="Size: Path N/A")
             return
-        display_text = preferences.BM_Preferences._size_cache.get(path_to_check)
+        display_text = BM_Preferences._size_cache.get(path_to_check)
         if display_text is None:
             display_text = "Size: Calculating..."
             if prefs_instance.debug:
@@ -813,7 +811,7 @@ class OT_BackupManager(Operator):
     def create_ignore_pattern(self):
         self.ignore_backup.clear()
         self.ignore_restore.clear()
-        list = [x for x in re.split(',|\s+', prefs().ignore_files) if x!='']        
+        list = [x for x in regular_expression.split(',|\s+', prefs().ignore_files) if x!='']        
         for item in list:
             self.ignore_backup.append(item)
             self.ignore_restore.append(item)
@@ -924,7 +922,7 @@ class OT_BackupManager(Operator):
         return None # Stop the timer
 
     # Keep the instance method for direct calls if needed, though static is preferred for deferred.
-    def ShowReport(self, message = [], title = "Message Box", icon = 'INFO'):
+    def ShowReport(self, message = None, title = "Message Box", icon = 'INFO'):
         OT_BackupManager.ShowReport_static(message, title, icon)
     
     def _prepare_file_list(self):
@@ -1051,10 +1049,14 @@ class OT_BackupManager(Operator):
                 self.batch_report_lines.append(f"Use the '{OT_QuitBlenderNoSave.bl_label}' button in the report.")
                 show_restart_btn_batch = True
 
-            final_report_lines = [final_batch_message] + self.batch_report_lines[:]
-            bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static(
-                final_report_lines, report_title, 'INFO', show_restart=show_restart_btn_batch, restart_op_idname="bm.quit_blender_no_save"
-            ), first_interval=0.01)
+            final_report_lines = [final_batch_message] + self.batch_report_lines[:]            
+            bpy.app.timers.register(
+                lambda final_report_lines=final_report_lines, report_title=report_title, show_restart_btn_batch=show_restart_btn_batch:
+                    OT_BackupManager._deferred_show_report_static(
+                        final_report_lines, report_title, 'INFO', show_restart=show_restart_btn_batch, restart_op_idname="bm.quit_blender_no_save"
+                    ),
+                first_interval=0.01
+                )
 
             pref_instance.show_operation_progress = False
             pref_instance.operation_progress_message = final_batch_message
@@ -1064,7 +1066,6 @@ class OT_BackupManager(Operator):
             if self._timer: # Clean up timer if it was from the last item
                 context.window_manager.event_timer_remove(self._timer)
                 self._timer = None
-                if pref_instance.debug: print(f"DEBUG: Batch: Final timer removed.")
             return {'FINISHED'}
 
     def modal(self, context, event):
@@ -1192,7 +1193,7 @@ class OT_BackupManager(Operator):
                 return {'PASS_THROUGH'} # Let the next cycle handle termination via top conditions
 
             # Process a batch of files
-            for _ in range(preferences.BM_Preferences.FILES_PER_TICK_MODAL_OP): # Use constant from preferences
+            for _ in range(BM_Preferences.FILES_PER_TICK_MODAL_OP): # Use constant from preferences
                 if not self.files_to_process:
                     break # No more files in the list for this tick
 
@@ -1243,14 +1244,15 @@ class OT_BackupManager(Operator):
         return {'PASS_THROUGH'} # Allow other events to be processed
 
     def execute(self, context): 
-        pref_instance = prefs() # Get fresh preferences
-        pref_backup_versions = preferences.BM_Preferences.backup_version_list
-        pref_restore_versions = preferences.BM_Preferences.restore_version_list
+        pref_instance = prefs()
+        pref_backup_versions = BM_Preferences.backup_version_list
+        pref_restore_versions = BM_Preferences.restore_version_list
+        pref_restore_versions = BM_Preferences.restore_version_list
 
-        if prefs().debug:
+        if pref_instance.debug:
             print("\n\nbutton_input: ", self.button_input)                    
         
-        if prefs().backup_path:
+        if pref_instance.backup_path:
             self.current_operation_type = "" # Reset for single ops
             self.is_batch_operation = False # Reset for single ops
 
@@ -1323,7 +1325,7 @@ class OT_BackupManager(Operator):
                     pref_instance.operation_progress_message = report_message # For window if open
 
                     # Determine title and icon for the deferred report
-                    op_type_for_report = self.current_operation_type if self.current_operation_type else "Operation"
+                    op_type_for_report = op_type_for_report = self.current_operation_type or "Operation"
                     icon_for_report = 'INFO' # Default
                     if self.current_operation_type == 'BACKUP': icon_for_report = 'COLORSET_03_VEC'
                     elif self.current_operation_type == 'RESTORE': icon_for_report = 'COLORSET_04_VEC'

@@ -61,7 +61,7 @@ bl_info = {
     "name": "Backup Manager",
     "description": "Backup and Restore your Blender configuration files",
     "author": "Daniel Grauer",
-    "version": (1, 3, 0), # Consider incrementing version after changes
+    "version": (1, 3, 1), # Consider incrementing version after changes
     "blender": (3, 0, 0),
     "location": "Preferences",
     "category": "!System",
@@ -110,7 +110,7 @@ def menus_draw_fn(self, context: Context) -> None:
     # Check if the operator is actually registered and available in bpy.ops.bm
     # op_idname.split('.')[-1] would be 'open_backup_manager_window'
     if not hasattr(bpy.ops.bm, op_idname.split('.')[-1]):
-        layout.label(text=f"Backup Manager (Op Missing)", icon='ERROR')
+        layout.label(text="Backup Manager: Operator not found in bpy.ops.bm", icon='ERROR')
         if _local_debug_active: print(f"DEBUG __init__.menus_draw_fn: Operator {op_idname} missing in bpy.ops.bm.")
         return
 
@@ -185,7 +185,11 @@ def register():
 
     _debug_active = False # Default to False for safety
     try:
-        addon_prefs_instance = prefs_func()
+        try:
+            addon_prefs_instance = prefs_func()
+        except KeyError:
+            addon_prefs_instance = None
+            print("WARNING: prefs_func() failed. Addon might be unregistered or context unavailable.")
         if addon_prefs_instance and hasattr(addon_prefs_instance, 'debug'):
             _debug_active = addon_prefs_instance.debug
     except Exception as e_prefs:
@@ -242,6 +246,10 @@ def register():
 
 
 def unregister():
+    """
+    Unregisters all classes and removes menu entries added by the Backup Manager addon.
+    Ensures proper cleanup when the addon is disabled or uninstalled.
+    """
     global _registered_classes
     _debug_active = False # Default to False for safety
     try:
@@ -250,9 +258,7 @@ def unregister():
             _debug_active = addon_prefs_instance.debug
     except Exception as e_prefs:
         # Similar to register(), prefs might be gone during shutdown
-        print(f"WARNING: Backup Manager unregister(): Could not access preferences for debug flag: {e_prefs}")
-
-    if _debug_active: print("DEBUG: Backup Manager unregister() CALLED")
+        if _debug_active: print(f"DEBUG: unregister(): Could not access preferences for debug flag: {e_prefs}")
 
     try:
         bpy.types.TOPBAR_MT_file.remove(menus_draw_fn)
@@ -260,13 +266,13 @@ def unregister():
         if _debug_active: print(f"DEBUG: unregister(): Error removing menu_draw_fn (may have already been removed): {e}")
 
     # Unregister classes that were successfully registered by this addon instance
-    for cls_to_unreg in reversed(_registered_classes):
-        try:
-            bpy.utils.unregister_class(cls_to_unreg)
-            if _debug_active: print(f"DEBUG: unregister(): Successfully unregistered {cls_to_unreg.__name__}")
-        except Exception as e:
-            print(f"ERROR: Backup Manager: Failed to unregister class {cls_to_unreg.__name__}: {e}")
-    _registered_classes.clear()
+    if _registered_classes:  # Check if the list is not empty
+        for cls_to_unreg in reversed(_registered_classes):
+            try:
+                bpy.utils.unregister_class(cls_to_unreg)
+                if _debug_active: print(f"DEBUG: unregister(): Successfully unregistered {cls_to_unreg.__name__}")
+            except Exception as e:
+                print(f"ERROR: Backup Manager: Failed to unregister class {cls_to_unreg.__name__}: {e}")
+        # Clear the list after unregistering all classes
+        _registered_classes.clear()
 
-if __name__ == "__main__":
-    register()
