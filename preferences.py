@@ -485,7 +485,7 @@ class BM_Preferences(AddonPreferences):
     def draw(self, context):
         layout = self.layout
         layout.label(text="Backup Manager operations are now handled in a dedicated window.")
-        layout.operator(core.OT_BackupManagerWindow.bl_idname, text="Open Backup Manager Window", icon='WINDOW')
+        layout.operator(core.OT_BackupManagerWindow.bl_idname, text="Open Backup Manager Window", icon='DISK_DRIVE')
 
         layout.separator()
         box = layout.box()

@@ -124,12 +124,12 @@ def menus_draw_fn(self, context: Context) -> None:
             if _local_debug_active:
                 print(f"ERROR __init__.menus_draw_fn: Exception getting addon_prefs: {e_prefs_get}")
             # Fallback: draw default button if prefs are inaccessible
-            layout.operator(op_idname, text="Backup Manager", icon='WINDOW')
+            layout.operator(op_idname, text="Backup Manager", icon='DISK_DRIVE')
             if _local_debug_active: print(f"DEBUG __init__.menus_draw_fn: Drew default operator due to prefs error. Exiting. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
             return
 
     button_text = "Backup Manager"
-    button_icon = 'WINDOW' # Default icon
+    button_icon = 'DISK_DRIVE' # Default icon
 
     if _local_debug_active:
         sop_value = 'N/A (prefs None or attr missing)'
@@ -241,9 +241,9 @@ def register():
         print(f"ERROR: {__name__}: Could not reset transient preferences during registration: {e}")
 
     try:
-        bpy.types.TOPBAR_MT_file.append(menus_draw_fn)
-    except Exception as e: # Catch error if append fails (e.g. during headless run)
-        if _debug_active: print(f"DEBUG: register(): Could not append menu_draw_fn to TOPBAR_MT_file: {e}")
+        bpy.types.TOPBAR_MT_file.prepend(menus_draw_fn)
+    except Exception as e: # Catch error if prepend fails (e.g. during headless run)
+        if _debug_active: print(f"DEBUG: register(): Could not prepend menu_draw_fn to TOPBAR_MT_file: {e}")
     if _debug_active: print("DEBUG: Backup Manager register() FINISHED.")
 
 
