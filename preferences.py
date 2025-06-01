@@ -209,10 +209,12 @@ class BM_Preferences(AddonPreferences):
                               subtype='NONE',
                               default=str(socket.getfqdn())) 
      
-    use_system_id: BoolProperty(name="Use Shared Backup Path", 
-                                description="Use System ID for backup paths", 
+    use_system_id: BoolProperty(name="Organize Backups by Computer",
+                                description="If enabled, appends this computer's unique network name (e.g., 'MyComputer.domain.com') " \
+                                "as a subfolder to the 'Main Backup Location'. " \
+                                "This prevents backups from different computers from overwriting each other when using a shared backup drive.",
                                 update=update_system_id,
-                                default=False)   # default = False 
+                                default=True)   # default = True
     
     debug: BoolProperty(name="Debug Output", 
                         description="Enable debug logging", 

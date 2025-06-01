@@ -350,7 +350,8 @@ class OT_BackupManagerWindow(Operator):
     def _update_window_tabs(self, context):
         """Ensures BM_Preferences.tabs is updated when this window's tabs change, triggering searches."""
         # --- Early exit conditions for stale instance ---
-        if self._cancelled:
+        # Use getattr for robustness, in case _cancelled is not yet set on self during an early update call
+        if getattr(self, '_cancelled', False):
             # Minimal logging if possible, avoid complex operations
             # print(f"DEBUG: OT_BackupManagerWindow._update_window_tabs - Bailing out: _cancelled is True. Self: {self}")
             return
@@ -607,24 +608,40 @@ class OT_BackupManagerWindow(Operator):
                 op_message = prefs_instance.operation_progress_message if prefs_instance.show_operation_progress else "N/A (hidden)"
                 print(f"DEBUG: [{timestamp}] OT_BackupManagerWindow.draw() CALLED. Progress: {progress_val_str}, Msg: '{op_message}', show_op_progress: {prefs_instance.show_operation_progress}, Tabs: {self.tabs}")
                 _start_time_draw_obj = datetime.now()
+           
 
             # --- Top section for global settings ---
-            col_top = layout.column(align=True)            
+            box_top = layout.box()
+            col_top = box_top.column(align=True)            
             col_top.use_property_split = True
             col_top.separator()
            
             row_system_id = col_top.row()
             row_system_id.enabled = False
-            row_system_id.prop(prefs_instance, "system_id")
-            
+            row_system_id.prop(prefs_instance, "system_id")            
             col_top.prop(prefs_instance, "use_system_id")
+            col_top.separator()
 
             col_top.prop(prefs_instance, 'backup_path')          
-            #col_top.prop(prefs_instance, 'ignore_files')    
-            col_top.separator()        
+            #col_top.prop(prefs_instance, 'ignore_files')
+            col_top.separator()
             
             col_top.prop(prefs_instance, 'show_path_details')   
-            col_top.prop(prefs_instance, 'debug')         
+            col_top.prop(prefs_instance, 'debug')  
+            col_top.separator()   
+
+            # --- Save Preferences Button ---
+            # This button is for saving the addon preferences, not Blender's global preferences.
+            row = layout.row(align=True)
+            # Check if preferences have unsaved changes (shows '*' in Blender UI)
+            label_text = "Save Preferences"
+            if bpy.context.preferences.is_dirty:
+                label_text += " *"
+            row.label(text='')
+            sub = row.column()
+            sub.scale_x = 0.5 # Slightly narrower for this column
+            sub.operator("wm.save_userpref", text=label_text, icon='PREFERENCES')
+            
 
             # --- Progress UI ---
             if prefs_instance.show_operation_progress:
