@@ -269,6 +269,7 @@ class OT_ShowFinalReport(bpy.types.Operator):
     _icon: str = "INFO"
     _lines: list = []
     _timer = None # Timer for the modal part
+    # _timer will be removed as this operator will no longer be modal itself.
     _show_restart_button: bool = False
     _restart_operator_idname: str = ""
 
@@ -283,22 +284,10 @@ class OT_ShowFinalReport(bpy.types.Operator):
         if prefs().debug:
             print(f"DEBUG: OT_ShowFinalReport.set_report_data: Title='{cls._title}', Icon='{cls._icon}', Lines={cls._lines}, ShowRestart={cls._show_restart_button}, RestartOp='{cls._restart_operator_idname}'")
 
-    def invoke(self, context, event): # event is not used here but is part of the signature
-        """Invokes the operator, sets up a modal timer to display the popup."""
+    def execute(self, context):
+        """Displays the popup report directly."""
         if prefs().debug:
-            print(f"DEBUG: OT_ShowFinalReport.invoke: Setting up modal handler. Title='{OT_ShowFinalReport._title}'")
-        context.window_manager.modal_handler_add(self)
-        self._timer = context.window_manager.event_timer_add(0.0, window=context.window) # Very short delay
-        return {'RUNNING_MODAL'}
-
-    def modal(self, context, event):
-        if event.type == 'TIMER':
-            if self._timer: # Ensure timer is removed before finishing
-                context.window_manager.event_timer_remove(self._timer)
-                self._timer = None
-
-            if prefs().debug:
-                print(f"DEBUG: OT_ShowFinalReport.modal (TIMER): Displaying popup. Title='{OT_ShowFinalReport._title}'")
+            print(f"DEBUG: OT_ShowFinalReport.execute: Displaying popup. Title='{OT_ShowFinalReport._title}'")
 
             def draw_for_popup(self_menu, context_inner):
                 for line in OT_ShowFinalReport._lines:
@@ -312,34 +301,9 @@ class OT_ShowFinalReport(bpy.types.Operator):
                     # Add a button to simply close the report
                     op_close = self_menu.layout.operator(OT_CloseReportDialog.bl_idname)
 
-            
             context.window_manager.popup_menu(draw_for_popup, title=OT_ShowFinalReport._title, icon=OT_ShowFinalReport._icon)
-            return {'FINISHED'}
+        return {'FINISHED'}
 
-        return {'PASS_THROUGH'} # Allow other events if any, though we expect to finish on first timer
-
-    def cancel(self, context):
-        """Ensures timer is cleaned up if the operator is cancelled externally (e.g., during unregister)."""
-        _debug_active = False # Default to False for safety during cancel
-        prefs_instance_for_cancel = None # Initialize to avoid UnboundLocalError if try fails early
-        try:
-            prefs_instance_for_cancel = prefs()
-            if prefs_instance_for_cancel: # Check if prefs() returned a valid object
-                _debug_active = prefs_instance_for_cancel.debug
-        except Exception:
-            pass # Ignore errors getting prefs during cancel, prioritize cleanup
-
-        if self._timer: # Check if the timer exists
-            try:
-                context.window_manager.event_timer_remove(self._timer)
-                if _debug_active: print(f"DEBUG: OT_ShowFinalReport.cancel(): Timer removed.")
-            except Exception as e: # Catch potential errors during timer removal
-                if _debug_active: print(f"DEBUG: OT_ShowFinalReport.cancel(): Error removing timer: {e}")
-            self._timer = None # Ensure it's cleared
-
-        if _debug_active:
-            print(f"DEBUG: OT_ShowFinalReport.cancel() EXIT.")
-        # Blender expects cancel() to return None
 class OT_BackupManagerWindow(Operator):
     bl_idname = "bm.open_backup_manager_window"
     bl_label = "Backup Manager"
@@ -759,14 +723,21 @@ class OT_BackupManagerWindow(Operator):
             pass # Ignore errors getting prefs during cancel, prioritize cleanup
         if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() ENTER. Context: {context}, Self: {self}, _cancelled set to True.")
         
-        # If an operation (from OT_BackupManager) is in progress, request it to abort.
+        # If an operation (from OT_BackupManager) is in progress,
+        # DO NOT request it to abort just because this UI window is closing.
+        # The OT_BackupManager is its own modal operator and can be cancelled
+        # via its own ESC handling or the explicit Abort button (if window was open).
         try:
-            # prefs_instance_for_cancel is already the robust preferences object
             if prefs_instance_for_cancel and prefs_instance_for_cancel.show_operation_progress: # Check if OT_BackupManager is likely active
-                if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Operation in progress, setting abort_operation_requested. Self: {self}")
-                prefs_instance_for_cancel.abort_operation_requested = True
+                if _debug_active:
+                    print(f"DEBUG: OT_BackupManagerWindow.cancel() - Operation is in progress (show_operation_progress is True).")
+                    print(f"DEBUG: OT_BackupManagerWindow.cancel() - Window is closing, but the background operation will NOT be aborted by this window's cancellation.")
+                # Explicitly DO NOT set: prefs_instance_for_cancel.abort_operation_requested = True
+            elif prefs_instance_for_cancel: # No operation in progress
+                 if _debug_active:
+                    print(f"DEBUG: OT_BackupManagerWindow.cancel() - No operation in progress (show_operation_progress is False). Window closing normally.")
         except Exception as e:
-            if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Error accessing prefs to request operation abort: {e}. Self: {self}")
+            if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Error accessing prefs_instance_for_cancel.show_operation_progress: {e}. Self: {self}")
             
         if _debug_active:
             print(f"DEBUG: OT_BackupManagerWindow.cancel() EXIT. Self: {self}")
@@ -909,7 +880,7 @@ class OT_BackupManager(Operator):
                                            icon=icon, 
                                            show_restart=show_restart, 
                                            restart_op_idname=restart_op_idname)
-        bpy.ops.bm.show_final_report('INVOKE_SCREEN')
+        bpy.ops.bm.show_final_report('EXEC_DEFAULT') # Changed from INVOKE_SCREEN
         return None # Stop the timer
 
     # Keep the instance method for direct calls if needed, though static is preferred for deferred.
