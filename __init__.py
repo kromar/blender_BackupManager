@@ -149,6 +149,7 @@ def menus_draw_fn(self, context: Context) -> None:
         layout.operator(op_idname, text=button_text, icon=button_icon)
         if _local_debug_active:
             print(f"DEBUG __init__.menus_draw_fn: Operator drawn with text='{button_text}', icon='{button_icon}'.")
+        layout.separator() # Add this line to draw a separator after your operator
     except Exception as e:
         # Log the error if layout.operator fails, to help diagnose
         print(f"ERROR: Backup Manager: menus_draw_fn failed to draw operator '{op_idname}'. Exception: {type(e).__name__}: {e}")
