@@ -316,6 +316,7 @@ class OT_CloseReportDialog(bpy.types.Operator):
         return {'FINISHED'}
 
 class OT_BackupManagerWindow(Operator):
+    """Open the Backup Manager window."""
     bl_idname = "bm.open_backup_manager_window"
     bl_label = "Backup Manager"
     bl_options = {'REGISTER'} # No UNDO needed for a UI window    
