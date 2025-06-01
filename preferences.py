@@ -188,6 +188,7 @@ class BM_Preferences(AddonPreferences):
                                 subtype='DIR_PATH', 
                                 default=_initial_default_backup_path, 
                                 update=update_version_list)
+    
     blender_user_path: StringProperty(default=bpy.utils.resource_path(type='USER'))
     
     preferences_tabs = [("BACKUP", "Backup Options", ""),
@@ -203,20 +204,20 @@ class BM_Preferences(AddonPreferences):
                                 subtype='DIR_PATH', 
                                 default=bpy.utils.user_resource('CONFIG')) #Resource type in [‘DATAFILES’, ‘CONFIG’, ‘SCRIPTS’, ‘AUTOSAVE’].
     
-    system_id: StringProperty(name="ID", 
-                              description="Current Computer Name", 
+    system_id: StringProperty(name="System ID", 
+                              description="Current Computer ID, used to create unique backup paths", 
                               subtype='NONE',
                               default=str(socket.getfqdn())) 
      
-    use_system_id: BoolProperty(name="Shared configs", 
-                                description="use_system_id", 
+    use_system_id: BoolProperty(name="Use Shared Backup Path", 
+                                description="Use System ID for backup paths", 
                                 update=update_system_id,
                                 default=False)   # default = False 
     
-    debug: BoolProperty(name="debug", 
-                        description="debug", 
+    debug: BoolProperty(name="Debug Output", 
+                        description="Enable debug logging", 
                         # update=update_system_id, # Debug toggle should not typically change system ID path logic
-                        default=True) # default = False  
+                        default=False) # default = False  
     
     active_blender_version: StringProperty(name="Current Blender Version", 
                                            description="Current Blender Version", 
@@ -424,25 +425,24 @@ class BM_Preferences(AddonPreferences):
 
     # DRAW Preferences      
     def draw(self, context):
-        _start_time_draw = None
-        # The main UI is now in a separate window.
-        # This preferences panel will just show a button to open that window
-        # and perhaps a few core settings like the backup path for convenience.
-
-        layout = self.layout        
+        layout = self.layout
         layout.label(text="Backup Manager operations are now handled in a dedicated window.")
         layout.operator(core.OT_BackupManagerWindow.bl_idname, text="Open Backup Manager Window", icon='WINDOW')
-        
+
         layout.separator()
-        col_prefs_settings = layout.column(align=True) 
-    
-        col_prefs_settings.prop(self, "backup_path", text="Main Backup Location")
-        col_prefs_settings.prop(self, "debug", text="Debug Logging")
-        col_prefs_settings.separator()
-        col_prefs_settings.label(text="Progress Bar Appearance:")
-        col_prefs_settings.prop(self, "override_progress_bar_color")
+        box = layout.box()
+        col = box.column(align=True)
+        col.prop(self, "backup_path", text="Main Backup Location", icon='FILE_FOLDER')
+
+        box.separator()
+        col = box.column(align=True)
+        col.label(text="Progress Bar Appearance:")
+        row = col.row(align=True)
+        row.prop(self, "override_progress_bar_color", text="Override Color", icon='COLOR')
         if self.override_progress_bar_color:
-            col_prefs_settings.prop(self, "custom_progress_bar_color", text="")
+            row = col.row(align=True)
+            row.prop(self, "custom_progress_bar_color", text="")
+
 
 
     def draw_backup_age(self, col, path):       

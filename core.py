@@ -380,7 +380,7 @@ class OT_BackupManagerWindow(Operator):
 
 
     tabs: EnumProperty(
-        name="Operation Mode",
+        name="Mode",
         items=[
             ("BACKUP", "Backup", "Switch to Backup mode", "COLORSET_03_VEC", 0),
             ("RESTORE", "Restore", "Switch to Restore mode", "COLORSET_04_VEC", 1)
@@ -601,16 +601,16 @@ class OT_BackupManagerWindow(Operator):
             _start_time_draw_obj = None # Use a different name to avoid conflict if prefs_instance is None initially
 
             if _debug_draw:
+                # Debug output for draw() start
                 timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                # Adjust for 0-1 scale for debug display
                 progress_val_str = f"{prefs_instance.operation_progress_value:.1f}%" if prefs_instance.show_operation_progress else "N/A (hidden)"
                 op_message = prefs_instance.operation_progress_message if prefs_instance.show_operation_progress else "N/A (hidden)"
                 print(f"DEBUG: [{timestamp}] OT_BackupManagerWindow.draw() CALLED. Progress: {progress_val_str}, Msg: '{op_message}', show_op_progress: {prefs_instance.show_operation_progress}, Tabs: {self.tabs}")
                 _start_time_draw_obj = datetime.now()
 
             # --- Top section for global settings ---
-            # prefs_instance is now confirmed to be valid here
-            col_top = layout.column(align=True)
+            col_top = layout.column(align=True)            
+            col_top.use_property_split = True
             col_top.separator()
            
             row_system_id = col_top.row()
@@ -620,10 +620,11 @@ class OT_BackupManagerWindow(Operator):
             col_top.prop(prefs_instance, "use_system_id")
 
             col_top.prop(prefs_instance, 'backup_path')          
-            col_top.prop(prefs_instance, 'ignore_files')            
+            #col_top.prop(prefs_instance, 'ignore_files')    
+            col_top.separator()        
             
-            col_top.prop(prefs_instance, 'debug')
-            col_top.prop(prefs_instance, 'show_path_details')            
+            col_top.prop(prefs_instance, 'show_path_details')   
+            col_top.prop(prefs_instance, 'debug')         
 
             # --- Progress UI ---
             if prefs_instance.show_operation_progress:
@@ -644,7 +645,8 @@ class OT_BackupManagerWindow(Operator):
                 # Abort button
                 progress_row.operator("bm.abort_operation", text="", icon='CANCEL') # Text removed for compactness
 
-            # --- Tabs for Backup/Restore ---
+            # --- Tabs for Backup/Restore ---      
+            layout.use_property_split = False
             layout.prop(self, "tabs", expand=False) # Use the operator's own tabs property
             tab_content_box = layout.box() # Box for the content of the selected tab
             if self.tabs == "BACKUP":
