@@ -23,129 +23,8 @@ import socket
 from bpy.types import AddonPreferences
 from bpy.props import StringProperty, EnumProperty, BoolProperty, FloatProperty
 from bpy.props import FloatVectorProperty, CollectionProperty, IntProperty # Added for color, collection, int
-from . import core # To reference OT_BackupManagerWindow.bl_idname
-
-def get_paths_for_details(prefs_instance):
-    """
-    Collects all unique directory paths that might need age/size details displayed,
-    based on the current addon preference settings.
-    """
-    paths = set()
-    p = prefs_instance
-
-    if not p.backup_path: # If no backup path, many other paths are invalid
-        return []
-
-    # Paths from draw_backup logic (Backup locations always include system_id)
-    if not p.advanced_mode:
-        if p.blender_user_path: paths.add(p.blender_user_path)
-        if p.active_blender_version: # Ensure active_blender_version is not empty
-            paths.add(os.path.join(p.backup_path, p.system_id, str(p.active_blender_version)))
-    elif p.advanced_mode: # advanced_mode is True
-        base_user_path_dir = os.path.dirname(p.blender_user_path) if p.blender_user_path else None
-        if base_user_path_dir and p.backup_versions: # p.backup_versions is the selected string
-             paths.add(os.path.join(base_user_path_dir, p.backup_versions))
-
-        if p.custom_version_toggle and p.custom_version: # p.custom_version is a string
-            paths.add(os.path.join(p.backup_path, p.system_id, str(p.custom_version)))
-        elif p.restore_versions: # Not custom_version_toggle, p.restore_versions is selected string
-            paths.add(os.path.join(p.backup_path, p.system_id, p.restore_versions))
-
-    # Paths from draw_restore logic (Backup locations always include system_id)
-    if not p.advanced_mode:
-        if p.active_blender_version: # Ensure active_blender_version is not empty
-            paths.add(os.path.join(p.backup_path, p.system_id, str(p.active_blender_version)))
-        if p.blender_user_path: paths.add(p.blender_user_path)
-    elif p.advanced_mode: # advanced_mode is True
-        if p.restore_versions: # p.restore_versions is selected string
-            paths.add(os.path.join(p.backup_path, p.system_id, p.restore_versions))
-        base_user_path_dir = os.path.dirname(p.blender_user_path) if p.blender_user_path else None
-        if base_user_path_dir and p.backup_versions: # p.backup_versions is selected string
-            paths.add(os.path.join(base_user_path_dir, p.backup_versions))
-    
-    final_paths = list(path for path in paths if path) # Filter out only None or empty strings
-    if prefs_instance.debug:
-        print(f"DEBUG: get_paths_for_details collected {len(final_paths)} relevant paths: {final_paths if len(final_paths) < 5 else '[Too many to list, see raw for full list]'}")
-    return final_paths
-
-def get_default_base_temp_dir():
-    """Safely determines a base temporary directory for addon defaults."""
-    temp_dir_path = ""
-    try:
-        # Try to access bpy.context and its attributes safely
-        if bpy.context and hasattr(bpy.context, 'preferences') and \
-           hasattr(bpy.context.preferences, 'filepaths') and \
-           bpy.context.preferences.filepaths.temporary_directory:
-            temp_dir_path = bpy.context.preferences.filepaths.temporary_directory
-        else:
-            # Fallback if user-specified temp path isn't available or context is limited
-            temp_dir_path = bpy.app.tempdir
-    except (RuntimeError, AttributeError, ReferenceError):
-        # Broader fallback if bpy.context is unstable or bpy.app.tempdir fails
-        try:
-            temp_dir_path = bpy.app.tempdir
-        except AttributeError: # Absolute fallback if bpy.app.tempdir also fails
-            temp_dir_path = os.path.join(os.path.expanduser("~"), "blender_temp_fallback")
-            os.makedirs(temp_dir_path, exist_ok=True) # Ensure fallback path exists
-    return temp_dir_path
-
-def _calculate_path_age_str(path_to_scan):
-    try:
-        if not path_to_scan or not os.path.isdir(path_to_scan): return "Last change: N/A" # Should be pre-filtered by get_paths_for_details
-        files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(path_to_scan) for f in filenames]
-        if not files: return "Last change: no data (empty)"
-        latest_file = max(files, key=os.path.getmtime)
-        backup_age = str(datetime.now() - datetime.fromtimestamp(os.path.getmtime(latest_file))).split('.')[0]
-        return f"Last change: {backup_age}"        
-    except Exception: return "Last change: error"
-
-def _calculate_path_size_str(path_to_scan):
-    try:
-        if not path_to_scan or not os.path.isdir(path_to_scan): return "Size: N/A" # Should be pre-filtered
-        size = sum(os.path.getsize(os.path.join(dp, f)) for dp, dn, filenames in os.walk(path_to_scan) for f in filenames)
-        return (
-                    f"Size: {str(round(size * 1e-06, 2))} MB  ("
-                    + "{:,}".format(size)
-                    + " bytes)"
-                )
-    except Exception: return "Size: error"
-
-class OT_OpenPathInExplorer(bpy.types.Operator):
-    """Operator to open a given path in the system's file explorer."""
-    bl_idname = "bm.open_path_in_explorer"
-    bl_label = "Open Folder"
-    bl_description = "Open the specified path in the system file explorer"
-    bl_options = {'INTERNAL'} # Hide from F3 operator search
-
-    path_to_open: StringProperty(
-        name="Path",
-        description="The file or directory path to open"
-    )
-
-    def execute(self, context):
-        if not self.path_to_open:
-            self.report({'WARNING'}, "No path specified to open.")
-            return {'CANCELLED'}
-
-        normalized_path = os.path.normpath(self.path_to_open)
-
-        if not os.path.exists(normalized_path):
-            self.report({'WARNING'}, f"Path does not exist: {normalized_path}")
-            return {'CANCELLED'}
-
-        try:
-            # If it's a file, open its containing directory. Otherwise, open the path directly (assuming it's a directory).
-            target_to_open_in_explorer = os.path.dirname(normalized_path) if os.path.isfile(normalized_path) else normalized_path
-
-            if not os.path.isdir(target_to_open_in_explorer): # Final check
-                self.report({'WARNING'}, f"Cannot open: Not a valid directory: {target_to_open_in_explorer}")
-                return {'CANCELLED'}
-            
-            bpy.ops.wm.path_open(filepath=target_to_open_in_explorer)
-            return {'FINISHED'}
-        except Exception as e:
-            self.report({'ERROR'}, f"Could not open path '{normalized_path}': {e}")
-            return {'CANCELLED'}
+from . import utils # For helper functions like get_paths_for_details, _calculate_path_age_str, etc.
+from . import core # For OT_BackupManager (used by _update_backup_path_and_versions) # ui will be imported locally
 
 # ITEM_DEFINITIONS and BM_BackupItem moved here from core.py
 ITEM_DEFINITIONS = [
@@ -223,8 +102,8 @@ class BM_Preferences(AddonPreferences):
         
         if self.show_path_details:
             if self.debug:
-                print("DEBUG: _update_backup_path_and_versions: show_path_details is True, recalculating details.")
-            paths = get_paths_for_details(self)
+                print("DEBUG (prefs): _update_backup_path_and_versions: show_path_details is True, recalculating details.")
+            paths = utils.get_paths_for_details(self) # Use utils module
             if self._update_path_details_for_paths(paths):
                 if context and hasattr(context, 'area') and context.area:
                     context.area.tag_redraw()
@@ -232,14 +111,14 @@ class BM_Preferences(AddonPreferences):
                     print("DEBUG: _update_backup_path_and_versions: context or context.area not available for tag_redraw after detail update.")
         elif self.debug: # This else corresponds to "if self.show_path_details:"
             print("DEBUG: _update_backup_path_and_versions: show_path_details is False, not recalculating details.")
-        
+
         if self.debug and _start_time_main_update:
             _end_time_main_update = datetime.now()
             print(f"DEBUG: (Total took: {(_end_time_main_update - _start_time_main_update).total_seconds():.6f}s) _update_backup_path_and_versions END")
     
     # Calculate the initial default backup path safely ONCE when the class is defined.
     # This function call happens during module import / class definition.
-    _initial_default_backup_path = os.path.join(get_default_base_temp_dir(), '!backupmanager')
+    _initial_default_backup_path = os.path.join(utils.get_default_base_temp_dir(), '!backupmanager')
 
     backup_path: StringProperty(name="Backup Path", 
                                 description="Backup Location", 
@@ -291,13 +170,13 @@ class BM_Preferences(AddonPreferences):
 
         for path in paths_to_update:
             if self.debug: print(f"DEBUG: _update_path_details_for_paths: Processing '{path}'")
-            new_age_text = _calculate_path_age_str(path)
+            new_age_text = utils._calculate_path_age_str(path) # Use utils module
             if BM_Preferences._age_cache.get(path) != new_age_text:
                 BM_Preferences._age_cache[path] = new_age_text
                 cache_updated = True
                 if self.debug: print(f"DEBUG: _update_path_details_for_paths: Cached new age for '{path}'")
 
-            new_size_text = _calculate_path_size_str(path)
+            new_size_text = utils._calculate_path_size_str(path) # Use utils module
             if BM_Preferences._size_cache.get(path) != new_size_text:
                 BM_Preferences._size_cache[path] = new_size_text
                 cache_updated = True
@@ -313,7 +192,7 @@ class BM_Preferences(AddonPreferences):
             print(f"DEBUG: _on_show_path_details_changed called. self.show_path_details = {self.show_path_details}")
         if self.show_path_details:
             if self.debug: print("DEBUG: show_path_details enabled. Calculating details for current view.")
-            paths = get_paths_for_details(self)
+            paths = utils.get_paths_for_details(self) # Use utils module
             # Path list already printed by get_paths_for_details if debug is on
             # if self.debug: print(f"DEBUG: _on_show_path_details_changed: paths_to_update = {paths}")
             if self._update_path_details_for_paths(paths):
@@ -332,7 +211,7 @@ class BM_Preferences(AddonPreferences):
 
         if self.show_path_details:
             if self.debug: print("DEBUG: Version selection or custom version changed. Recalculating details for current view.")
-            paths = get_paths_for_details(self) # Re-evaluate all relevant paths
+            paths = utils.get_paths_for_details(self) # Use utils module
             # Path list already printed by get_paths_for_details if debug is on
             # if self.debug: print(f"DEBUG: _on_version_or_custom_changed: paths_to_update = {paths}")
             
@@ -497,10 +376,11 @@ class BM_Preferences(AddonPreferences):
     # DRAW Preferences      
     def draw(self, context):
         layout = self.layout
-        
+        # from . import ui # Import ui locally - Removed to break potential circular import
+
         # --- Main Operator Button ---
         layout.label(text="Backup Manager operations are now handled in a dedicated window.")
-        layout.operator(core.OT_BackupManagerWindow.bl_idname, text="Open Backup Manager Window", icon='DISK_DRIVE')
+        layout.operator("bm.open_backup_manager_window", text="Open Backup Manager Window", icon='DISK_DRIVE')
 
         layout.separator()
         
@@ -512,8 +392,9 @@ class BM_Preferences(AddonPreferences):
         # Main Backup Location
         col_settings.label(text="Storage Location:")
         row_backup_path = col_settings.row(align=True)
-        row_backup_path.prop(self, "backup_path", text="Main Backup Location")
-        op_backup_loc = row_backup_path.operator(OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text="")
+        row_backup_path.prop(self, "backup_path", text="Main Backup Location") 
+        # Use bl_idname string directly for OT_OpenPathInExplorer
+        op_backup_loc = row_backup_path.operator("bm.open_path_in_explorer", icon='FILEBROWSER', text="")
         op_backup_loc.path_to_open = self.backup_path
         
         if self.debug: # Only show system paths if debug is enabled
@@ -526,22 +407,24 @@ class BM_Preferences(AddonPreferences):
             blender_install_path = os.path.dirname(bpy.app.binary_path)
             row_install = col_settings.row(align=True)
             row_install.label(text="Installation Path:")
-            row_install.label(text=blender_install_path)
-            op_install = row_install.operator(OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text="")
+            # Use bl_idname string directly for OT_OpenPathInExplorer
+            op_install = row_install.operator("bm.open_path_in_explorer", icon='FILEBROWSER', text=blender_install_path)
             op_install.path_to_open = blender_install_path
 
             # User Version Folder Path
             row_user_version_folder = col_settings.row(align=True)
             row_user_version_folder.label(text="User Version Folder:")
-            row_user_version_folder.label(text=self.blender_user_path)
-            op_user_version_folder = row_user_version_folder.operator(OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text="")
+            # row_user_version_folder.label(text=self.blender_user_path)
+            # Use bl_idname string directly for OT_OpenPathInExplorer
+            op_user_version_folder = row_user_version_folder.operator("bm.open_path_in_explorer", icon='FILEBROWSER', text=self.blender_user_path)
             op_user_version_folder.path_to_open = self.blender_user_path
 
             # User Config Subfolder Path (e.g., .../VERSION/config)
             row_config_subfolder = col_settings.row(align=True)
             row_config_subfolder.label(text="User Config Subfolder:")
-            row_config_subfolder.label(text=self.config_path)
-            op_config_subfolder = row_config_subfolder.operator(OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text="")
+            # row_config_subfolder.label(text=self.config_path)
+            # Use bl_idname string directly for OT_OpenPathInExplorer
+            op_config_subfolder = row_config_subfolder.operator("bm.open_path_in_explorer", icon='FILEBROWSER', text=self.config_path)
             op_config_subfolder.path_to_open = self.config_path
 
         col_settings.separator()

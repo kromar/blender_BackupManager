@@ -17,51 +17,18 @@
 # ##### END GPL LICENSE BLOCK #####
 
 # Standard library imports
-import importlib
 
 # Third-party imports (Blender API)
 import bpy
 from bpy.types import Context
 from datetime import datetime # Added for debug timestamps
 
-# --- Module Reloading ---
-# These will be populated by reload_addon_modules or initial import
-preferences = None
-core = None
-
-def _reload_addon_submodules():
-    """Force reload of addon submodules for development."""
-    global preferences, core
-    # print("Backup Manager: Reloading submodules...") # Optional debug print
-
-    # Import or re-import modules. Order can matter for dependencies during reload.
-    # preferences now defines BM_BackupItem (PropertyGroup) used by BM_Preferences.
-    # core imports types from preferences.
-    # So, preferences should be imported and reloaded first.
-    _preferences_module = importlib.import_module(".preferences", __package__)
-    _core_module = importlib.import_module(".core", __package__)
-    
-    importlib.reload(_preferences_module) # Reload preferences first
-    importlib.reload(_preferences_module)
-    importlib.reload(_core_module)
-    
-    preferences = _preferences_module
-    core = _core_module
-    # print("Backup Manager: Submodules reloaded.") # Optional debug print
-
-# Check if running in Blender's UI and not in background mode before reloading submodules.
-if "bpy" in locals() and getattr(bpy.app, 'background_mode', False) is False:
-    _reload_addon_submodules()
-else: # Initial load or background mode
-    # Standard import order, Python handles dependencies.
-    # If preferences imports core and core imports preferences, this can be tricky.
-    # The structure change (BM_BackupItem in preferences) aims to simplify this.
-    from . import preferences as initial_preferences # preferences will be loaded. It imports core.
-    from . import core as initial_core             # core will be loaded (or fetched if already loaded by preferences).
-    preferences = initial_preferences
-    core = initial_core
-# --- End Module Reloading ---
-
+# --- Module Imports ---
+from . import utils
+from . import preferences
+from . import core
+from . import ui
+# --- End Module Imports ---
 
 bl_info = {
     "name": "Backup Manager",
@@ -78,13 +45,12 @@ bl_info = {
 # Module-level list to keep track of classes registered by this addon instance.
 _registered_classes = []
 
-def prefs_func(): # Renamed from prefs to avoid conflict with 'preferences' module
+def get_prefs_for_init():
     """
     Directly retrieves the addon's preferences.
-    Assumes bpy.context and addon preferences are always accessible.
+    Uses the centralized utility function.
     """
-    user_preferences = bpy.context.preferences
-    return user_preferences.addons[__package__].preferences
+    return utils.get_addon_preferences()
 
 
 def menus_draw_fn(self, context: Context) -> None:
@@ -95,7 +61,7 @@ def menus_draw_fn(self, context: Context) -> None:
     _addon_prefs_for_debug_check = None # Renamed to avoid conflict if it remains None
     try:
         # Try to get prefs once for debug flag and potential reuse
-        _addon_prefs_for_debug_check = prefs_func()
+        _addon_prefs_for_debug_check = get_prefs_for_init()
         if _addon_prefs_for_debug_check and hasattr(_addon_prefs_for_debug_check, 'debug'):
             _local_debug_active = _addon_prefs_for_debug_check.debug
     except Exception:
@@ -106,13 +72,13 @@ def menus_draw_fn(self, context: Context) -> None:
     if _local_debug_active:
         print(f"DEBUG __init__.menus_draw_fn: Entered. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
 
-    # Ensure the core module and the operator class are loaded
-    if not core or not hasattr(core, 'OT_BackupManagerWindow'):
+    # Ensure the ui module and the operator class are loaded
+    if not hasattr(ui, 'OT_BackupManagerWindow'):
         layout.label(text="Backup Manager (Operator Error)", icon='ERROR')
-        if _local_debug_active: print("DEBUG __init__.menus_draw_fn: core or OT_BackupManagerWindow missing.")
+        if _local_debug_active: print("DEBUG __init__.menus_draw_fn: ui.OT_BackupManagerWindow missing.")
         return
 
-    op_idname = core.OT_BackupManagerWindow.bl_idname
+    op_idname = ui.OT_BackupManagerWindow.bl_idname
     # Check if the operator is actually registered and available in bpy.ops.bm
     # op_idname.split('.')[-1] would be 'open_backup_manager_window'
     if not hasattr(bpy.ops.bm, op_idname.split('.')[-1]):
@@ -125,7 +91,7 @@ def menus_draw_fn(self, context: Context) -> None:
     addon_prefs = _addon_prefs_for_debug_check
     if addon_prefs is None: # If it failed to fetch earlier or was None from the start
         try:
-            addon_prefs = prefs_func()
+            addon_prefs = get_prefs_for_init()
         except Exception as e_prefs_get:
             if _local_debug_active:
                 print(f"ERROR __init__.menus_draw_fn: Exception getting addon_prefs: {e_prefs_get}")
@@ -171,34 +137,30 @@ def register():
     global _registered_classes
     _registered_classes.clear() # Clear from any previous registration attempt in this session
 
-    # Ensure submodules are loaded (important if register is called standalone after an error)
-    if not core or not preferences:
-        _reload_addon_submodules() # Attempt to load/reload them
-        if not core or not preferences:
-            print("ERROR: Backup Manager: Core modules (core, preferences) could not be loaded. Registration cannot proceed.")
-            return
-
     # Define the classes to register, AddonPreferences first
     classes_to_register_dynamically = (
         # PropertyGroups first, as they might be used by AddonPreferences or Operators
         preferences.BM_BackupItem, # Defined in preferences.py now
+        
         # AddonPreferences class, which might define CollectionProperties of the above
         preferences.BM_Preferences,
+        
         # UIList classes
-        core.BM_UL_BackupItemsList, # Defined in core.py now
+        ui.BM_UL_BackupItemsList, # Moved to ui.py
+        
         # Operator classes
-        preferences.OT_OpenPathInExplorer,
+        ui.OT_OpenPathInExplorer, # Moved to ui.py
+        ui.OT_AbortOperation,     # Moved to ui.py
+        ui.OT_ShowFinalReport,    # Moved to ui.py
+        ui.OT_QuitBlenderNoSave,  # Moved to ui.py
+        ui.OT_CloseReportDialog,  # Moved to ui.py
+        ui.OT_BackupManagerWindow,# Moved to ui.py
         core.OT_BackupManager,
-        core.OT_AbortOperation,
-        core.OT_ShowFinalReport,
-        core.OT_QuitBlenderNoSave,
-        core.OT_CloseReportDialog,
-        core.OT_BackupManagerWindow,
     )
     _debug_active = False # Default to False for safety
     try:
         try:
-            addon_prefs_instance = prefs_func()
+            addon_prefs_instance = get_prefs_for_init()
         except KeyError:
             addon_prefs_instance = None
             print("WARNING: prefs_func() failed. Addon might be unregistered or context unavailable.")
@@ -265,7 +227,7 @@ def unregister():
     global _registered_classes
     _debug_active = False # Default to False for safety
     try:
-        addon_prefs_instance = prefs_func()
+        addon_prefs_instance = get_prefs_for_init()
         if addon_prefs_instance and hasattr(addon_prefs_instance, 'debug'):
             _debug_active = addon_prefs_instance.debug
     except Exception as e_prefs:
