@@ -34,11 +34,14 @@ def _reload_addon_submodules():
     global preferences, core
     # print("Backup Manager: Reloading submodules...") # Optional debug print
 
-    # Import or re-import the modules using their full path from the package
-    # This ensures that 'preferences' and 'core' are module objects.
+    # Import or re-import modules. Order can matter for dependencies during reload.
+    # preferences now defines BM_BackupItem (PropertyGroup) used by BM_Preferences.
+    # core imports types from preferences.
+    # So, preferences should be imported and reloaded first.
     _preferences_module = importlib.import_module(".preferences", __package__)
     _core_module = importlib.import_module(".core", __package__)
-
+    
+    importlib.reload(_preferences_module) # Reload preferences first
     importlib.reload(_preferences_module)
     importlib.reload(_core_module)
     
@@ -49,9 +52,12 @@ def _reload_addon_submodules():
 # Check if running in Blender's UI and not in background mode before reloading submodules.
 if "bpy" in locals() and getattr(bpy.app, 'background_mode', False) is False:
     _reload_addon_submodules()
-else:
-    from . import preferences as initial_preferences
-    from . import core as initial_core
+else: # Initial load or background mode
+    # Standard import order, Python handles dependencies.
+    # If preferences imports core and core imports preferences, this can be tricky.
+    # The structure change (BM_BackupItem in preferences) aims to simplify this.
+    from . import preferences as initial_preferences # preferences will be loaded. It imports core.
+    from . import core as initial_core             # core will be loaded (or fetched if already loaded by preferences).
     preferences = initial_preferences
     core = initial_core
 # --- End Module Reloading ---
@@ -174,7 +180,13 @@ def register():
 
     # Define the classes to register, AddonPreferences first
     classes_to_register_dynamically = (
+        # PropertyGroups first, as they might be used by AddonPreferences or Operators
+        preferences.BM_BackupItem, # Defined in preferences.py now
+        # AddonPreferences class, which might define CollectionProperties of the above
         preferences.BM_Preferences,
+        # UIList classes
+        core.BM_UL_BackupItemsList, # Defined in core.py now
+        # Operator classes
         preferences.OT_OpenPathInExplorer,
         core.OT_BackupManager,
         core.OT_AbortOperation,
@@ -183,7 +195,6 @@ def register():
         core.OT_CloseReportDialog,
         core.OT_BackupManagerWindow,
     )
-
     _debug_active = False # Default to False for safety
     try:
         try:
