@@ -22,9 +22,8 @@ from datetime import datetime
 import socket
 from bpy.types import AddonPreferences
 from bpy.props import StringProperty, EnumProperty, BoolProperty, FloatProperty
-from bpy.props import FloatVectorProperty, CollectionProperty, IntProperty # Added for color, collection, int
+from bpy.props import FloatVectorProperty
 from . import utils # For helper functions like get_paths_for_details, _calculate_path_age_str, etc.
-from . import core # For OT_BackupManager (used by _update_backup_path_and_versions) # ui will be imported locally
 
 # ITEM_DEFINITIONS and BM_BackupItem moved here from core.py
 ITEM_DEFINITIONS = [

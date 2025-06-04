@@ -17,7 +17,7 @@
 # ##### END GPL LICENSE BLOCK #####
 
 
-import bpy, subprocess, sys, os # Added subprocess, sys. os was already effectively imported via other uses.
+import bpy
 import os
 import shutil
 import fnmatch # For pattern matching in ignore list
@@ -25,7 +25,7 @@ import re as regular_expression
 import pathlib # Added for path manipulation
 from datetime import datetime # Added for debug timestamps
 from bpy.types import Operator
-from bpy.props import StringProperty, EnumProperty, BoolProperty # Added BoolProperty
+from bpy.props import StringProperty
 from . import preferences # For BM_Preferences, ITEM_DEFINITIONS
 from . import utils # For get_addon_preferences, find_versions # ui will be imported locally
                 
@@ -35,7 +35,7 @@ class OT_BackupManager(Operator):
     bl_label = "Blender Versions"     
     # bl_options = {'REGISTER'} # Removed, not typically needed for modal operators unless specific registration behavior is desired.
     
-    button_input: StringProperty()
+    button_input: StringProperty() # type: ignore
     SHARED_FOLDER_NAME = "SharedConfigs" # Used for shared item backups
     
     # --- Modal operator state variables ---
@@ -525,7 +525,7 @@ class OT_BackupManager(Operator):
                         report_message_lines.append("") # Add a blank line for spacing
                         report_message_lines.append("IMPORTANT: For restored settings to fully apply, this Blender session must be ended.")
                         from . import ui # Import for OT_QuitBlenderNoSave.bl_label
-                        report_message_lines.append(f"Use the '{OT_QuitBlenderNoSave.bl_label}' button below.")
+                        report_message_lines.append(f"Use the '{ui.OT_QuitBlenderNoSave.bl_label}' button below.")
                         show_restart_btn = True
 
                     report_icon = 'INFO' 

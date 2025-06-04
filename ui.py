@@ -20,7 +20,6 @@ import bpy
 import os
 import subprocess
 import sys
-from datetime import datetime
 from bpy.types import Operator, UIList
 from bpy.props import StringProperty, EnumProperty, BoolProperty
 
