@@ -16,9 +16,6 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-# Standard library imports
-
-# Third-party imports (Blender API)
 import bpy
 from bpy.types import Context
 from datetime import datetime # Added for debug timestamps
@@ -28,7 +25,6 @@ from . import utils
 from . import preferences
 from . import core
 from . import ui
-# --- End Module Imports ---
 
 bl_info = {
     "name": "Backup Manager",
@@ -111,11 +107,11 @@ def menus_draw_fn(self, context: Context) -> None:
 
     if addon_prefs and hasattr(addon_prefs, 'show_operation_progress') and addon_prefs.show_operation_progress:
         if _local_debug_active:
-            print(f"DEBUG __init__.menus_draw_fn: Condition MET. Setting text/icon to 'Running...'.")
+            print("DEBUG __init__.menus_draw_fn: Condition MET. Setting text/icon to 'Running...'.")
         button_text = "Backup Manager (Running...)"
         button_icon = 'COLORSET_09_VEC' # Icon indicating activity/warning
     elif _local_debug_active: # Only print if debug is on and condition was false
-        print(f"DEBUG __init__.menus_draw_fn: Condition NOT MET for 'Running...' state.")
+        print("DEBUG __init__.menus_draw_fn: Condition NOT MET for 'Running...' state.")
 
     try:
         layout.operator(op_idname, text=button_text, icon=button_icon)
@@ -127,8 +123,8 @@ def menus_draw_fn(self, context: Context) -> None:
         print(f"ERROR: Backup Manager: menus_draw_fn failed to draw operator '{op_idname}'. Exception: {type(e).__name__}: {e}")
         # If drawing the operator fails, we log the error but do not display a fallback UI error label in the menu.
         # The menu item for the addon will simply be absent if this occurs.
-        pass
-    
+
+
     if _local_debug_active:
         print(f"DEBUG __init__.menus_draw_fn: Exiting. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
 
@@ -140,21 +136,21 @@ def register():
     # Define the classes to register, AddonPreferences first
     classes_to_register_dynamically = (
         # PropertyGroups first, as they might be used by AddonPreferences or Operators
-        preferences.BM_BackupItem, # Defined in preferences.py now
+        preferences.BM_BackupItem,
         
         # AddonPreferences class, which might define CollectionProperties of the above
         preferences.BM_Preferences,
         
         # UIList classes
-        ui.BM_UL_BackupItemsList, # Moved to ui.py
-        
+        ui.BM_UL_BackupItemsList, 
+
         # Operator classes
-        ui.OT_OpenPathInExplorer, # Moved to ui.py
-        ui.OT_AbortOperation,     # Moved to ui.py
-        ui.OT_ShowFinalReport,    # Moved to ui.py
-        ui.OT_QuitBlenderNoSave,  # Moved to ui.py
-        ui.OT_CloseReportDialog,  # Moved to ui.py
-        ui.OT_BackupManagerWindow,# Moved to ui.py
+        ui.OT_OpenPathInExplorer, 
+        ui.OT_AbortOperation,     
+        ui.OT_ShowFinalReport,   
+        ui.OT_QuitBlenderNoSave,  
+        ui.OT_CloseReportDialog,  
+        ui.OT_BackupManagerWindow,
         core.OT_BackupManager,
     )
     _debug_active = False # Default to False for safety
