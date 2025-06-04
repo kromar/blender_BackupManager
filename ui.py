@@ -344,7 +344,9 @@ class OT_BackupManagerWindow(Operator):
             save_prefs_button_col.operator("wm.save_userpref", text=label_text, icon='PREFERENCES')
             
         layout.use_property_split = False
-        layout.prop(self, "tabs", expand=False)
+        tabs_row = layout.row() # Create a row for the tabs
+        tabs_row.enabled = not is_operation_running # Disable the row if operation is running
+        tabs_row.prop(self, "tabs", expand=False) # Draw the tabs property in this row
 
         if prefs_instance.show_operation_progress:
             op_status_box = layout.box(); op_status_col = op_status_box.column(align=True)
@@ -357,6 +359,7 @@ class OT_BackupManagerWindow(Operator):
         if self.tabs == "BACKUP": self._draw_backup_tab(tab_content_box, context, prefs_instance)
         elif self.tabs == "RESTORE": self._draw_restore_tab(tab_content_box, context, prefs_instance)
             
+        # --- Item Configuration Section ---
         if prefs_instance.advanced_mode:
             layout.separator()
             item_config_box = layout.box()
@@ -368,7 +371,8 @@ class OT_BackupManagerWindow(Operator):
                     prefs_instance, "backup_items_collection",
                     prefs_instance, "active_backup_item_index",
                     rows=len(preferences.ITEM_DEFINITIONS) if len(preferences.ITEM_DEFINITIONS) <= 10 else 10)
-
+            # Disable the item configuration box if an operation is running
+            item_config_box.enabled = not is_operation_running
     def execute(self, context):
         prefs_instance = utils.get_addon_preferences()
         if prefs_instance and prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.execute() EXIT.")

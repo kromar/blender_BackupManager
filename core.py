@@ -521,12 +521,14 @@ class OT_BackupManager(Operator):
                         report_message_lines.append("(Dry Run - No files were actually copied/deleted)")
 
                     # Add restart instructions if it's a successful non-dry run RESTORE
+                    _restart_op_idname_for_lambda = "" # Default to empty string
                     if self.current_operation_type == 'RESTORE': # Show restart info even on dry run for simulation
                         report_message_lines.append("") # Add a blank line for spacing
                         report_message_lines.append("IMPORTANT: For restored settings to fully apply, this Blender session must be ended.")
                         from . import ui # Import for OT_QuitBlenderNoSave.bl_label
                         report_message_lines.append(f"Use the '{ui.OT_QuitBlenderNoSave.bl_label}' button below.")
                         show_restart_btn = True
+                        _restart_op_idname_for_lambda = ui.OT_QuitBlenderNoSave.bl_idname # Set the idname string
 
                     report_icon = 'INFO' 
                     if self.current_operation_type == 'BACKUP': report_icon = 'COLORSET_03_VEC'
@@ -535,10 +537,17 @@ class OT_BackupManager(Operator):
                     # Capture self.current_operation_type for the lambda
                     op_type_for_report_title = self.current_operation_type
                     
-                    bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static(
-                        report_message_lines, f"{op_type_for_report_title} Report", report_icon, # This will call ui.OT_ShowFinalReport
-                        show_restart=show_restart_btn, restart_op_idname=ui.OT_QuitBlenderNoSave.bl_idname # ui already imported if show_restart_btn is True
-                    ), first_interval=0.01)
+                    # Capture all necessary values for the lambda using default arguments
+                    bpy.app.timers.register(
+                        lambda lines=report_message_lines[:], # Pass a copy
+                               title=f"{op_type_for_report_title} Report",
+                               icon_val=report_icon,
+                               show_restart_val=show_restart_btn,
+                               op_idname_val=_restart_op_idname_for_lambda:
+                        OT_BackupManager._deferred_show_report_static(
+                            lines, title, icon_val,
+                            show_restart=show_restart_val, restart_op_idname=op_idname_val
+                        ), first_interval=0.01)
                     self.report({'INFO'}, " ".join(report_message_lines)) 
                     
                     pref_instance.operation_progress_message = f"{self.current_operation_type} {completion_status_item.lower()}."
