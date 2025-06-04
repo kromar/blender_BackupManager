@@ -468,7 +468,7 @@ class OT_BackupManager(Operator):
                 cancel_message = f"{op_description} cancelled by user."
                 self.report({'WARNING'}, cancel_message)
                 bpy.app.timers.register(
-                    lambda: OT_BackupManager._deferred_show_report_static([cancel_message], "Operation Cancelled", "WARNING"), 
+                    lambda: OT_BackupManager._deferred_show_report_static([cancel_message], "Operation Cancelled", "ERROR"), 
                     first_interval=0.01
                 ) # This will call ui.OT_ShowFinalReport
                 
@@ -919,7 +919,7 @@ class OT_BackupManager(Operator):
                         self.report({'WARNING'}, f"{error_msg_line1} {error_msg_line2}")
                         # This will call ui.OT_ShowFinalReport
                         bpy.app.timers.register(
-                            lambda lines=[error_msg_line1, error_msg_line2]: OT_BackupManager._deferred_show_report_static(lines, "Delete Backup Error", 'WARNING'),
+                            lambda lines=[error_msg_line1, error_msg_line2]: OT_BackupManager._deferred_show_report_static(lines, "Delete Backup Error", 'ERROR'),
                             first_interval=0.01
                         )
                         if utils.get_addon_preferences().debug: # Keep print for debug
