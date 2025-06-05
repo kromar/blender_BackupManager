@@ -376,10 +376,15 @@ class OT_BackupManager(Operator):
                 self.current_target_path = target_path # Set for _prepare_restore_files_from_source
 
                 self._prepare_restore_files_from_source(context, non_shared_source_for_restore, self.current_target_path, version_name, process_shared_state=False)
-                self._prepare_restore_files_from_source(context, shared_source_for_restore, self.current_target_path, version_name, process_shared_state=True)
+                # Determine if system-specific backup was missing for this batch item
+                system_specific_backup_is_missing_for_item = not os.path.isdir(non_shared_source_for_restore)
+                self._prepare_restore_files_from_source(context, shared_source_for_restore, self.current_target_path, version_name, 
+                                                        process_shared_state=True, 
+                                                        system_specific_backup_was_missing=system_specific_backup_is_missing_for_item)
                 self.total_files = len(self.files_to_process) # Update total files after both calls
 
             if self.total_files == 0:
+                # ... (existing code for no files)
                 no_files_msg = f"Batch item {self.current_batch_item_index + 1}/{self.total_batch_items} ({op_type} {item_name_for_log}): No files to process. Skipping."
                 self.report({'INFO'}, no_files_msg)
                 self.batch_report_lines.append(f"INFO: {no_files_msg}")
@@ -388,6 +393,8 @@ class OT_BackupManager(Operator):
                 return self._process_next_batch_item_or_finish(context) # Try next
 
             # Item has files, set up for modal processing
+            # ... (existing code for setting up modal processing)
+
             self.processed_files_count = 0 # Reset for the new item
             initial_message = f"Batch {self.current_operation_type} ({self.current_batch_item_index + 1}/{self.total_batch_items} - {item_name_for_log}): Starting... ({self.total_files} files)"
             self.report({'INFO'}, initial_message) # Report to Blender status bar
@@ -402,6 +409,7 @@ class OT_BackupManager(Operator):
             return {'RUNNING_MODAL'} # Signal that an item is ready for modal processing
         else:
             # All batch items processed
+            # ... (existing code for batch completion)
             self.is_batch_operation = False # Reset flag
             final_batch_message = f"Batch operation complete. Processed {self.total_batch_items} items."
             self.report({'INFO'}, final_batch_message)
@@ -561,6 +569,7 @@ class OT_BackupManager(Operator):
                 # This state (timer event but no files left) should lead to FINISHED via the top condition
                 # in the next event cycle. Update progress one last time for safety.
                 if self.total_files > 0:
+                    # Ensure progress doesn't exceed 100% due to float inaccuracies
                     current_progress_val = (self.processed_files_count / self.total_files) * 100.0
                 else: # No files to begin with
                     current_progress_val = 100.0
@@ -572,7 +581,7 @@ class OT_BackupManager(Operator):
 
                 pref_instance.operation_progress_message = finalizing_msg
                 pref_instance.operation_progress_value = current_progress_val
-                return {'PASS_THROUGH'} # Let the next cycle handle termination via top conditions
+                return {'PASS_THROUGH'} # Keep modal running, next event will check completion
 
             # Process a batch of files
             for _ in range(preferences.BM_Preferences.FILES_PER_TICK_MODAL_OP): # Use constant from preferences
@@ -590,7 +599,8 @@ class OT_BackupManager(Operator):
                         # Consider collecting errors for a summary report
                 
                 self.processed_files_count += 1
-            
+                        
+            # Update UI progress after processing the batch of files for this tick
             # Update progress after processing the batch
             if self.total_files > 0:
                 current_progress_val = (self.processed_files_count / self.total_files) * 100.0
@@ -623,14 +633,21 @@ class OT_BackupManager(Operator):
                 # print(f"DEBUG: OT_BackupManager.modal() (TIMER) tagged all areas for redraw at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}.")
                 pass
 
-        return {'PASS_THROUGH'} # Allow other events to be processed
+            # After handling the timer event, return PASS_THROUGH to continue the modal loop
+            return {'PASS_THROUGH'}
 
-    def _prepare_restore_files_from_source(self, context, source_dir_for_items, ultimate_target_dir, version_name_for_path, process_shared_state):
+        # If the event is not a TIMER or ESC, simply pass it through
+        return {'PASS_THROUGH'}
+    
+    
+    def _prepare_restore_files_from_source(self, context, source_dir_for_items, ultimate_target_dir, version_name_for_path, process_shared_state, system_specific_backup_was_missing=False):
         """
         Helper to populate self.files_to_process for RESTORE operations from a specific source directory.
         source_dir_for_items: The backup location to scan (e.g., .../MyPC/4.1/ OR .../SharedConfigs/4.1/)
         ultimate_target_dir: The local Blender version path (e.g., .../Blender/4.1/)
         process_shared_state: True if we are looking for items that are marked as shared in prefs.
+        system_specific_backup_was_missing: True if the corresponding system-specific backup path for this version was not found.
+        Returns None. Modifies self.files_to_process in place.
         """
         prefs_instance = utils.get_addon_preferences()
         # self.ignore_restore should already be set by create_ignore_pattern() in execute()
@@ -654,35 +671,50 @@ class OT_BackupManager(Operator):
                 is_d_ignored_by_user = any(fnmatch.fnmatch(d_name, pat) for pat in current_ignore_list)
 
                 if is_d_ignored_by_user: continue
-
+                
+                should_process_dir = False
                 if process_shared_state: # Looking for items that should come from shared backup
-                    if is_d_globally_shared: dirnames.append(d_name)
+                    if is_d_globally_shared: # Item is marked as shared in prefs
+                        should_process_dir = True
+                    elif system_specific_backup_was_missing: # Fallback condition
+                        should_process_dir = True # Process from shared as system-specific is missing
+                        if prefs_instance.debug:
+                            print(f"DEBUG: Fallback Restore: Including DIR '{d_name}' from SHARED backup (item not marked shared, but system-specific backup missing).")
                 else: # Looking for items that should come from non-shared backup
-                    if not is_d_globally_shared: dirnames.append(d_name)
+                    if not is_d_globally_shared: # Item is NOT marked as shared in prefs
+                        should_process_dir = True
+                
+                if should_process_dir:
+                    dirnames.append(d_name)
             
             for f_name in filenames:
                 is_f_globally_shared = f_name in shared_item_identifiers_globally
                 is_f_ignored_by_user = any(fnmatch.fnmatch(f_name, pat) for pat in current_ignore_list)
 
                 if is_f_ignored_by_user: continue
-
+                
                 process_this_file = False
                 if process_shared_state:
-                    if is_f_globally_shared: process_this_file = True
+                    if is_f_globally_shared: # File is marked as shared in prefs
+                        process_this_file = True
+                    elif system_specific_backup_was_missing: # Fallback condition
+                        process_this_file = True # Process from shared as system-specific is missing
+                        if prefs_instance.debug:
+                            print(f"DEBUG: Fallback Restore: Including FILE '{f_name}' from SHARED backup (item not marked shared, but system-specific backup missing).")
                 else:
-                    if not is_f_globally_shared: process_this_file = True
+                    if not is_f_globally_shared: # File is NOT marked as shared in prefs
+                        process_this_file = True
                 
                 if not process_this_file: continue
-
+                
                 src_file = os.path.join(dirpath, f_name)
                 path_segment_in_backup = os.path.relpath(src_file, source_dir_for_items)
                 dest_file = os.path.join(ultimate_target_dir, path_segment_in_backup)
-
+                
                 if os.path.normpath(src_file) == os.path.normpath(dest_file): continue
                 if (src_file, dest_file) not in self.files_to_process: # Avoid duplicates
                     self.files_to_process.append((src_file, dest_file))
-
-        return {'PASS_THROUGH'} # Allow other events to be processed
+        # No return value needed, modifies self.files_to_process directly
 
     def execute(self, context): 
         pref_instance = utils.get_addon_preferences()
@@ -777,42 +809,61 @@ class OT_BackupManager(Operator):
                     # Non-shared source path
                     # System ID is always used for non-shared backups
                     non_shared_source_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, version_name_for_operation)
-                    self._prepare_restore_files_from_source(context, non_shared_source_path, self.current_target_path, version_name_for_operation, process_shared_state=False)
+                    system_specific_backup_is_missing = not os.path.isdir(non_shared_source_path)
+
+                    self._prepare_restore_files_from_source(context, non_shared_source_path, self.current_target_path, 
+                                                            version_name_for_operation, process_shared_state=False,
+                                                            system_specific_backup_was_missing=False) # This flag is not relevant when scanning non-shared
                     # Shared source path
                     shared_source_path = os.path.join(pref_instance.backup_path, OT_BackupManager.SHARED_FOLDER_NAME, version_name_for_operation)
-                    self._prepare_restore_files_from_source(context, shared_source_path, self.current_target_path, version_name_for_operation, process_shared_state=True)
+                    self._prepare_restore_files_from_source(context, shared_source_path, self.current_target_path, 
+                                                            version_name_for_operation, process_shared_state=True,
+                                                            system_specific_backup_was_missing=system_specific_backup_is_missing)
                     self.total_files = len(self.files_to_process) # Update total files after both calls
                 
                 if self.total_files == 0: # Handle case where no files are found to process
-                    report_message = f"No files to {self.current_operation_type.lower()}"
-                    if self.current_source_path:
-                         report_message += f" from {self.current_source_path}"
+                    report_lines = []
+                    op_type_display = self.current_operation_type.lower() if self.current_operation_type else "operation"
                     
-                    if pref_instance.dry_run: # Clarify dry run message for 0 files
-                        report_message += " (Dry Run - no files would have been processed)."
-                    else:
-                        report_message += "."
-
-
-                    self.report({'INFO'}, report_message) # Report to Blender status bar
-                    pref_instance.show_operation_progress = False # No modal progress needed
-                    pref_instance.operation_progress_message = report_message # For window if open
-
-                    # Determine title and icon for the deferred report
-                    op_type_for_report = op_type_for_report = self.current_operation_type or "Operation"
-                    icon_for_report = 'INFO' # Default
+                    title_for_report = f"{self.current_operation_type.capitalize() if self.current_operation_type else 'Operation'} Report"
+                    icon_for_report = 'INFO'
                     if self.current_operation_type == 'BACKUP': icon_for_report = 'COLORSET_03_VEC'
                     elif self.current_operation_type == 'RESTORE': icon_for_report = 'COLORSET_04_VEC'
+
+                    report_lines.append(f"No files found to {op_type_display} for version '{version_name_for_operation}'.")
+
+                    if self.current_operation_type == 'RESTORE':
+                        # Provide specific feedback for RESTORE based on path existence
+                        non_shared_exists = os.path.isdir(non_shared_source_path) # Defined earlier in RESTORE block
+                        shared_exists = os.path.isdir(shared_source_path)       # Defined earlier in RESTORE block
+
+                        if not non_shared_exists and not shared_exists:
+                            report_lines.append(f"Neither system-specific backup ('{os.path.basename(non_shared_source_path)}')")
+                            report_lines.append(f"  nor shared backup ('{os.path.basename(shared_source_path)}') were found for this version.")
+                            report_lines.append(f"  (System path checked: {non_shared_source_path})")
+                            report_lines.append(f"  (Shared path checked: {shared_source_path})")
+                        else:
+                            report_lines.append(f"- System-specific backup path ({non_shared_source_path}) was {'scanned.' if non_shared_exists else 'NOT found.'}")
+                            report_lines.append(f"- Shared backup path ({shared_source_path}) was {'scanned.' if shared_exists else 'NOT found.'}")
+                            report_lines.append("Possible reasons for no files being processed:")
+                            report_lines.append("  - The backup locations might be empty or files are excluded by 'Ignore Files' list.")
+                            report_lines.append("  - Items in the backup may not match the current 'shared' status in addon preferences")
+                            report_lines.append("    for the location they were scanned from (system vs. shared).")
+                    elif self.current_source_path: # For BACKUP or other ops if source_path is set
+                         report_lines.append(f"Scanned source: {self.current_source_path}")
+
+                    if pref_instance.dry_run:
+                        report_lines.append("(This was a Dry Run - no files would have been processed anyway).")
                     
-                    # Capture values for the lambda to ensure they are correct at execution time
-                    _msg_lines = report_message.split('\n')
-                    _title = f"{op_type_for_report} Report"
-                    _icon = icon_for_report
+                    self.report({'INFO'}, " ".join(report_lines))
+                    pref_instance.show_operation_progress = False # No modal progress needed
+                    pref_instance.operation_progress_message = report_lines[0] if report_lines else "Operation complete."
 
                     bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static(
-                        _msg_lines, _title, _icon
-                    ), first_interval=0.01) # This will call ui.OT_ShowFinalReport
-
+                        report_lines[:], # Pass a copy
+                        title_for_report, 
+                        icon_for_report
+                    ), first_interval=0.01)
                     return {'FINISHED'}
 
                 initial_message = f"Starting {self.current_operation_type}... ({self.total_files} files)"
@@ -864,10 +915,16 @@ class OT_BackupManager(Operator):
                     version_name = version[0] # e.g., "4.1" from backup
                     source_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, version_name) # Backup location
                     target_path = os.path.join(os.path.dirname(pref_instance.blender_user_path),  version_name) # Local Blender version path
-                    self.batch_operations_list.append((source_path, target_path, 'RESTORE', version_name))
+                    
+                    # For BATCH_RESTORE, we also need to know if the system-specific source is missing for each item
+                    # This info isn't directly stored in batch_operations_list but determined when processing the item.
+                    # The source_path in batch_operations_list is the non-shared one.
+                    self.batch_operations_list.append((source_path, target_path, 'RESTORE', version_name)) 
+
                 self.total_batch_items = len(self.batch_operations_list)
                 self.current_batch_item_index = 0
                 if not self.batch_operations_list: # Check if list is empty
+                    # ... (existing code for no items)
                     self.report({'INFO'}, "No items found for batch restore.")
                     self.is_batch_operation = False # Reset
                     return {'FINISHED'}
@@ -953,15 +1010,33 @@ class OT_BackupManager(Operator):
 
                 # For restore_versions, search within the system_id folder in the backup_path
                 system_specific_backup_path = os.path.join(pref_instance.backup_path, pref_instance.system_id)
+                shared_backup_path = os.path.join(pref_instance.backup_path, OT_BackupManager.SHARED_FOLDER_NAME)
+
                 pref_restore_versions.clear()
-                _fv2_start_sb = None
+                
+                _restore_sources_scan_start_sb = None
                 if pref_instance.debug:
-                    _fv2_start_sb = datetime.now()
-                    print(f"DEBUG: execute SEARCH_BACKUP calling find_versions for backup_path: {system_specific_backup_path}")
-                combined_restore_versions = utils.find_versions(system_specific_backup_path) + pref_backup_versions # Use utils
-                if pref_instance.debug:
-                    _fv2_end_sb = datetime.now()
-                    print(f"DEBUG: (took: {(_fv2_end_sb - _fv2_start_sb).total_seconds():.6f}s) execute SEARCH_BACKUP find_versions for backup_path DONE")
+                    _restore_sources_scan_start_sb = datetime.now()
+                    print(f"DEBUG: execute SEARCH_BACKUP: Scanning for restore versions (system, shared, local)...")
+
+                # Scan system-specific backup path
+                if pref_instance.debug: print(f"DEBUG: execute SEARCH_BACKUP calling find_versions for system_specific_backup_path: {system_specific_backup_path}")
+                found_system_restore_versions = utils.find_versions(system_specific_backup_path)
+                if pref_instance.debug: print(f"DEBUG: execute SEARCH_BACKUP find_versions for system_specific_backup_path found: {len(found_system_restore_versions)}")
+
+                # Scan shared backup path
+                if pref_instance.debug: print(f"DEBUG: execute SEARCH_BACKUP calling find_versions for shared_backup_path: {shared_backup_path}")
+                found_shared_restore_versions = utils.find_versions(shared_backup_path)
+                if pref_instance.debug: print(f"DEBUG: execute SEARCH_BACKUP find_versions for shared_backup_path found: {len(found_shared_restore_versions)}")
+
+                # pref_backup_versions (local Blender versions) should be populated at this point.
+                # Combine all sources for the 'Restore From' list in Backup tab's advanced mode.
+                combined_restore_versions = found_system_restore_versions + found_shared_restore_versions + pref_backup_versions
+                
+                if pref_instance.debug and _restore_sources_scan_start_sb:
+                    _restore_sources_scan_end_sb = datetime.now()
+                    print(f"DEBUG: (took: {(_restore_sources_scan_end_sb - _restore_sources_scan_start_sb).total_seconds():.6f}s for scanning all restore version sources) execute SEARCH_BACKUP: Combined restore versions (before unique): {len(combined_restore_versions)}")
+                
                 # Use dict.fromkeys to preserve order of first appearance if that's desired before sorting
                 pref_restore_versions.extend(list(dict.fromkeys(combined_restore_versions)))
                 pref_restore_versions.sort(reverse=True)
@@ -978,16 +1053,35 @@ class OT_BackupManager(Operator):
 
                 # For restore_versions, search within the system_id folder in the backup_path
                 system_specific_backup_path = os.path.join(pref_instance.backup_path, pref_instance.system_id)
+                shared_backup_path = os.path.join(pref_instance.backup_path, OT_BackupManager.SHARED_FOLDER_NAME)
+
                 pref_restore_versions.clear()
-                _fv1_start_sr = None
+                
+                _scan_restore_locations_start_sr = None
                 if pref_instance.debug:
-                    _fv1_start_sr = datetime.now()
-                    print(f"DEBUG: execute SEARCH_RESTORE calling find_versions for backup_path: {system_specific_backup_path}")
-                found_restore_versions = utils.find_versions(system_specific_backup_path) # Use utils
-                if pref_instance.debug:
-                    _fv1_end_sr = datetime.now()
-                    print(f"DEBUG: (took: {(_fv1_end_sr - _fv1_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE find_versions for backup_path DONE")
-                pref_restore_versions.extend(found_restore_versions)
+                    _scan_restore_locations_start_sr = datetime.now()
+                    print(f"DEBUG: execute SEARCH_RESTORE: Scanning backup locations (system-specific and shared)...")
+                
+                all_found_restore_versions = []
+
+                # Scan system-specific backup path
+                if pref_instance.debug: print(f"DEBUG: execute SEARCH_RESTORE calling find_versions for system_specific_backup_path: {system_specific_backup_path}")
+                found_system_versions = utils.find_versions(system_specific_backup_path)
+                all_found_restore_versions.extend(found_system_versions)
+                if pref_instance.debug: print(f"DEBUG: execute SEARCH_RESTORE find_versions for system_specific_backup_path found: {len(found_system_versions)}")
+
+                # Scan shared backup path
+                if pref_instance.debug: print(f"DEBUG: execute SEARCH_RESTORE calling find_versions for shared_backup_path: {shared_backup_path}")
+                found_shared_versions = utils.find_versions(shared_backup_path)
+                all_found_restore_versions.extend(found_shared_versions)
+                if pref_instance.debug: print(f"DEBUG: execute SEARCH_RESTORE find_versions for shared_backup_path found: {len(found_shared_versions)}")
+                
+                if pref_instance.debug and _scan_restore_locations_start_sr:
+                    _scan_restore_locations_end_sr = datetime.now()
+                    print(f"DEBUG: (took: {(_scan_restore_locations_end_sr - _scan_restore_locations_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE: Finished scanning backup locations. Total items before unique: {len(all_found_restore_versions)}")
+
+                unique_restore_versions = list(dict.fromkeys(all_found_restore_versions))
+                pref_restore_versions.extend(unique_restore_versions)
                 pref_restore_versions.sort(reverse=True) 
 
                 pref_backup_versions.clear()
