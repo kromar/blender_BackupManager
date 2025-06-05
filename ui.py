@@ -262,7 +262,7 @@ class OT_BackupManagerWindow(Operator):
         if prefs_instance.advanced_mode:
             col_actions.prop(prefs_instance, 'custom_version_toggle'); col_actions.prop(prefs_instance, 'expand_version_selection')    
             col_actions.separator(factor=1.0)
-            col_actions.operator(core.OT_BackupManager.bl_idname, text="Delete Backup", icon='COLORSET_01_VEC').button_input = 'DELETE_BACKUP'
+            col_actions.operator(core.OT_BackupManager.bl_idname, text="Delete Selected Backup", icon='COLORSET_01_VEC').button_input = 'DELETE_BACKUP'
 
     def _draw_restore_tab(self, layout, context, prefs_instance):
         row_main  = layout.row(align=True)

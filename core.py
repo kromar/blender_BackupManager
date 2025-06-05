@@ -27,7 +27,8 @@ from datetime import datetime # Added for debug timestamps
 from bpy.types import Operator
 from bpy.props import StringProperty
 from . import preferences # For BM_Preferences, ITEM_DEFINITIONS
-from . import utils # For get_addon_preferences, find_versions # ui will be imported locally
+from . import utils # For get_addon_preferences, find_versions
+from . import ui # For OT_ShowFinalReport, OT_QuitBlenderNoSave
                 
 class OT_BackupManager(Operator):
     ''' run backup & restore '''
@@ -410,13 +411,12 @@ class OT_BackupManager(Operator):
             if self.batch_operations_list:
                  overall_op_type = self.batch_operations_list[0][2] # Get op_type from first item
                  report_title = f"Batch {overall_op_type.capitalize()} Report"
-                 from . import ui # Import for OT_QuitBlenderNoSave.bl_label
 
             show_restart_btn_batch = False
             if overall_op_type == 'RESTORE': # Show restart info even on dry run for simulation
                 self.batch_report_lines.append("") # Add a blank line for spacing
                 self.batch_report_lines.append("IMPORTANT: For restored settings to fully apply, this Blender session must be ended.")
-                self.batch_report_lines.append(f"Use the '{OT_QuitBlenderNoSave.bl_label}' button in the report.")
+                self.batch_report_lines.append(f"Use the '{ui.OT_QuitBlenderNoSave.bl_label}' button in the report.")
                 show_restart_btn_batch = True
 
             final_report_lines = [final_batch_message] + self.batch_report_lines[:]            
@@ -525,7 +525,6 @@ class OT_BackupManager(Operator):
                     if self.current_operation_type == 'RESTORE': # Show restart info even on dry run for simulation
                         report_message_lines.append("") # Add a blank line for spacing
                         report_message_lines.append("IMPORTANT: For restored settings to fully apply, this Blender session must be ended.")
-                        from . import ui # Import for OT_QuitBlenderNoSave.bl_label
                         report_message_lines.append(f"Use the '{ui.OT_QuitBlenderNoSave.bl_label}' button below.")
                         show_restart_btn = True
                         _restart_op_idname_for_lambda = ui.OT_QuitBlenderNoSave.bl_idname # Set the idname string
