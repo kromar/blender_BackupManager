@@ -136,12 +136,13 @@ def get_default_base_temp_dir():
         
 
 def _calculate_path_age_str(path_to_scan):
-    """Calculates age string for a path."""
+    """
+    Calculates the age string for a path (single folder). Always returns 'Last change: ...' for UI consistency.
+    """
     if not path_to_scan or not os.path.isdir(path_to_scan):
-        return "Age: N/A"
+        return "Last change: N/A"
     try:
         latest_mtime = None
-        # Use a generator expression for efficiency
         for dp, _, filenames in os.walk(path_to_scan):
             for f in filenames:
                 try:
@@ -151,23 +152,83 @@ def _calculate_path_age_str(path_to_scan):
                 except Exception:
                     continue
         if latest_mtime is None:
-            return "Age: no data (empty)"
-        delta = datetime.now() - datetime.fromtimestamp(latest_mtime)
-        days = delta.days
-        hours, remainder = divmod(delta.seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        # Use concise formatting
-        if days > 0:
-            backup_age = f"{days}d {hours}h {minutes}m"
-        elif hours > 0:
-            backup_age = f"{hours}h {minutes}m"
-        elif minutes > 0:
-            backup_age = f"{minutes}m {seconds}s"
-        else:
-            backup_age = f"{seconds}s"
-        return f"Age: {backup_age}"
-    except Exception:
-        return "Age: error"
+            return "Last change: N/A"
+        return _format_age_string(latest_mtime)
+    except Exception as e:
+        prefs = None
+        debug = False
+        try:
+            prefs = get_addon_preferences()
+            debug = getattr(prefs, 'debug', False)
+        except Exception:
+            pass
+        if debug:
+            print(f"[DEBUG] Exception in _calculate_path_age_str: {e}")
+        return "Last change: error"
+
+
+def _format_age_string(latest_mtime, prefix="Last change: "):
+    """Helper to format the age string given a latest modification time."""
+    if latest_mtime is None:
+        return f"{prefix}N/A"
+    delta = datetime.now() - datetime.fromtimestamp(latest_mtime)
+    days = delta.days
+    hours, remainder = divmod(delta.seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if days > 0:
+        backup_age = f"{days}d {hours}h {minutes}m"
+    elif hours > 0:
+        backup_age = f"{hours}h {minutes}m"
+    elif minutes > 0:
+        backup_age = f"{minutes}m {seconds}s"
+    else:
+        backup_age = f"{seconds}s"
+    return f"{prefix}{backup_age}"
+
+
+def _calculate_path_age_str_combined(backup_path, system_id, version_name):
+    """
+    Calculates the most recent age string for a versioned folder, checking both system-specific and shared config folders.
+    Always returns 'Last change: ...' for UI consistency.
+    """
+    try:
+        prefs = None
+        debug = False
+        try:
+            prefs = get_addon_preferences()
+            debug = getattr(prefs, 'debug', False)
+        except Exception:
+            pass
+        system_path = os.path.join(backup_path, system_id, version_name) if system_id else None
+        shared_path = os.path.join(backup_path, 'SharedConfigs', version_name)
+        latest_mtime = None
+        # Check system path
+        if system_path and os.path.isdir(system_path):
+            for dp, _, filenames in os.walk(system_path):
+                for f in filenames:
+                    try:
+                        mtime = os.path.getmtime(os.path.join(dp, f))
+                        if latest_mtime is None or mtime > latest_mtime:
+                            latest_mtime = mtime
+                    except Exception:
+                        continue
+        # Check shared path
+        if os.path.isdir(shared_path):
+            for dp, _, filenames in os.walk(shared_path):
+                for f in filenames:
+                    try:
+                        mtime = os.path.getmtime(os.path.join(dp, f))
+                        if latest_mtime is None or mtime > latest_mtime:
+                            latest_mtime = mtime
+                    except Exception:
+                        continue
+        if latest_mtime is None:
+            return "Last change: N/A"
+        return _format_age_string(latest_mtime)
+    except Exception as e:
+        if debug:
+            print(f"[DEBUG] Exception in _calculate_path_age_str_combined: {e}")
+        return "Last change: error"
 
 
 def _calculate_path_size_str(path_to_scan, backup_path=None, system_id=None, version_name=None):
@@ -249,3 +310,48 @@ def _calculate_path_size_str(path_to_scan, backup_path=None, system_id=None, ver
     except Exception as e:
         print(f"[DEBUG] Exception in _calculate_path_size_str: {e}")
         return "Size 0mb (System 0mb + Shared 0mb)"
+
+
+def _calculate_path_age_str_combined(backup_path, system_id, version_name):
+    """
+    Calculates the most recent age string for a versioned folder, checking both system-specific and shared config folders.
+    Always returns 'Last change: ...' for UI consistency.
+    """
+    try:
+        prefs = None
+        debug = False
+        try:
+            prefs = get_addon_preferences()
+            debug = getattr(prefs, 'debug', False)
+        except Exception:
+            pass
+        system_path = os.path.join(backup_path, system_id, version_name) if system_id else None
+        shared_path = os.path.join(backup_path, 'SharedConfigs', version_name)
+        latest_mtime = None
+        # Check system path
+        if system_path and os.path.isdir(system_path):
+            for dp, _, filenames in os.walk(system_path):
+                for f in filenames:
+                    try:
+                        mtime = os.path.getmtime(os.path.join(dp, f))
+                        if latest_mtime is None or mtime > latest_mtime:
+                            latest_mtime = mtime
+                    except Exception:
+                        continue
+        # Check shared path
+        if os.path.isdir(shared_path):
+            for dp, _, filenames in os.walk(shared_path):
+                for f in filenames:
+                    try:
+                        mtime = os.path.getmtime(os.path.join(dp, f))
+                        if latest_mtime is None or mtime > latest_mtime:
+                            latest_mtime = mtime
+                    except Exception:
+                        continue
+        if latest_mtime is None:
+            return "Last change: N/A"
+        return _format_age_string(latest_mtime)
+    except Exception as e:
+        if debug:
+            print(f"[DEBUG] Exception in _calculate_path_age_str_combined: {e}")
+        return "Last change: error"
