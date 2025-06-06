@@ -210,10 +210,21 @@ class OT_BackupManagerWindow(Operator):
         display_text = preferences.BM_Preferences._age_cache.get(path_to_check, "Last change: Calculating...")
         layout.label(text=display_text)
 
-    def _draw_path_size(self, layout, path_to_check):
+    def _draw_path_size(self, layout, path_to_check, backup_path=None, system_id=None, version_name=None):
+        """
+        Draws the size string for a path. If backup_path, system_id, and version_name are provided, always calls utils._calculate_path_size_str
+        to ensure the correct format is shown, even if the folder is missing. Otherwise, uses the cache or fallback.
+        """
+        # Always use the robust size string function for versioned folders
+        if backup_path and system_id and version_name:
+            display_text = utils._calculate_path_size_str(None, backup_path, system_id, version_name)
+            layout.label(text=display_text)
+            return
+        # Fallback: use the cache for non-versioned paths
         prefs_instance = utils.get_addon_preferences()
         if not path_to_check or not os.path.isdir(path_to_check):
-            layout.label(text="Size: Path N/A"); return
+            # Instead of 'Size: Path N/A', always show the robust fallback string
+            layout.label(text="Size 0mb (System 0mb + Shared 0mb)"); return
         display_text = preferences.BM_Preferences._size_cache.get(path_to_check, "Size: Calculating...")
         layout.label(text=display_text)
 
@@ -226,31 +237,41 @@ class OT_BackupManagerWindow(Operator):
             col_from.label(text = path_from_val)      
             if prefs_instance.show_path_details: self._draw_path_age(col_from, path_from_val); self._draw_path_size(col_from, path_from_val)
             box_to = row_main.box(); col_to = box_to.column()
-            path_to_val =  os.path.join(prefs_instance.backup_path, prefs_instance.system_id, str(prefs_instance.active_blender_version)) if prefs_instance.backup_path and prefs_instance.system_id else "N/A"
+            path_to_val =  os.path.join(prefs_instance.backup_path, prefs_instance.system_id, str(prefs_instance.active_blender_version)) if prefs_instance.backup_path and prefs_instance.system_id else None
             col_to.label(text = "Backup To: " + str(prefs_instance.active_blender_version), icon='COLORSET_04_VEC')
-            col_to.label(text = path_to_val)          
-            if prefs_instance.show_path_details: self._draw_path_age(col_to, path_to_val); self._draw_path_size(col_to, path_to_val)
+            col_to.label(text = path_to_val if path_to_val else "N/A")          
+            if prefs_instance.show_path_details:
+                self._draw_path_age(col_to, path_to_val)
+                # FIX: Always call with backup_path, system_id, version_name for correct size
+                self._draw_path_size(col_to, None, prefs_instance.backup_path, prefs_instance.system_id, str(prefs_instance.active_blender_version))
         else: # Advanced mode
             source_version_selected = prefs_instance.backup_versions
-            path_from_val = os.path.join(os.path.dirname(prefs_instance.blender_user_path), source_version_selected) if prefs_instance.blender_user_path and source_version_selected else "N/A"
-            col_from.label(text="Backup From: " + source_version_selected, icon='COLORSET_03_VEC')
-            col_from.label(text=path_from_val)
-            if prefs_instance.show_path_details: self._draw_path_age(col_from, path_from_val); self._draw_path_size(col_from, path_from_val)
+            path_from_val = os.path.join(os.path.dirname(prefs_instance.blender_user_path), source_version_selected) if prefs_instance.blender_user_path and source_version_selected else None
+            col_from.label(text="Backup From: " + (source_version_selected if source_version_selected else "N/A"), icon='COLORSET_03_VEC')
+            col_from.label(text=path_from_val if path_from_val else "N/A")
+            if prefs_instance.show_path_details:
+                self._draw_path_age(col_from, path_from_val)
+                self._draw_path_size(col_from, path_from_val)
             col_from.prop(prefs_instance, 'backup_versions', text='Version' if prefs_instance.expand_version_selection else '', expand=prefs_instance.expand_version_selection)
             box_to = row_main.box(); col_to = box_to.column()
             if prefs_instance.custom_version_toggle:
                 target_version_displayed = prefs_instance.custom_version
-                path_to_val = os.path.join(prefs_instance.backup_path, prefs_instance.system_id, target_version_displayed) if prefs_instance.backup_path and prefs_instance.system_id and target_version_displayed else "N/A"
-                col_to.label(text="Backup To: " + target_version_displayed, icon='COLORSET_04_VEC')
-                col_to.label(text=path_to_val)
-                if prefs_instance.show_path_details: self._draw_path_age(col_to, path_to_val); self._draw_path_size(col_to, path_to_val)
+                path_to_val = os.path.join(prefs_instance.backup_path, prefs_instance.system_id, target_version_displayed) if prefs_instance.backup_path and prefs_instance.system_id and target_version_displayed else None
+                col_to.label(text="Backup To: " + (target_version_displayed if target_version_displayed else "N/A"), icon='COLORSET_04_VEC')
+                col_to.label(text=path_to_val if path_to_val else "N/A")
+                if prefs_instance.show_path_details:
+                    self._draw_path_age(col_to, path_to_val)
+                    self._draw_path_size(col_to, None, prefs_instance.backup_path, prefs_instance.system_id, target_version_displayed)
                 col_to.prop(prefs_instance, 'custom_version', text='Version')
             else:
                 target_version_displayed = prefs_instance.restore_versions
-                path_to_val = os.path.join(prefs_instance.backup_path, prefs_instance.system_id, target_version_displayed) if prefs_instance.backup_path and prefs_instance.system_id and target_version_displayed else "N/A"
-                col_to.label(text="Backup To: " + target_version_displayed, icon='COLORSET_04_VEC')
-                col_to.label(text=path_to_val)
-                if prefs_instance.show_path_details: self._draw_path_age(col_to, path_to_val); self._draw_path_size(col_to, path_to_val)
+                # FIX: Always call with backup_path, system_id, version_name for correct size
+                path_to_val = os.path.join(prefs_instance.backup_path, prefs_instance.system_id, target_version_displayed) if prefs_instance.backup_path and prefs_instance.system_id and target_version_displayed else None
+                col_to.label(text="Backup To: " + (target_version_displayed if target_version_displayed else "N/A"), icon='COLORSET_04_VEC')
+                col_to.label(text=path_to_val if path_to_val else "N/A")
+                if prefs_instance.show_path_details:
+                    self._draw_path_age(col_to, path_to_val)
+                    self._draw_path_size(col_to, None, prefs_instance.backup_path, prefs_instance.system_id, target_version_displayed)
                 col_to.prop(prefs_instance, 'restore_versions', text='Version' if prefs_instance.expand_version_selection else '', expand=prefs_instance.expand_version_selection)
 
         col_actions = row_main.column(); col_actions.scale_x = 0.9
@@ -268,28 +289,36 @@ class OT_BackupManagerWindow(Operator):
         row_main  = layout.row(align=True)
         box_from = row_main.box(); col_from = box_from.column()
         if not prefs_instance.advanced_mode:
-            path_from_val = os.path.join(prefs_instance.backup_path, prefs_instance.system_id, str(prefs_instance.active_blender_version)) if prefs_instance.backup_path and prefs_instance.system_id else "N/A"
+            path_from_val = os.path.join(prefs_instance.backup_path, prefs_instance.system_id, str(prefs_instance.active_blender_version)) if prefs_instance.backup_path and prefs_instance.system_id else None
             col_from.label(text = "Restore From: " + str(prefs_instance.active_blender_version), icon='COLORSET_04_VEC')   
-            col_from.label(text = path_from_val)                  
-            if prefs_instance.show_path_details: self._draw_path_age(col_from, path_from_val); self._draw_path_size(col_from, path_from_val)
+            col_from.label(text = path_from_val if path_from_val else "N/A")                  
+            if prefs_instance.show_path_details:
+                self._draw_path_age(col_from, path_from_val)
+                self._draw_path_size(col_from, None, prefs_instance.backup_path, prefs_instance.system_id, str(prefs_instance.active_blender_version))
             box_to = row_main.box(); col_to = box_to.column()
             path_to_val =  prefs_instance.blender_user_path
             col_to.label(text = "Restore To: " + str(prefs_instance.active_blender_version), icon='COLORSET_03_VEC')   
             col_to.label(text = path_to_val)              
-            if prefs_instance.show_path_details: self._draw_path_age(col_to, path_to_val); self._draw_path_size(col_to, path_to_val)
+            if prefs_instance.show_path_details:
+                self._draw_path_age(col_to, path_to_val)
+                self._draw_path_size(col_to, path_to_val)
         else: # Advanced Mode
             source_ver = prefs_instance.restore_versions
-            path_from_val = os.path.join(prefs_instance.backup_path, prefs_instance.system_id, source_ver) if prefs_instance.backup_path and prefs_instance.system_id and source_ver else "N/A"
-            col_from.label(text="Restore From: " + source_ver, icon='COLORSET_04_VEC')
-            col_from.label(text=path_from_val)
-            if prefs_instance.show_path_details: self._draw_path_age(col_from, path_from_val); self._draw_path_size(col_from, path_from_val)
+            path_from_val = os.path.join(prefs_instance.backup_path, prefs_instance.system_id, source_ver) if prefs_instance.backup_path and prefs_instance.system_id and source_ver else None
+            col_from.label(text="Restore From: " + (source_ver if source_ver else "N/A"), icon='COLORSET_04_VEC')
+            col_from.label(text=path_from_val if path_from_val else "N/A")
+            if prefs_instance.show_path_details:
+                self._draw_path_age(col_from, path_from_val)
+                self._draw_path_size(col_from, None, prefs_instance.backup_path, prefs_instance.system_id, source_ver)
             col_from.prop(prefs_instance, 'restore_versions', text='Version' if prefs_instance.expand_version_selection else '', expand=prefs_instance.expand_version_selection)
             box_to = row_main.box(); col_to = box_to.column()
             target_ver = prefs_instance.backup_versions
-            path_to_val = os.path.join(os.path.dirname(prefs_instance.blender_user_path), target_ver) if prefs_instance.blender_user_path and target_ver else "N/A"
-            col_to.label(text="Restore To: " + target_ver, icon='COLORSET_03_VEC')
-            col_to.label(text=path_to_val)
-            if prefs_instance.show_path_details: self._draw_path_age(col_to, path_to_val); self._draw_path_size(col_to, path_to_val)
+            path_to_val = os.path.join(os.path.dirname(prefs_instance.blender_user_path), target_ver) if prefs_instance.blender_user_path and target_ver else None
+            col_to.label(text="Restore To: " + (target_ver if target_ver else "N/A"), icon='COLORSET_03_VEC')
+            col_to.label(text=path_to_val if path_to_val else "N/A")
+            if prefs_instance.show_path_details:
+                self._draw_path_age(col_to, path_to_val)
+                self._draw_path_size(col_to, path_to_val)
             col_to.prop(prefs_instance, 'backup_versions', text='Version' if prefs_instance.expand_version_selection else '', expand=prefs_instance.expand_version_selection)
 
         col_actions = row_main.column(); col_actions.scale_x = 0.9

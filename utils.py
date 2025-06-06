@@ -20,6 +20,30 @@ import bpy
 import os
 from datetime import datetime
 
+# For profiling purposes, if needed
+import subprocess
+import sys
+
+def ensure_pyinstrument_installed():
+    try:
+        import pyinstrument
+        return True
+    except ImportError:
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "pyinstrument"])
+            import pyinstrument
+            return True
+        except Exception as e:
+            print(f"Failed to install pyinstrument: {e}")
+            return False
+
+if ensure_pyinstrument_installed():
+    from pyinstrument import Profiler
+else:
+    Profiler = None
+
+
+
 def get_addon_preferences():
     """
     Directly retrieves the addon's preferences.
@@ -146,18 +170,82 @@ def _calculate_path_age_str(path_to_scan):
         return "Age: error"
 
 
-def _calculate_path_size_str(path_to_scan):
-    """Calculates size string for a path."""
+def _calculate_path_size_str(path_to_scan, backup_path=None, system_id=None, version_name=None):
+    """Calculates size string for a path, summing both system-specific and shared config version folders if version_name is provided.
+    Adds debug output for troubleshooting scenarios where size is unexpectedly zero.
+    """
     try:
-        if not path_to_scan or not os.path.isdir(path_to_scan):
-            return "Size: N/A"
-        size = 0
-        for dp, _, filenames in os.walk(path_to_scan):
-            for f in filenames:
-                try:
-                    size += os.path.getsize(os.path.join(dp, f))
-                except Exception:
-                    continue
-        return f"Size: {size / 1_000_000:.2f} MB" #  ({size:,} bytes)"
-    except Exception:
-        return "Size: error"
+        debug = False
+        try:
+            prefs = get_addon_preferences()
+            debug = getattr(prefs, 'debug', False)
+        except Exception:
+            pass
+        # --- Fix: Print the actual paths and check for typos or path issues ---
+        if backup_path and version_name:
+            system_size = 0
+            shared_size = 0
+            # Print the actual values for troubleshooting
+            if debug:
+                print(f"[DEBUG] backup_path: {backup_path}")
+                print(f"[DEBUG] system_id: {system_id}")
+                print(f"[DEBUG] version_name: {version_name}")
+            # System path
+            system_path = os.path.join(backup_path, system_id, version_name) if system_id else None
+            if debug:
+                print(f"[DEBUG] Checking system_path: {system_path} exists={os.path.isdir(system_path) if system_path else 'N/A'}")
+            if system_path and os.path.isdir(system_path):
+                for dp, _, filenames in os.walk(system_path):
+                    for f in filenames:
+                        try:
+                            fp = os.path.join(dp, f)
+                            sz = os.path.getsize(fp)
+                            system_size += sz
+                            if debug:
+                                print(f"[DEBUG] System file: {fp} size={sz}")
+                        except Exception as e:
+                            if debug:
+                                print(f"[DEBUG] Error reading system file: {fp} err={e}")
+                            continue
+            # Shared path
+            shared_path = os.path.join(backup_path, 'SharedConfigs', version_name)
+            if debug:
+                print(f"[DEBUG] Checking shared_path: {shared_path} exists={os.path.isdir(shared_path)}")
+            if os.path.isdir(shared_path):
+                for dp, _, filenames in os.walk(shared_path):
+                    for f in filenames:
+                        try:
+                            fp = os.path.join(dp, f)
+                            sz = os.path.getsize(fp)
+                            shared_size += sz
+                            if debug:
+                                print(f"[DEBUG] Shared file: {fp} size={sz}")
+                        except Exception as e:
+                            if debug:
+                                print(f"[DEBUG] Error reading shared file: {fp} err={e}")
+                            continue
+            total_size = system_size + shared_size
+            if debug:
+                print(f"[DEBUG] Final sizes: total={total_size} system={system_size} shared={shared_size}")
+            return f"Size {total_size / 1_000_000:.0f}mb (System {system_size / 1_000_000:.0f}mb + Shared {shared_size / 1_000_000:.0f}mb)"
+        else:
+            size = 0
+            if path_to_scan and os.path.isdir(path_to_scan):
+                for dp, _, filenames in os.walk(path_to_scan):
+                    for f in filenames:
+                        try:
+                            fp = os.path.join(dp, f)
+                            sz = os.path.getsize(fp)
+                            size += sz
+                            if debug:
+                                print(f"[DEBUG] Fallback file: {fp} size={sz}")
+                        except Exception as e:
+                            if debug:
+                                print(f"[DEBUG] Error reading fallback file: {fp} err={e}")
+                            continue
+            if debug:
+                print(f"[DEBUG] Fallback size: {size}")
+            return f"Size {size / 1_000_000:.0f}mb (System {size / 1_000_000:.0f}mb + Shared 0mb)"
+    except Exception as e:
+        print(f"[DEBUG] Exception in _calculate_path_size_str: {e}")
+        return "Size 0mb (System 0mb + Shared 0mb)"
