@@ -24,25 +24,35 @@ from bpy.types import Operator, UIList
 from bpy.props import StringProperty, EnumProperty, BoolProperty
 
 from . import preferences # For ITEM_DEFINITIONS, BM_Preferences
-from . import utils # For get_addon_preferences
+from .preferences_utils import get_addon_preferences
 from . import core # For OT_BackupManager bl_idname
+from .path_stats import _calculate_path_age_str_combined, _calculate_path_size_str
+
+# --- Utility function for path normalization (for OT_OpenPathInExplorer and future use) ---
+def normalize_and_validate_path(path):
+    normalized_path = os.path.normpath(path)
+    if not os.path.exists(normalized_path):
+        return None, f"Path does not exist: {normalized_path}"
+    target_to_open = os.path.dirname(normalized_path) if os.path.isfile(normalized_path) else normalized_path
+    if not os.path.isdir(target_to_open):
+        return None, f"Cannot open: Not a valid directory: {target_to_open}"
+    return target_to_open, None
 
 # --- UIList definition ---
 class BM_UL_BackupItemsList(UIList):
     """UIList for displaying backup/restore items with enabled/shared toggles."""
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        prefs_for_list = active_data 
-        prop_enabled_name = f"{prefs_for_list.tabs.lower()}_{item.identifier}"
-        is_enabled = getattr(prefs_for_list, prop_enabled_name, False)
-        icon_enabled = 'CHECKBOX_HLT' if is_enabled else 'CHECKBOX_DEHLT'
-        is_shared = getattr(prefs_for_list, f"shared_{item.identifier}", False)
-        icon_shared = 'LINKED' if is_shared else 'UNLINKED'
+        prefs_for_list = active_data
+        toggles = [
+            (f"{prefs_for_list.tabs.lower()}_{item.identifier}", 'CHECKBOX_HLT', 'CHECKBOX_DEHLT'),
+            (f"shared_{item.identifier}", 'LINKED', 'UNLINKED')
+        ]
         item_row = layout.row(align=True)
-        item_row.prop(prefs_for_list, prop_enabled_name, text="", icon=icon_enabled, icon_only=True, emboss=False)
+        for prop_name, icon_true, icon_false in toggles:
+            is_set = getattr(prefs_for_list, prop_name, False)
+            icon_val = icon_true if is_set else icon_false
+            item_row.prop(prefs_for_list, prop_name, text="", icon=icon_val, icon_only=True, emboss=False)
         item_row.label(text=item.name)
-        shared_icon_container = item_row.row(align=True)
-        shared_icon_container.alignment = 'RIGHT'
-        shared_icon_container.prop(prefs_for_list, f"shared_{item.identifier}", text="", icon=icon_shared, icon_only=True, emboss=False)
 
 # --- UI Helper Operators ---
 class OT_OpenPathInExplorer(Operator):
@@ -54,24 +64,18 @@ class OT_OpenPathInExplorer(Operator):
     path_to_open: StringProperty(name="Path", description="The file or directory path to open")
 
     def execute(self, context):
-        # (Content of this operator is moved from preferences.py without changes)
-        # ... (implementation from preferences.py) ...
         if not self.path_to_open:
             self.report({'WARNING'}, "No path specified to open.")
             return {'CANCELLED'}
-        normalized_path = os.path.normpath(self.path_to_open)
-        if not os.path.exists(normalized_path):
-            self.report({'WARNING'}, f"Path does not exist: {normalized_path}")
+        target_to_open, error = normalize_and_validate_path(self.path_to_open)
+        if error:
+            self.report({'WARNING'}, error)
             return {'CANCELLED'}
         try:
-            target_to_open_in_explorer = os.path.dirname(normalized_path) if os.path.isfile(normalized_path) else normalized_path
-            if not os.path.isdir(target_to_open_in_explorer):
-                self.report({'WARNING'}, f"Cannot open: Not a valid directory: {target_to_open_in_explorer}")
-                return {'CANCELLED'}
-            bpy.ops.wm.path_open(filepath=target_to_open_in_explorer)
+            bpy.ops.wm.path_open(filepath=target_to_open)
             return {'FINISHED'}
         except Exception as e:
-            self.report({'ERROR'}, f"Could not open path '{normalized_path}': {e}")
+            self.report({'ERROR'}, f"Could not open path '{target_to_open}': {e}")
             return {'CANCELLED'}
 
 class OT_AbortOperation(Operator):
@@ -81,7 +85,7 @@ class OT_AbortOperation(Operator):
     bl_description = "Requests cancellation of the current operation"
 
     def execute(self, context):
-        prefs_instance = utils.get_addon_preferences()
+        prefs_instance = get_addon_preferences()
         prefs_instance.abort_operation_requested = True
         if prefs_instance.debug:
             print("DEBUG (ui): OT_AbortOperation executed, abort_operation_requested set to True.")
@@ -100,7 +104,7 @@ class OT_QuitBlenderNoSave(Operator):
         return True
 
     def invoke(self, context, event):
-        addon_prefs_instance = utils.get_addon_preferences()
+        addon_prefs_instance = get_addon_preferences()
         prefs_main = context.preferences
         if prefs_main and hasattr(prefs_main, 'use_preferences_save') and prefs_main.use_preferences_save:
             return context.window_manager.invoke_confirm(self, event)
@@ -108,7 +112,7 @@ class OT_QuitBlenderNoSave(Operator):
             return self.execute(context)
     
     def execute(self, context):
-        addon_prefs = utils.get_addon_preferences()
+        addon_prefs = get_addon_preferences()
         blender_exe = bpy.app.binary_path
         new_instance_launched_successfully = False
         if blender_exe and os.path.exists(blender_exe):
@@ -139,7 +143,7 @@ class OT_CloseReportDialog(Operator):
     bl_label = "Don't Quit Now"
     bl_options = {'INTERNAL'}
     def execute(self, context):
-        if utils.get_addon_preferences().debug:
+        if get_addon_preferences().debug:
             print("DEBUG (ui): OT_CloseReportDialog executed.")
         return {'FINISHED'}
 
@@ -188,7 +192,7 @@ class OT_BackupManagerWindow(Operator):
 
     def _update_window_tabs(self, context):
         if getattr(self, '_cancelled', False): return
-        prefs_instance = utils.get_addon_preferences()
+        prefs_instance = get_addon_preferences()
         if not prefs_instance: return
         if prefs_instance.tabs != self.tabs:
             if prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow._update_window_tabs: Updating prefs.tabs to {self.tabs}")
@@ -206,7 +210,7 @@ class OT_BackupManagerWindow(Operator):
     def _draw_path_age(self, layout, path_to_check, backup_path=None, system_id=None, version_name=None):
         """Draws the age string for a path, using the cache or robust versioned-folder logic."""
         if backup_path and system_id and version_name:
-            display_text = utils._calculate_path_age_str_combined(backup_path, system_id, version_name)
+            display_text = _calculate_path_age_str_combined(backup_path, system_id, version_name)
             layout.label(text=display_text)
             return
         if not path_to_check or not os.path.isdir(path_to_check):
@@ -218,7 +222,7 @@ class OT_BackupManagerWindow(Operator):
     def _draw_path_size(self, layout, path_to_check, backup_path=None, system_id=None, version_name=None):
         """Draws the size string for a path. Uses robust versioned folder logic if all args are provided."""
         if backup_path and system_id and version_name:
-            display_text = utils._calculate_path_size_str(None, backup_path, system_id, version_name)
+            display_text = _calculate_path_size_str(None, backup_path, system_id, version_name)
         elif path_to_check and os.path.isdir(path_to_check):
             display_text = preferences.BM_Preferences._size_cache.get(path_to_check, "Size: Calculating...")
         else:
@@ -333,7 +337,7 @@ class OT_BackupManagerWindow(Operator):
 
     def draw(self, context):
         layout = self.layout
-        prefs_instance = utils.get_addon_preferences()
+        prefs_instance = get_addon_preferences()
         if self._cancelled or not prefs_instance:
             layout.label(text="Window closing..."); return
 
@@ -348,22 +352,24 @@ class OT_BackupManagerWindow(Operator):
         settings_to_disable_group.enabled = not is_operation_running
         settings_to_disable_group.prop(prefs_instance, 'backup_path')
         settings_to_disable_group.prop(prefs_instance, 'show_path_details')
-        col_top.prop(prefs_instance, 'debug'); col_top.separator()   
+        settings_to_disable_group.prop(prefs_instance, 'debug')
+        col_top.separator()
 
+        # --- Debug Section ---
         if prefs_instance.debug:
-            box_system_paths_display = col_top.box(); col_system_paths_display = box_system_paths_display.column(align=True)
-            col_system_paths_display.label(text="Blender System Paths (Read-Only - Debug):")
+            debug_box = col_top.box()
+            debug_col = debug_box.column(align=True)
+            debug_col.enabled = not is_operation_running
+            debug_col.label(text="Blender System Paths (Read-Only - Debug):")
             blender_install_path = os.path.dirname(bpy.app.binary_path)
-            row_install = col_system_paths_display.row(align=True)
+            row_install = debug_col.row(align=True)
             row_install.label(text="Installation Path:")
-            op_install = row_install.operator(OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text="")
-            op_install.path_to_open = blender_install_path
-            col_system_paths_display.label(text=blender_install_path)
-            row_user_version_folder = col_system_paths_display.row(align=True)
+            op_install = row_install.operator(OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text=""); op_install.path_to_open = blender_install_path
+            debug_col.label(text=blender_install_path)
+            row_user_version_folder = debug_col.row(align=True)
             row_user_version_folder.label(text="User Version Folder:")
-            op_user_version_folder = row_user_version_folder.operator(OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text="")
-            op_user_version_folder.path_to_open = prefs_instance.blender_user_path
-            col_system_paths_display.label(text=prefs_instance.blender_user_path)
+            op_user_version_folder = row_user_version_folder.operator(OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text=""); op_user_version_folder.path_to_open = prefs_instance.blender_user_path
+            debug_col.label(text=prefs_instance.blender_user_path)
 
         prefs_main = context.preferences
         show_manual_save_button = not (prefs_main and hasattr(prefs_main, 'use_preferences_save') and prefs_main.use_preferences_save)
@@ -404,13 +410,13 @@ class OT_BackupManagerWindow(Operator):
             # Disable the item configuration box if an operation is running
             item_config_box.enabled = not is_operation_running
     def execute(self, context):
-        prefs_instance = utils.get_addon_preferences()
+        prefs_instance = get_addon_preferences()
         if prefs_instance and prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.execute() EXIT.")
         return {'FINISHED'}
 
     def invoke(self, context, event):
         self._cancelled = False
-        prefs_instance = utils.get_addon_preferences()
+        prefs_instance = get_addon_preferences()
         if not prefs_instance: return {'CANCELLED'}
         if prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.invoke() CALLED. Initializing tabs from prefs: {prefs_instance.tabs}")
         self.tabs = prefs_instance.tabs
@@ -421,7 +427,7 @@ class OT_BackupManagerWindow(Operator):
 
     def cancel(self, context):
         self._cancelled = True
-        prefs_instance = utils.get_addon_preferences()
+        prefs_instance = get_addon_preferences()
         if prefs_instance and prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.cancel() ENTER.")
         # No need to abort OT_BackupManager operation from here.
         if prefs_instance and prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.cancel() EXIT.")

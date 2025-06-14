@@ -21,10 +21,10 @@ from bpy.types import Context
 from datetime import datetime # Added for debug timestamps
 
 # --- Module Imports ---
-from . import utils
 from . import preferences
 from . import core
 from . import ui
+from .preferences_utils import get_addon_preferences
 
 bl_info = {
     "name": "Backup Manager",
@@ -46,7 +46,7 @@ def get_prefs_for_init():
     Directly retrieves the addon's preferences.
     Uses the centralized utility function.
     """
-    return utils.get_addon_preferences()
+    return get_addon_preferences()
 
 
 def menus_draw_fn(self, context: Context) -> None:

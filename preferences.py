@@ -24,6 +24,8 @@ from bpy.types import AddonPreferences
 from bpy.props import StringProperty, EnumProperty, BoolProperty, FloatProperty
 from bpy.props import FloatVectorProperty
 from . import utils # For helper functions like get_paths_for_details, _calculate_path_age_str, etc.
+from .preferences_utils import get_default_base_temp_dir, get_paths_for_details
+from .path_stats import _calculate_path_age_str, _calculate_path_size_str
 
 # ITEM_DEFINITIONS and BM_BackupItem moved here from core.py
 ITEM_DEFINITIONS = [
@@ -102,7 +104,7 @@ class BM_Preferences(AddonPreferences):
         if self.show_path_details:
             if self.debug:
                 print("DEBUG (prefs): _update_backup_path_and_versions: show_path_details is True, recalculating details.")
-            paths = utils.get_paths_for_details(self) # Use utils module
+            paths = get_paths_for_details(self) # Use preferences_utils module
             if self._update_path_details_for_paths(paths):
                 if context and hasattr(context, 'area') and context.area:
                     context.area.tag_redraw()
@@ -117,7 +119,7 @@ class BM_Preferences(AddonPreferences):
     
     # Calculate the initial default backup path safely ONCE when the class is defined.
     # This function call happens during module import / class definition.
-    _initial_default_backup_path = os.path.join(utils.get_default_base_temp_dir(), '!backupmanager')
+    _initial_default_backup_path = os.path.join(get_default_base_temp_dir(), '!backupmanager')
 
     backup_path: StringProperty(name="Backup Path", 
                                 description="Backup Location", 
@@ -169,13 +171,13 @@ class BM_Preferences(AddonPreferences):
 
         for path in paths_to_update:
             if self.debug: print(f"DEBUG: _update_path_details_for_paths: Processing '{path}'")
-            new_age_text = utils._calculate_path_age_str(path) # Use utils module
+            new_age_text = _calculate_path_age_str(path) # Use path_stats module
             if BM_Preferences._age_cache.get(path) != new_age_text:
                 BM_Preferences._age_cache[path] = new_age_text
                 cache_updated = True
                 if self.debug: print(f"DEBUG: _update_path_details_for_paths: Cached new age for '{path}'")
 
-            new_size_text = utils._calculate_path_size_str(path) # Use utils module
+            new_size_text = _calculate_path_size_str(path) # Use path_stats module
             if BM_Preferences._size_cache.get(path) != new_size_text:
                 BM_Preferences._size_cache[path] = new_size_text
                 cache_updated = True
@@ -191,7 +193,7 @@ class BM_Preferences(AddonPreferences):
             print(f"DEBUG: _on_show_path_details_changed called. self.show_path_details = {self.show_path_details}")
         if self.show_path_details:
             if self.debug: print("DEBUG: show_path_details enabled. Calculating details for current view.")
-            paths = utils.get_paths_for_details(self) # Use utils module
+            paths = get_paths_for_details(self) # Use preferences_utils module
             # Path list already printed by get_paths_for_details if debug is on
             # if self.debug: print(f"DEBUG: _on_show_path_details_changed: paths_to_update = {paths}")
             if self._update_path_details_for_paths(paths):
@@ -210,7 +212,7 @@ class BM_Preferences(AddonPreferences):
 
         if self.show_path_details:
             if self.debug: print("DEBUG: Version selection or custom version changed. Recalculating details for current view.")
-            paths = utils.get_paths_for_details(self) # Use utils module
+            paths = get_paths_for_details(self) # Use preferences_utils module
             # Path list already printed by get_paths_for_details if debug is on
             # if self.debug: print(f"DEBUG: _on_version_or_custom_changed: paths_to_update = {paths}")
             
@@ -455,5 +457,5 @@ class BM_Preferences(AddonPreferences):
         elif self.debug:
             print(f"DEBUG: draw_backup_size: Using cached value for '{path}': {display_text}")
         col.label(text=display_text)
-            
-        
+
+

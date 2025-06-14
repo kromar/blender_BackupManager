@@ -27,8 +27,12 @@ from datetime import datetime # Added for debug timestamps
 from bpy.types import Operator
 from bpy.props import StringProperty
 from . import preferences # For BM_Preferences, ITEM_DEFINITIONS
-from . import utils # For get_addon_preferences, find_versions
-from . import ui # For OT_ShowFinalReport, OT_QuitBlenderNoSave
+from .preferences_utils import get_addon_preferences, build_ignore_patterns
+from .constants import SHARED_FOLDER_NAME
+from .logger import debug
+from .version_utils import find_versions
+from . import ui
+
                 
 class OT_BackupManager(Operator):
     ''' run backup & restore '''
@@ -37,7 +41,6 @@ class OT_BackupManager(Operator):
     # bl_options = {'REGISTER'} # Removed, not typically needed for modal operators unless specific registration behavior is desired.
     
     button_input: StringProperty() # type: ignore
-    SHARED_FOLDER_NAME = "SharedConfigs" # Used for shared item backups
     
     # --- Modal operator state variables ---
     _timer = None
@@ -58,59 +61,54 @@ class OT_BackupManager(Operator):
     ignore_backup = []
     ignore_restore = []
     def create_ignore_pattern(self):
-        self.ignore_backup.clear()
-        self.ignore_restore.clear()
-        list = [x for x in regular_expression.split(',|\s+', utils.get_addon_preferences().ignore_files) if x!='']        
-        for item in list:
-            self.ignore_backup.append(item)
-            self.ignore_restore.append(item)
+        self.ignore_backup, self.ignore_restore = build_ignore_patterns(get_addon_preferences())
 
-        if not utils.get_addon_preferences().backup_bookmarks:
+        if not get_addon_preferences().backup_bookmarks:
             self.ignore_backup.append('bookmarks.txt')
-        if not utils.get_addon_preferences().restore_bookmarks:
-            self.ignore_restore.append('bookmarks.txt') # Use utils.get_addon_preferences()
-        if not utils.get_addon_preferences().backup_recentfiles:
+        if not get_addon_preferences().restore_bookmarks:
+            self.ignore_restore.append('bookmarks.txt') # Use get_addon_preferences()
+        if not get_addon_preferences().backup_recentfiles:
             self.ignore_backup.append('recent-files.txt')
-        if not utils.get_addon_preferences().restore_recentfiles:
-            self.ignore_restore.append('recent-files.txt') # Use utils.get_addon_preferences()
+        if not get_addon_preferences().restore_recentfiles:
+            self.ignore_restore.append('recent-files.txt') # Use get_addon_preferences()
 
-        if not utils.get_addon_preferences().backup_startup_blend:
+        if not get_addon_preferences().backup_startup_blend:
             self.ignore_backup.append('startup.blend')
-        if not utils.get_addon_preferences().restore_startup_blend:
-            self.ignore_restore.append('startup.blend') # Use utils.get_addon_preferences()
-        if not utils.get_addon_preferences().backup_userpref_blend:
+        if not get_addon_preferences().restore_startup_blend:
+            self.ignore_restore.append('startup.blend') # Use get_addon_preferences()
+        if not get_addon_preferences().backup_userpref_blend:
             self.ignore_backup.append('userpref.blend')
-        if not utils.get_addon_preferences().restore_userpref_blend:
-            self.ignore_restore.append('userpref.blend') # Use utils.get_addon_preferences()
-        if not utils.get_addon_preferences().backup_workspaces_blend:
+        if not get_addon_preferences().restore_userpref_blend:
+            self.ignore_restore.append('userpref.blend') # Use get_addon_preferences()
+        if not get_addon_preferences().backup_workspaces_blend:
             self.ignore_backup.append('workspaces.blend')
-        if not utils.get_addon_preferences().restore_workspaces_blend:
-            self.ignore_restore.append('workspaces.blend') # Use utils.get_addon_preferences()
+        if not get_addon_preferences().restore_workspaces_blend:
+            self.ignore_restore.append('workspaces.blend') # Use get_addon_preferences()
 
-        if not utils.get_addon_preferences().backup_cache:
+        if not get_addon_preferences().backup_cache:
             self.ignore_backup.append('cache')
-        if not utils.get_addon_preferences().restore_cache:
-            self.ignore_restore.append('cache') # Use utils.get_addon_preferences()
+        if not get_addon_preferences().restore_cache:
+            self.ignore_restore.append('cache') # Use get_addon_preferences()
 
-        if not utils.get_addon_preferences().backup_datafile:
+        if not get_addon_preferences().backup_datafile:
             self.ignore_backup.append('datafiles')
-        if not utils.get_addon_preferences().restore_datafile:
-            self.ignore_restore.append('datafiles') # Use utils.get_addon_preferences()
+        if not get_addon_preferences().restore_datafile:
+            self.ignore_restore.append('datafiles') # Use get_addon_preferences()
 
-        if not utils.get_addon_preferences().backup_addons:
+        if not get_addon_preferences().backup_addons:
             self.ignore_backup.append('addons')
-        if not utils.get_addon_preferences().restore_addons:
-            self.ignore_restore.append('addons') # Use utils.get_addon_preferences()
+        if not get_addon_preferences().restore_addons:
+            self.ignore_restore.append('addons') # Use get_addon_preferences()
             
-        if not utils.get_addon_preferences().backup_extensions:
+        if not get_addon_preferences().backup_extensions:
             self.ignore_backup.append('extensions')
-        if not utils.get_addon_preferences().restore_extensions:
+        if not get_addon_preferences().restore_extensions:
             self.ignore_restore.append('extensions')
 
-        if not utils.get_addon_preferences().backup_presets:
+        if not get_addon_preferences().backup_presets:
             self.ignore_backup.append('presets')
-        if not utils.get_addon_preferences().restore_presets:
-            self.ignore_restore.append('presets') # Use utils.get_addon_preferences()
+        if not get_addon_preferences().restore_presets:
+            self.ignore_restore.append('presets') # Use get_addon_preferences()
     
     def cancel(self, context):
         """Ensures timer and progress UI are cleaned up if the operator is cancelled externally."""
@@ -118,7 +116,7 @@ class OT_BackupManager(Operator):
         _debug_active = False # Default to False for safety during cancel
         prefs_instance_for_cancel = None
         try:
-            prefs_instance_for_cancel = utils.get_addon_preferences()
+            prefs_instance_for_cancel = get_addon_preferences()
             if prefs_instance_for_cancel:
                 _debug_active = prefs_instance_for_cancel.debug
         except Exception:
@@ -161,7 +159,7 @@ class OT_BackupManager(Operator):
     @staticmethod
     def _deferred_show_report_static(message_lines, title, icon, show_restart=False, restart_op_idname=""):
         from . import ui # Import ui locally
-        if utils.get_addon_preferences().debug: 
+        if get_addon_preferences().debug: 
             print(f"DEBUG: _deferred_show_report_static: Preparing to invoke bm.show_final_report. Title='{title}', ShowRestart={show_restart}, RestartOp='{restart_op_idname}'")
         ui.OT_ShowFinalReport.set_report_data(lines=message_lines, 
                                            title=title, 
@@ -191,7 +189,7 @@ class OT_BackupManager(Operator):
         if self.current_operation_type == 'BACKUP':
             backup_root = prefs_instance.backup_path
             if is_shared:
-                return os.path.join(backup_root, OT_BackupManager.SHARED_FOLDER_NAME, target_version_folder_name)
+                return os.path.join(backup_root, SHARED_FOLDER_NAME, target_version_folder_name)
             else: # Not shared, goes to normal backup location
                 return os.path.join(backup_root, prefs_instance.system_id, target_version_folder_name) 
         elif self.current_operation_type == 'RESTORE':
@@ -211,8 +209,7 @@ class OT_BackupManager(Operator):
             self.report({'WARNING'}, f"Source path does not exist or is not a directory: {self.current_source_path}")
             return False
 
-        prefs_instance = utils.get_addon_preferences()
-        self.create_ignore_pattern()
+        prefs_instance = get_addon_preferences()
         current_ignore_list = self.ignore_backup if self.current_operation_type == 'BACKUP' else self.ignore_restore
 
         # Determine the target version folder name for constructing destination paths (during backup)
@@ -291,7 +288,7 @@ class OT_BackupManager(Operator):
 
                 elif self.current_operation_type == 'RESTORE':
                     # For RESTORE, _prepare_file_list is (or should be) called by a helper that sets current_source_path.
-                    # The destination is always self.current_target_path (local Blender config).
+                    # The destination is always self.current_target_path (local Blender version).
                     # The path_segment_in_version is relative to the backup source (shared or non-shared).
                     dest_file = os.path.join(self.current_target_path, path_segment_in_version)
 
@@ -323,7 +320,7 @@ class OT_BackupManager(Operator):
         Returns {'RUNNING_MODAL'} if a new item is started modally,
         {'FINISHED'} if batch is complete or no items to process initially.
         """
-        pref_instance = utils.get_addon_preferences() # Get fresh preferences
+        pref_instance = get_addon_preferences() # Get fresh preferences
 
         if self.current_batch_item_index < self.total_batch_items:
             source_path, target_path, op_type, version_name = self.batch_operations_list[self.current_batch_item_index]
@@ -345,7 +342,7 @@ class OT_BackupManager(Operator):
                     except OSError as e:
                         fail_clean_msg = f"Failed to clean default path for {item_name_for_log} ({default_target_path_to_clean}): {e}"; print(f"ERROR: {fail_clean_msg}" if pref_instance.debug else ""); self.batch_report_lines.append(f"WARNING: {fail_clean_msg}")
                 # Clean shared target path for this batch item's version_name
-                shared_target_path_to_clean = os.path.join(pref_instance.backup_path, OT_BackupManager.SHARED_FOLDER_NAME, version_name)
+                shared_target_path_to_clean = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME, version_name)
                 if os.path.exists(shared_target_path_to_clean):
                     if pref_instance.debug: print(f"DEBUG: Batch Clean: Attempting to clean shared path for {item_name_for_log}: {shared_target_path_to_clean}")
                     # Similar try-except for shutil.rmtree(shared_target_path_to_clean)
@@ -369,9 +366,9 @@ class OT_BackupManager(Operator):
                     self.current_batch_item_index += 1
                     return self._process_next_batch_item_or_finish(context) # Try next
             elif self.current_operation_type == 'RESTORE':
-                # source_path from batch list is the non-shared backup location (e.g., .../backup_path/system_id/version_name)
+                # source_path from batch list is the non-shared backup location (e.g. .../backup_path/system_id/version_name)
                 non_shared_source_for_restore = source_path
-                shared_source_for_restore = os.path.join(pref_instance.backup_path, OT_BackupManager.SHARED_FOLDER_NAME, version_name)
+                shared_source_for_restore = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME, version_name)
                 # target_path from batch list is the ultimate local Blender config destination (e.g., .../Blender/version_name)
                 self.current_target_path = target_path # Set for _prepare_restore_files_from_source
 
@@ -447,7 +444,7 @@ class OT_BackupManager(Operator):
             return {'FINISHED'}
 
     def modal(self, context, event):
-        pref_instance = utils.get_addon_preferences() # Get fresh preferences
+        pref_instance = get_addon_preferences() # Get fresh preferences
         # Capture the state of the abort request flag at the beginning of this modal event
         was_aborted_by_ui_button = pref_instance.abort_operation_requested
         
@@ -649,7 +646,7 @@ class OT_BackupManager(Operator):
         system_specific_backup_was_missing: True if the corresponding system-specific backup path for this version was not found.
         Returns None. Modifies self.files_to_process in place.
         """
-        prefs_instance = utils.get_addon_preferences()
+        prefs_instance = get_addon_preferences()
         # self.ignore_restore should already be set by create_ignore_pattern() in execute()
         current_ignore_list = self.ignore_restore
 
@@ -717,7 +714,7 @@ class OT_BackupManager(Operator):
         # No return value needed, modifies self.files_to_process directly
 
     def execute(self, context): 
-        pref_instance = utils.get_addon_preferences()
+        pref_instance = get_addon_preferences()
         pref_backup_versions = preferences.BM_Preferences.backup_version_list
         pref_restore_versions = preferences.BM_Preferences.restore_version_list
 
@@ -797,11 +794,11 @@ class OT_BackupManager(Operator):
                                 if not pref_instance.dry_run: shutil.rmtree(default_target_to_clean)
                             except OSError as e: self.report({'WARNING'}, f"Failed to clean {default_target_to_clean}: {e}")
                         # Clean shared target path
-                        shared_target_to_clean = os.path.join(pref_instance.backup_path, OT_BackupManager.SHARED_FOLDER_NAME, version_to_clean_name)
+                        shared_target_to_clean = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME, version_to_clean_name)
                         if os.path.exists(shared_target_to_clean):
                             if pref_instance.debug: print(f"Attempting to clean shared backup path: {shared_target_to_clean}")
                             try:
-                                if not utils.get_addon_preferences().dry_run: shutil.rmtree(shared_target_to_clean)
+                                if not get_addon_preferences().dry_run: shutil.rmtree(shared_target_to_clean)
                             except OSError as e: self.report({'WARNING'}, f"Failed to clean {shared_target_to_clean}: {e}")
                     if not self._prepare_file_list(): return {'CANCELLED'} # Populates self.files_to_process for BACKUP
 
@@ -815,7 +812,7 @@ class OT_BackupManager(Operator):
                                                             version_name_for_operation, process_shared_state=False,
                                                             system_specific_backup_was_missing=False) # This flag is not relevant when scanning non-shared
                     # Shared source path
-                    shared_source_path = os.path.join(pref_instance.backup_path, OT_BackupManager.SHARED_FOLDER_NAME, version_name_for_operation)
+                    shared_source_path = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME, version_name_for_operation)
                     self._prepare_restore_files_from_source(context, shared_source_path, self.current_target_path, 
                                                             version_name_for_operation, process_shared_state=True,
                                                             system_specific_backup_was_missing=system_specific_backup_is_missing)
@@ -951,7 +948,7 @@ class OT_BackupManager(Operator):
 
                         # Also attempt to delete the corresponding shared path for that version
                         version_name_of_deleted = os.path.basename(target_path)
-                        shared_path_to_delete = os.path.join(pref_instance.backup_path, OT_BackupManager.SHARED_FOLDER_NAME, version_name_of_deleted)
+                        shared_path_to_delete = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME, version_name_of_deleted)
                         if os.path.exists(shared_path_to_delete):
                             if not pref_instance.dry_run:
                                 shutil.rmtree(shared_path_to_delete)
@@ -978,7 +975,7 @@ class OT_BackupManager(Operator):
                             lambda lines=[error_msg_line1, error_msg_line2]: OT_BackupManager._deferred_show_report_static(lines, "Delete Backup Error", 'ERROR'),
                             first_interval=0.01
                         )
-                        if utils.get_addon_preferences().debug: # Keep print for debug
+                        if get_addon_preferences().debug: # Keep print for debug
                             print(f"\n{action_verb} {target_path}: {e}")
                 else:
                     not_found_msg = f"Not found, nothing to delete: {target_path}"
@@ -1001,7 +998,7 @@ class OT_BackupManager(Operator):
                 if pref_instance.debug:
                     _fv1_start_sb = datetime.now()
                     print(f"DEBUG: execute SEARCH_BACKUP calling find_versions for blender_versions_parent_dir: {blender_versions_parent_dir}")
-                found_backup_versions = utils.find_versions(blender_versions_parent_dir) # Use utils
+                found_backup_versions = find_versions(blender_versions_parent_dir) # Use utils
                 if pref_instance.debug:
                     _fv1_end_sb = datetime.now()
                     print(f"DEBUG: (took: {(_fv1_end_sb - _fv1_start_sb).total_seconds():.6f}s) execute SEARCH_BACKUP find_versions for blender_versions_parent_dir DONE")
@@ -1010,7 +1007,7 @@ class OT_BackupManager(Operator):
 
                 # For restore_versions, search within the system_id folder in the backup_path
                 system_specific_backup_path = os.path.join(pref_instance.backup_path, pref_instance.system_id)
-                shared_backup_path = os.path.join(pref_instance.backup_path, OT_BackupManager.SHARED_FOLDER_NAME)
+                shared_backup_path = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME)
 
                 pref_restore_versions.clear()
                 
@@ -1021,12 +1018,12 @@ class OT_BackupManager(Operator):
 
                 # Scan system-specific backup path
                 if pref_instance.debug: print(f"DEBUG: execute SEARCH_BACKUP calling find_versions for system_specific_backup_path: {system_specific_backup_path}")
-                found_system_restore_versions = utils.find_versions(system_specific_backup_path)
+                found_system_restore_versions = find_versions(system_specific_backup_path)
                 if pref_instance.debug: print(f"DEBUG: execute SEARCH_BACKUP find_versions for system_specific_backup_path found: {len(found_system_restore_versions)}")
 
                 # Scan shared backup path
                 if pref_instance.debug: print(f"DEBUG: execute SEARCH_BACKUP calling find_versions for shared_backup_path: {shared_backup_path}")
-                found_shared_restore_versions = utils.find_versions(shared_backup_path)
+                found_shared_restore_versions = find_versions(shared_backup_path)
                 if pref_instance.debug: print(f"DEBUG: execute SEARCH_BACKUP find_versions for shared_backup_path found: {len(found_shared_restore_versions)}")
 
                 # pref_backup_versions (local Blender versions) should be populated at this point.
@@ -1053,7 +1050,7 @@ class OT_BackupManager(Operator):
 
                 # For restore_versions, search within the system_id folder in the backup_path
                 system_specific_backup_path = os.path.join(pref_instance.backup_path, pref_instance.system_id)
-                shared_backup_path = os.path.join(pref_instance.backup_path, OT_BackupManager.SHARED_FOLDER_NAME)
+                shared_backup_path = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME)
 
                 pref_restore_versions.clear()
                 
@@ -1066,13 +1063,13 @@ class OT_BackupManager(Operator):
 
                 # Scan system-specific backup path
                 if pref_instance.debug: print(f"DEBUG: execute SEARCH_RESTORE calling find_versions for system_specific_backup_path: {system_specific_backup_path}")
-                found_system_versions = utils.find_versions(system_specific_backup_path)
+                found_system_versions = find_versions(system_specific_backup_path)
                 all_found_restore_versions.extend(found_system_versions)
                 if pref_instance.debug: print(f"DEBUG: execute SEARCH_RESTORE find_versions for system_specific_backup_path found: {len(found_system_versions)}")
 
                 # Scan shared backup path
                 if pref_instance.debug: print(f"DEBUG: execute SEARCH_RESTORE calling find_versions for shared_backup_path: {shared_backup_path}")
-                found_shared_versions = utils.find_versions(shared_backup_path)
+                found_shared_versions = find_versions(shared_backup_path)
                 all_found_restore_versions.extend(found_shared_versions)
                 if pref_instance.debug: print(f"DEBUG: execute SEARCH_RESTORE find_versions for shared_backup_path found: {len(found_shared_versions)}")
                 
@@ -1089,7 +1086,7 @@ class OT_BackupManager(Operator):
                 if pref_instance.debug:
                     _fv2_start_sr = datetime.now()
                     print(f"DEBUG: execute SEARCH_RESTORE calling find_versions for blender_versions_parent_dir: {blender_versions_parent_dir}")
-                combined_backup_versions = utils.find_versions(blender_versions_parent_dir) + pref_restore_versions # Use utils
+                combined_backup_versions = find_versions(blender_versions_parent_dir) + pref_restore_versions # Use utils
                 if pref_instance.debug:
                     _fv2_end_sr = datetime.now()
                     print(f"DEBUG: (took: {(_fv2_end_sr - _fv2_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE find_versions for blender_versions_parent_dir DONE")
@@ -1119,4 +1116,4 @@ class OT_BackupManager(Operator):
         else:
             OT_BackupManager.ShowReport_static(["Specify a Backup Path"] , "Backup Path missing", 'ERROR')
         return {'FINISHED'}
-    
+
