@@ -28,7 +28,16 @@ from bpy.types import Operator
 from bpy.props import StringProperty
 from . import preferences # For BM_Preferences, ITEM_DEFINITIONS
 from .preferences_utils import get_addon_preferences, build_ignore_patterns
-from .constants import SHARED_FOLDER_NAME
+from .constants import (SHARED_FOLDER_NAME, 
+                        OPERATION_BACKUP,
+                        OPERATION_RESTORE,
+                        OPERATION_SEARCH_BACKUP,
+                        OPERATION_BATCH_BACKUP,
+                        OPERATION_BATCH_RESTORE,
+                        OPERATION_DELETE_ALL_BACKUPS, 
+                        OPERATION_DELETE_ALL_SHARED_BACKUPS, 
+                        OPERATION_DELETE_SELECTED_SHARED_BACKUP, 
+                        OPERATION_DELETE_SELECTED_BACKUP)
 from .logger import debug
 from .version_utils import find_versions
 from . import ui
@@ -37,8 +46,8 @@ from . import ui
 class OT_BackupManager(Operator):
     ''' run backup & restore '''
     bl_idname = "bm.run_backup_manager"
-    bl_label = "Blender Versions"     
-    # bl_options = {'REGISTER'} # Removed, not typically needed for modal operators unless specific registration behavior is desired.
+    bl_label = "Backup Manager Action"
+    bl_options = {'REGISTER'} # Needs to be registered for invoke_confirm and modal to work
     
     button_input: StringProperty() # type: ignore
     
@@ -57,6 +66,9 @@ class OT_BackupManager(Operator):
     current_batch_item_index: int = 0
     total_batch_items: int = 0
     batch_report_lines: list = [] # To accumulate reports from each sub-operation
+
+    # For confirmation dialogs
+    _confirm_message: str = "" 
 
     ignore_backup = []
     ignore_restore = []
@@ -186,13 +198,13 @@ class OT_BackupManager(Operator):
             if item_identifier_or_None in [item[0] for item in preferences.ITEM_DEFINITIONS]:
                  is_shared = getattr(prefs_instance, f"shared_{item_identifier_or_None}", False)
 
-        if self.current_operation_type == 'BACKUP':
+        if self.current_operation_type == OPERATION_BACKUP:
             backup_root = prefs_instance.backup_path
             if is_shared:
                 return os.path.join(backup_root, SHARED_FOLDER_NAME, target_version_folder_name)
             else: # Not shared, goes to normal backup location
                 return os.path.join(backup_root, prefs_instance.system_id, target_version_folder_name) 
-        elif self.current_operation_type == 'RESTORE':
+        elif self.current_operation_type == OPERATION_RESTORE:
             # Target is always the local Blender user path for that version.
             # self.current_target_path is already set to this in execute()
             # e.g., .../Blender/4.1 or .../Blender/target_backup_version_from_dropdown
@@ -210,11 +222,11 @@ class OT_BackupManager(Operator):
             return False
 
         prefs_instance = get_addon_preferences()
-        current_ignore_list = self.ignore_backup if self.current_operation_type == 'BACKUP' else self.ignore_restore
+        current_ignore_list = self.ignore_backup if self.current_operation_type == OPERATION_BACKUP else self.ignore_restore
 
         # Determine the target version folder name for constructing destination paths (during backup)
         version_name_for_path_construction = ""
-        if self.current_operation_type == 'BACKUP':
+        if self.current_operation_type == OPERATION_BACKUP:
             if self.is_batch_operation:
                 # For batch backup, the version name comes directly from the current batch item
                 if self.current_batch_item_index < len(self.batch_operations_list):
@@ -240,7 +252,7 @@ class OT_BackupManager(Operator):
             print(f"Source: {self.current_source_path}")
             print(f"Target: {self.current_target_path}")
             print(f"Ignore list: {current_ignore_list}")
-            if self.current_operation_type == 'BACKUP':
+            if self.current_operation_type == OPERATION_BACKUP:
                 print(f"Target version name for path construction: {version_name_for_path_construction}")
 
         for dirpath, dirnames, filenames in os.walk(self.current_source_path, topdown=True):
@@ -265,7 +277,7 @@ class OT_BackupManager(Operator):
                     path_segment_in_version = os.path.join(relative_dir_part, filename)
 
                 dest_file = ""
-                if self.current_operation_type == 'BACKUP':
+                if self.current_operation_type == OPERATION_BACKUP:
                     # Determine the item_identifier for this file to check its shared_status
                     effective_item_id_for_shared_check = None # Use preferences.ITEM_DEFINITIONS
                     if filename in [item[0] for item in preferences.ITEM_DEFINITIONS]:
@@ -330,7 +342,7 @@ class OT_BackupManager(Operator):
             self.current_operation_type = op_type # 'BACKUP' or 'RESTORE'
             item_name_for_log = version_name # Use the version name for logging
 
-            if pref_instance.clean_path and self.current_operation_type == 'BACKUP':
+            if pref_instance.clean_path and self.current_operation_type == OPERATION_BACKUP:
                 # Clean default target path for this batch item
                 default_target_path_to_clean = target_path # This is the .../system_id/version_name path for backup
                 if os.path.exists(default_target_path_to_clean):
@@ -353,7 +365,7 @@ class OT_BackupManager(Operator):
             # --- Prepare File List ---
             self.files_to_process.clear() # Always clear before preparing for a new item
 
-            if self.current_operation_type == 'BACKUP':
+            if self.current_operation_type == OPERATION_BACKUP:
                 self.current_source_path = source_path # Local Blender version
                 # For BACKUP, self.current_target_path is not directly used by _prepare_file_list in the same way.
                 # _get_destination_base_for_item uses version_name and backup_root to construct paths.
@@ -486,7 +498,7 @@ class OT_BackupManager(Operator):
                 # This block handles completion of an individual item (could be part of a batch or a single op)
                 completion_status_item = "Dry run complete" if pref_instance.dry_run else "Complete"
                 display_processed_count = min(self.processed_files_count, self.total_files)
-                version_name_for_item_report = os.path.basename(self.current_source_path) if self.current_operation_type == 'BACKUP' else os.path.basename(self.current_target_path)
+                version_name_for_item_report = os.path.basename(self.current_source_path) if self.current_operation_type == OPERATION_BACKUP else os.path.basename(self.current_target_path)
                 if self.is_batch_operation and self.current_batch_item_index < self.total_batch_items:
                      version_name_for_item_report = self.batch_operations_list[self.current_batch_item_index][3] # Get version_name
 
@@ -535,9 +547,9 @@ class OT_BackupManager(Operator):
                         _restart_op_idname_for_lambda = ui.OT_QuitBlenderNoSave.bl_idname # Set the idname string
 
                     report_icon = 'INFO' 
-                    if self.current_operation_type == 'BACKUP': report_icon = 'COLORSET_03_VEC'
-                    elif self.current_operation_type == 'RESTORE': report_icon = 'COLORSET_04_VEC'
-                    
+                    if self.current_operation_type == OPERATION_BACKUP: report_icon = 'COLORSET_03_VEC'
+                    elif self.current_operation_type == OPERATION_RESTORE: report_icon = 'COLORSET_04_VEC'
+
                     # Capture self.current_operation_type for the lambda
                     op_type_for_report_title = self.current_operation_type
                     
@@ -713,6 +725,29 @@ class OT_BackupManager(Operator):
                     self.files_to_process.append((src_file, dest_file))
         # No return value needed, modifies self.files_to_process directly
 
+    def invoke(self, context, event):
+        prefs_instance = get_addon_preferences()
+        if self.button_input in {OPERATION_DELETE_ALL_BACKUPS, 
+                                 OPERATION_DELETE_ALL_SHARED_BACKUPS, 
+                                 OPERATION_DELETE_SELECTED_BACKUP, 
+                                 OPERATION_DELETE_SELECTED_SHARED_BACKUP}:
+            confirm_message_lines = []
+            if self.button_input == OPERATION_DELETE_ALL_BACKUPS:
+                confirm_message_lines.append(f"Delete ALL system-specific backups for System ID: '{prefs_instance.system_id}'?")
+            elif self.button_input == OPERATION_DELETE_ALL_SHARED_BACKUPS:
+                confirm_message_lines.append(f"Delete ALL shared configuration backups from '{SHARED_FOLDER_NAME}'?")
+            elif self.button_input == OPERATION_DELETE_SELECTED_BACKUP:
+                confirm_message_lines.append("Delete the currently selected backup version?")
+            elif self.button_input == OPERATION_DELETE_SELECTED_SHARED_BACKUP:
+                confirm_message_lines.append("Delete the SHARED CONFIG part of the selected backup version?")
+            
+            confirm_message_lines.append("This action CANNOT be undone.")
+            if prefs_instance.dry_run:
+                 confirm_message_lines.append("\n(Dry Run - No files will actually be deleted)")
+            OT_BackupManager._confirm_message = "\n".join(confirm_message_lines)
+            return context.window_manager.invoke_confirm(self, event)
+        return self.execute(context)
+
     def execute(self, context): 
         pref_instance = get_addon_preferences()
         pref_backup_versions = preferences.BM_Preferences.backup_version_list
@@ -727,14 +762,14 @@ class OT_BackupManager(Operator):
             self.is_batch_operation = False # Reset for single ops
             self.create_ignore_pattern() # Initialize ignore lists based on current prefs
 
-            if self.button_input in {'BACKUP', 'RESTORE'}:
+            if self.button_input in { OPERATION_BACKUP, OPERATION_RESTORE }:
                 self.current_operation_type = self.button_input
                 version_name_for_operation = "" # e.g. "4.1" or "custom_name"
                 if not pref_instance.advanced_mode:            
-                    if self.button_input == 'BACKUP':
+                    if self.button_input == OPERATION_BACKUP:
                         self.current_source_path = pref_instance.blender_user_path # Local Blender version
                         self.current_target_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, str(pref_instance.active_blender_version)) # Backup location
-                    elif self.button_input == 'RESTORE':
+                    elif self.button_input == OPERATION_RESTORE:
                         # --- Temporarily disable 'Save on Quit' for RESTORE operation ---
                         prefs_main = context.preferences # Use bpy.context.preferences
                         if prefs_main and hasattr(prefs_main, 'use_preferences_save'):
@@ -750,14 +785,14 @@ class OT_BackupManager(Operator):
                         version_name_for_operation = str(pref_instance.active_blender_version)
 
                 else:    
-                    if self.button_input == 'BACKUP': # Advanced Mode Backup
+                    if self.button_input == OPERATION_BACKUP: # Advanced Mode Backup
                         self.current_source_path = os.path.join(os.path.dirname(pref_instance.blender_user_path),  pref_instance.backup_versions)
                         if pref_instance.custom_version_toggle:
                             self.current_target_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, str(pref_instance.custom_version))
                         else: 
                             # Target for backup is based on source version name (backup_versions)
                             self.current_target_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, pref_instance.backup_versions)
-                    elif self.button_input == 'RESTORE': # Advanced Mode Restore
+                    elif self.button_input == OPERATION_RESTORE: # Advanced Mode Restore
                         # --- Temporarily disable 'Save on Quit' for RESTORE operation (Advanced) ---
                         prefs_main = context.preferences # Use bpy.context.preferences
                         if prefs_main and hasattr(prefs_main, 'use_preferences_save'):
@@ -772,7 +807,7 @@ class OT_BackupManager(Operator):
                         self.current_target_path = os.path.join(os.path.dirname(pref_instance.blender_user_path),  pref_instance.backup_versions)
                         version_name_for_operation = pref_instance.restore_versions # This is the version name from backup list
 
-                if self.button_input == 'BACKUP':
+                if self.button_input == OPERATION_BACKUP:
                     if pref_instance.clean_path:
                         # Determine version name for cleaning backup paths
                         version_to_clean_name = ""
@@ -802,7 +837,7 @@ class OT_BackupManager(Operator):
                             except OSError as e: self.report({'WARNING'}, f"Failed to clean {shared_target_to_clean}: {e}")
                     if not self._prepare_file_list(): return {'CANCELLED'} # Populates self.files_to_process for BACKUP
 
-                elif self.button_input == 'RESTORE':
+                elif self.button_input == OPERATION_RESTORE:
                     # Non-shared source path
                     # System ID is always used for non-shared backups
                     non_shared_source_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, version_name_for_operation)
@@ -824,12 +859,12 @@ class OT_BackupManager(Operator):
                     
                     title_for_report = f"{self.current_operation_type.capitalize() if self.current_operation_type else 'Operation'} Report"
                     icon_for_report = 'INFO'
-                    if self.current_operation_type == 'BACKUP': icon_for_report = 'COLORSET_03_VEC'
-                    elif self.current_operation_type == 'RESTORE': icon_for_report = 'COLORSET_04_VEC'
+                    if self.current_operation_type == OPERATION_BACKUP: icon_for_report = 'COLORSET_03_VEC'
+                    elif self.current_operation_type == OPERATION_RESTORE: icon_for_report = 'COLORSET_04_VEC'
 
                     report_lines.append(f"No files found to {op_type_display} for version '{version_name_for_operation}'.")
 
-                    if self.current_operation_type == 'RESTORE':
+                    if self.current_operation_type == OPERATION_RESTORE:
                         # Provide specific feedback for RESTORE based on path existence
                         non_shared_exists = os.path.isdir(non_shared_source_path) # Defined earlier in RESTORE block
                         shared_exists = os.path.isdir(shared_source_path)       # Defined earlier in RESTORE block
@@ -875,8 +910,8 @@ class OT_BackupManager(Operator):
                 
                 context.window_manager.modal_handler_add(self)
                 return {'RUNNING_MODAL'}
-            
-            elif self.button_input == 'BATCH_BACKUP':
+
+            elif self.button_input == OPERATION_BATCH_BACKUP:
                 self.is_batch_operation = True
                 self.batch_operations_list.clear()
                 self.batch_report_lines.clear()
@@ -884,7 +919,7 @@ class OT_BackupManager(Operator):
                     version_name = version[0] # e.g., "4.1"
                     source_path = os.path.join(os.path.dirname(pref_instance.blender_user_path), version_name) # Local Blender version path
                     target_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, version_name) # Backup location
-                    self.batch_operations_list.append((source_path, target_path, 'BACKUP', version_name))
+                    self.batch_operations_list.append((source_path, target_path, OPERATION_BACKUP, version_name))
                 self.total_batch_items = len(self.batch_operations_list)
                 self.current_batch_item_index = 0
                 if not self.batch_operations_list: # Check if list is empty
@@ -894,7 +929,7 @@ class OT_BackupManager(Operator):
                 context.window_manager.modal_handler_add(self) # Add modal handler ONCE for the whole batch
                 return self._process_next_batch_item_or_finish(context)
 
-            elif self.button_input == 'BATCH_RESTORE':
+            elif self.button_input == OPERATION_BATCH_RESTORE:
                 # --- Temporarily disable 'Save on Quit' for BATCH_RESTORE operation ---
                 prefs_main = context.preferences # Use bpy.context.preferences
                 if prefs_main and hasattr(prefs_main, 'use_preferences_save'):
@@ -916,7 +951,7 @@ class OT_BackupManager(Operator):
                     # For BATCH_RESTORE, we also need to know if the system-specific source is missing for each item
                     # This info isn't directly stored in batch_operations_list but determined when processing the item.
                     # The source_path in batch_operations_list is the non-shared one.
-                    self.batch_operations_list.append((source_path, target_path, 'RESTORE', version_name)) 
+                    self.batch_operations_list.append((source_path, target_path, OPERATION_RESTORE, version_name)) 
 
                 self.total_batch_items = len(self.batch_operations_list)
                 self.current_batch_item_index = 0
@@ -928,7 +963,7 @@ class OT_BackupManager(Operator):
                 context.window_manager.modal_handler_add(self) # Add modal handler ONCE for the whole batch
                 return self._process_next_batch_item_or_finish(context)
 
-            elif self.button_input == 'DELETE_BACKUP':
+            elif self.button_input == OPERATION_DELETE_SELECTED_BACKUP:
                 if not pref_instance.advanced_mode:            
                     target_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, str(pref_instance.active_blender_version))
                 else:                                                 
@@ -946,16 +981,10 @@ class OT_BackupManager(Operator):
                         report_msg_line2 = target_path
                         final_report_lines = [report_msg_line1, report_msg_line2]
 
-                        # Also attempt to delete the corresponding shared path for that version
-                        version_name_of_deleted = os.path.basename(target_path)
-                        shared_path_to_delete = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME, version_name_of_deleted)
-                        if os.path.exists(shared_path_to_delete):
-                            if not pref_instance.dry_run:
-                                shutil.rmtree(shared_path_to_delete)
-                            final_report_lines.append(f"{action_verb} shared backup part:")
-                            final_report_lines.append(shared_path_to_delete)
-                            if pref_instance.debug or pref_instance.dry_run: print(f"{action_verb} Shared Backup Part: {shared_path_to_delete}")
-                        
+                        if pref_instance.dry_run:
+                            final_report_lines.append("(Dry Run - No actual deletion occurred)")
+                        final_report_lines.append("Note: Shared configuration for this version (if any) was not deleted.")
+
                         self.report({'INFO'}, " ".join(final_report_lines))
                         # This will call ui.OT_ShowFinalReport
                         bpy.app.timers.register(
@@ -985,7 +1014,111 @@ class OT_BackupManager(Operator):
                     if pref_instance.debug: # Keep print for debug
                         print(f"\nBackup to delete not found: {target_path}")
 
-            elif self.button_input == 'SEARCH_BACKUP':
+            elif self.button_input == OPERATION_DELETE_SELECTED_SHARED_BACKUP:
+                target_version_name_for_shared_delete = ""
+                if not pref_instance.advanced_mode:
+                    target_version_name_for_shared_delete = str(pref_instance.active_blender_version)
+                else:
+                    if pref_instance.custom_version_toggle:
+                        target_version_name_for_shared_delete = str(pref_instance.custom_version)
+                    else:
+                        target_version_name_for_shared_delete = pref_instance.restore_versions
+                
+                shared_path_to_delete = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME, target_version_name_for_shared_delete)
+                action_verb = "Would delete" if pref_instance.dry_run else "Deleted"
+                final_report_lines = []
+
+                if os.path.exists(shared_path_to_delete):
+                    try:
+                        if not pref_instance.dry_run:
+                            shutil.rmtree(shared_path_to_delete)
+                        final_report_lines.append(f"{action_verb} shared config for version '{target_version_name_for_shared_delete}':")
+                        final_report_lines.append(shared_path_to_delete)
+                        if pref_instance.dry_run:
+                            final_report_lines.append("(Dry Run - No actual deletion occurred)")
+                        self.report({'INFO'}, " ".join(final_report_lines))
+                        if pref_instance.debug or pref_instance.dry_run:
+                             print(f"\n{action_verb} Shared Config: {shared_path_to_delete}")
+                    except OSError as e:
+                        action_verb_fail = "Failed to (dry run) delete" if pref_instance.dry_run else "Failed to delete"
+                        final_report_lines.append(f"{action_verb_fail} shared config for '{target_version_name_for_shared_delete}': {shared_path_to_delete}")
+                        final_report_lines.append(str(e))
+                        self.report({'WARNING'}, " ".join(final_report_lines))
+                        if pref_instance.debug: print(f"\n{action_verb_fail} {shared_path_to_delete}: {e}")
+                else:
+                    final_report_lines.append(f"Shared config for version '{target_version_name_for_shared_delete}' not found, nothing to delete:")
+                    final_report_lines.append(shared_path_to_delete)
+                    self.report({'INFO'}, " ".join(final_report_lines))
+                    if pref_instance.debug: print(f"\nShared config to delete not found: {shared_path_to_delete}")
+
+                bpy.app.timers.register(
+                    lambda lines=final_report_lines: OT_BackupManager._deferred_show_report_static(lines, "Delete Selected Shared Config Report", 'TRASH'),
+                    first_interval=0.01
+                )
+            elif self.button_input == OPERATION_DELETE_ALL_BACKUPS:
+                base_path_to_delete = os.path.join(pref_instance.backup_path, pref_instance.system_id)
+                action_verb = "Would delete all in" if pref_instance.dry_run else "Deleted all in"
+                report_lines = [f"{action_verb} system backups folder: {base_path_to_delete}"]
+                deleted_count = 0
+                error_count = 0
+
+                if os.path.isdir(base_path_to_delete):
+                    for item_name in os.listdir(base_path_to_delete):
+                        item_path = os.path.join(base_path_to_delete, item_name)
+                        if os.path.isdir(item_path): # Only delete directories (version folders)
+                            try:
+                                if not pref_instance.dry_run:
+                                    shutil.rmtree(item_path)
+                                report_lines.append(f"  - {'Would remove' if pref_instance.dry_run else 'Removed'}: {item_name}")
+                                deleted_count +=1
+                            except OSError as e:
+                                report_lines.append(f"  - ERROR removing {item_name}: {e}")
+                                error_count += 1
+                else:
+                    report_lines.append("System backups folder not found. Nothing to delete.")
+                
+                if deleted_count == 0 and error_count == 0 and not os.path.isdir(base_path_to_delete):
+                    pass # Already handled by "not found"
+                elif deleted_count == 0 and error_count == 0:
+                     report_lines.append("No version folders found to delete.")
+
+                if pref_instance.dry_run: report_lines.append("(Dry Run - No actual deletions occurred)")
+                self.report({'INFO'}, f"System backups deletion: {deleted_count} removed, {error_count} errors.")
+                bpy.app.timers.register(lambda lines=report_lines: OT_BackupManager._deferred_show_report_static(lines, "Delete All System Backups Report", 'TRASH'),first_interval=0.01)
+
+            elif self.button_input == OPERATION_DELETE_ALL_SHARED_BACKUPS:
+                base_path_to_delete = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME)
+                action_verb = "Would delete all in" if pref_instance.dry_run else "Deleted all in"
+                report_lines = [f"{action_verb} shared configs folder: {base_path_to_delete}"]
+                deleted_count = 0
+                error_count = 0
+
+                if os.path.isdir(base_path_to_delete):
+                    for item_name in os.listdir(base_path_to_delete):
+                        item_path = os.path.join(base_path_to_delete, item_name)
+                        if os.path.isdir(item_path): # Only delete directories (version folders)
+                            try:
+                                if not pref_instance.dry_run:
+                                    shutil.rmtree(item_path)
+                                report_lines.append(f"  - {'Would remove' if pref_instance.dry_run else 'Removed'}: {item_name}")
+                                deleted_count += 1
+                            except OSError as e:
+                                report_lines.append(f"  - ERROR removing {item_name}: {e}")
+                                error_count += 1
+                else:
+                    report_lines.append("Shared configs folder not found. Nothing to delete.")
+
+                if deleted_count == 0 and error_count == 0 and not os.path.isdir(base_path_to_delete):
+                    pass
+                elif deleted_count == 0 and error_count == 0:
+                     report_lines.append("No version folders found to delete.")
+
+                if pref_instance.dry_run: report_lines.append("(Dry Run - No actual deletions occurred)")
+                self.report({'INFO'}, f"Shared configs deletion: {deleted_count} removed, {error_count} errors.")
+                bpy.app.timers.register(lambda lines=report_lines: OT_BackupManager._deferred_show_report_static(lines, "Delete All Shared Configs Report", 'TRASH'),first_interval=0.01)
+
+
+            elif self.button_input == OPERATION_SEARCH_BACKUP:
                 _search_start_sb = None
                 if pref_instance.debug:
                     _search_start_sb = datetime.now()
@@ -1117,3 +1250,11 @@ class OT_BackupManager(Operator):
             OT_BackupManager.ShowReport_static(["Specify a Backup Path"] , "Backup Path missing", 'ERROR')
         return {'FINISHED'}
 
+    # For the confirmation dialog
+    def draw(self, context):
+        layout = self.layout
+        if hasattr(OT_BackupManager, '_confirm_message') and OT_BackupManager._confirm_message:
+            for line in OT_BackupManager._confirm_message.split('\n'):
+                layout.label(text=line)
+        else: # Fallback if message not set
+            layout.label(text="Are you sure you want to proceed with this destructive operation?")

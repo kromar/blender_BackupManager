@@ -25,9 +25,10 @@ from bpy.props import StringProperty, EnumProperty, BoolProperty
 
 from . import preferences # For ITEM_DEFINITIONS, BM_Preferences
 from .preferences_utils import get_addon_preferences
-from . import core # For OT_BackupManager bl_idname
+from . import core # For OT_BackupManager bl_idname and constants
 from .path_stats import _calculate_path_age_str_combined, _calculate_path_size_str
-from blender_BackupManager.__init__ import bl_info
+import addon_utils
+import inspect
 
 # --- Utility function for path normalization (for OT_OpenPathInExplorer and future use) ---
 def normalize_and_validate_path(path):
@@ -185,7 +186,14 @@ class OT_ShowFinalReport(Operator):
 class OT_BackupManagerWindow(Operator):
     """Main window for the Backup Manager UI."""
     bl_idname = "bm.backup_manager_window"
-    version_str = '.'.join(str(v) for v in bl_info.get('version', []))
+    bl_info = None
+    this_file = os.path.abspath(inspect.getfile(inspect.currentframe()))
+    for mod in addon_utils.modules():
+        mod_file = os.path.abspath(getattr(mod, "__file__", ""))
+        if os.path.dirname(mod_file) == os.path.dirname(this_file) and hasattr(mod, "bl_info"):
+            bl_info = getattr(mod, "bl_info")
+            break
+    version_str = '.'.join(str(v) for v in bl_info.get('version', [])) if bl_info else "?"
     bl_label = f"Backup Manager v{version_str}"
     # (Content of this operator is moved from core.py, ensure utils.get_addon_preferences() and other new module paths are used)
     # ... (implementation from core.py, adapted for new structure) ...
@@ -279,9 +287,9 @@ class OT_BackupManagerWindow(Operator):
                     self._draw_path_size(col_to, None, prefs_instance.backup_path, prefs_instance.system_id, target_version)
                 col_to.prop(prefs_instance, 'restore_versions', text='Version' if prefs_instance.expand_version_selection else '', expand=prefs_instance.expand_version_selection)
         col_actions = row_main.column(); col_actions.scale_x = 0.9
-        col_actions.operator(core.OT_BackupManager.bl_idname, text="Backup Selected", icon='COLORSET_03_VEC').button_input = 'BACKUP'
+        col_actions.operator(core.OT_BackupManager.bl_idname, text="Backup Selected", icon='COLORSET_03_VEC').button_input = core.OPERATION_BACKUP
         if prefs_instance.advanced_mode:
-            col_actions.operator(core.OT_BackupManager.bl_idname, text="Backup All", icon='COLORSET_03_VEC').button_input = 'BATCH_BACKUP'
+            col_actions.operator(core.OT_BackupManager.bl_idname, text="Backup All", icon='COLORSET_03_VEC').button_input = core.OPERATION_BATCH_BACKUP
         col_actions.separator(factor=1.0)
         col_actions.prop(prefs_instance, 'dry_run')
         col_actions.prop(prefs_instance, 'clean_path')
@@ -290,7 +298,12 @@ class OT_BackupManagerWindow(Operator):
             col_actions.prop(prefs_instance, 'custom_version_toggle')
             col_actions.prop(prefs_instance, 'expand_version_selection')
             col_actions.separator(factor=1.0)
-            col_actions.operator(core.OT_BackupManager.bl_idname, text="Delete Selected Backup", icon='COLORSET_01_VEC').button_input = 'DELETE_BACKUP'
+            # Delete operations
+            delete_box = col_actions.box()
+            delete_box.operator(core.OT_BackupManager.bl_idname, text="Delete Selected Backup", icon='TRASH').button_input = core.OPERATION_DELETE_SELECTED_BACKUP
+            delete_box.operator(core.OT_BackupManager.bl_idname, text="Delete Selected Shared Backups", icon='TRASH').button_input = core.OPERATION_DELETE_SELECTED_SHARED_BACKUP
+            delete_box.operator(core.OT_BackupManager.bl_idname, text="Delete ALL Backups", icon='TRASH').button_input = core.OPERATION_DELETE_ALL_BACKUPS
+            delete_box.operator(core.OT_BackupManager.bl_idname, text="Delete ALL Shared Backups", icon='TRASH').button_input = core.OPERATION_DELETE_ALL_SHARED_BACKUPS
 
     def _draw_restore_tab(self, layout, context, prefs_instance):
         row_main  = layout.row(align=True)
@@ -329,13 +342,21 @@ class OT_BackupManagerWindow(Operator):
             col_to.prop(prefs_instance, 'backup_versions', text='Version' if prefs_instance.expand_version_selection else '', expand=prefs_instance.expand_version_selection)
 
         col_actions = row_main.column(); col_actions.scale_x = 0.9
-        col_actions.operator(core.OT_BackupManager.bl_idname, text="Restore Selected", icon='COLORSET_04_VEC').button_input = 'RESTORE'
+        col_actions.operator(core.OT_BackupManager.bl_idname, text="Restore Selected", icon='COLORSET_04_VEC').button_input = core.OPERATION_RESTORE
         if prefs_instance.advanced_mode:
-            col_actions.operator(core.OT_BackupManager.bl_idname, text="Restore All", icon='COLORSET_04_VEC').button_input = 'BATCH_RESTORE'
+            col_actions.operator(core.OT_BackupManager.bl_idname, text="Restore All", icon='COLORSET_04_VEC').button_input = core.OPERATION_BATCH_RESTORE
         col_actions.separator(factor=1.0)
         col_actions.prop(prefs_instance, 'dry_run'); col_actions.prop(prefs_instance, 'clean_path'); col_actions.prop(prefs_instance, 'advanced_mode')  
         if prefs_instance.advanced_mode:
             col_actions.prop(prefs_instance, 'expand_version_selection')
+            col_actions.separator(factor=1.0)
+            # Delete operations
+            delete_box = col_actions.box()
+            delete_box.operator(core.OT_BackupManager.bl_idname, text="Delete Selected Backup", icon='TRASH').button_input = core.OPERATION_DELETE_SELECTED_BACKUP
+            delete_box.operator(core.OT_BackupManager.bl_idname, text="Delete Selected Shared Backups", icon='TRASH').button_input = core.OPERATION_DELETE_SELECTED_SHARED_BACKUP
+            delete_box.operator(core.OT_BackupManager.bl_idname, text="Delete ALL Backups", icon='TRASH').button_input = core.OPERATION_DELETE_ALL_BACKUPS
+            delete_box.operator(core.OT_BackupManager.bl_idname, text="Delete ALL Shared Backups", icon='TRASH').button_input = core.OPERATION_DELETE_ALL_SHARED_BACKUPS
+
 
     def draw(self, context):
         layout = self.layout
@@ -353,6 +374,10 @@ class OT_BackupManagerWindow(Operator):
         settings_to_disable_group = col_top.column()
         settings_to_disable_group.enabled = not is_operation_running
         settings_to_disable_group.prop(prefs_instance, 'backup_path')
+
+        settings_to_disable_group.prop(prefs_instance, "backup_reminder")
+        if prefs_instance.backup_reminder:
+            settings_to_disable_group.prop(prefs_instance, "backup_reminder_duration")
         settings_to_disable_group.prop(prefs_instance, 'show_path_details')
         settings_to_disable_group.prop(prefs_instance, 'debug')
         col_top.separator()

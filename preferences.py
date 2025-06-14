@@ -22,7 +22,7 @@ from datetime import datetime
 import socket
 from bpy.types import AddonPreferences
 from bpy.props import StringProperty, EnumProperty, BoolProperty, FloatProperty
-from bpy.props import FloatVectorProperty
+from bpy.props import FloatVectorProperty, IntProperty
 from . import utils # For helper functions like get_paths_for_details, _calculate_path_age_str, etc.
 from .preferences_utils import get_default_base_temp_dir, get_paths_for_details
 from .path_stats import _calculate_path_age_str, _calculate_path_size_str
@@ -280,9 +280,25 @@ class BM_Preferences(AddonPreferences):
                              description="delete before backup", 
                              default=False) # default = False 
     
+    backup_reminder: BoolProperty(
+        name="Backup Reminder",
+        description="Show a top bar button to remind you to backup your files after the specified number of days",
+        default=True
+    )   
+
+    # --- Backup Reminder Threshold (in days) ---
+    backup_reminder_duration: IntProperty(
+        name="Backup Reminder Time (Days)",
+        description="Number of days after which the backup reminder will be shown",
+        default=30,
+        min=1,
+        soft_max=365,
+        subtype='TIME'
+    )
+
     def populate_backuplist(self, context):
         #if hasattr(self, 'debug') and self.debug: # Check if self has debug, might not always if context is weird
-            #print(f"DEBUG: populate_backuplist CALLED. Returning BM_Preferences.backup_version_list (len={len(BM_Preferences.backup_version_list)}): {BM_Preferences.backup_version_list}")
+            #print(f"DEBUG: populate_backuplist CALLED. Returning BM_Preferences.backup_version_list (len={len(BM_Preferences.backup_version_list)}): {BM_PPreferences.backup_version_list}")
         current_list = BM_Preferences.backup_version_list
         if not isinstance(current_list, list) or not all(isinstance(item, tuple) and len(item) == 3 for item in current_list if item): # Check list integrity
             print("ERROR: Backup Manager: BM_Preferences.backup_version_list is malformed in populate_backuplist. Returning default.")
@@ -301,7 +317,7 @@ class BM_Preferences(AddonPreferences):
     backup_cache: BoolProperty(name="cache", description="backup_cache", default=False)   # default = False      
     backup_bookmarks: BoolProperty(name="bookmarks", description="backup_bookmarks", default=True)   # default = True   
     backup_recentfiles: BoolProperty(name="recentfiles", description="backup_recentfiles", default=True)  # default = True
-    backup_startup_blend: BoolProperty( name="startup.blend", description="backup_startup_blend", default=True)  # default = True   
+    backup_startup_blend: BoolProperty( name="datafile", description="backup_datafile", default=True)  # default = True   
     backup_userpref_blend: BoolProperty(name="userpref.blend", description="backup_userpref_blend", default=True)  # default = True  
     backup_workspaces_blend: BoolProperty(name="workspaces.blend", description="backup_workspaces_blend", default=True)  # default = True 
     backup_datafile: BoolProperty( name="datafile", description="backup_datafile", default=True)  # default = True       
@@ -356,16 +372,6 @@ class BM_Preferences(AddonPreferences):
                                 subtype='FILE_NAME', 
                                 default='desktop.ini')
 
-    # Progress Bar Color Customization
-    override_progress_bar_color: BoolProperty(
-        name="Override Progress Bar Color",
-        description="Enable to use a custom color for the addon's progress bar",
-        default=False)
-    custom_progress_bar_color: FloatVectorProperty(
-        name="Custom Progress Bar Color",
-        description="Color for the addon's progress bar when override is enabled",
-        subtype='COLOR', size=4, default=(0.2, 0.8, 0.2, 1.0), # Default to a nice green (RGBA)
-        min=0.0, max=1.0)
 
     def _ensure_backup_items_populated(self):
         if not self.backup_items_collection: # Check if it's empty or not populated
@@ -428,13 +434,12 @@ class BM_Preferences(AddonPreferences):
             op_config_subfolder = row_config_subfolder.operator("bm.open_path_in_explorer", icon='FILEBROWSER', text=self.config_path)
             op_config_subfolder.path_to_open = self.config_path
 
+
+        # --- Backup Age Warning Option ---
         col_settings.separator()
-        col_settings.label(text="Progress Bar Appearance:")
-        row_override_color = col_settings.row(align=True)
-        row_override_color.prop(self, "override_progress_bar_color", text="Override Color", icon='COLOR')
-        if self.override_progress_bar_color:
-            row_custom_color = col_settings.row(align=True)
-            row_custom_color.prop(self, "custom_progress_bar_color", text="")
+        col_settings.prop(self, "backup_reminder")   
+        if self.backup_reminder:      
+            col_settings.prop(self, "backup_reminder_duration", slider=True)
 
     # The UIList for item configuration has been moved to the OT_BackupManagerWindow in core.py
     def draw_backup_age(self, col, path):       
@@ -457,5 +462,3 @@ class BM_Preferences(AddonPreferences):
         elif self.debug:
             print(f"DEBUG: draw_backup_size: Using cached value for '{path}': {display_text}")
         col.label(text=display_text)
-
-
