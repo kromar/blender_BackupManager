@@ -381,7 +381,7 @@ class BM_Preferences(AddonPreferences):
 
         # --- Main Operator Button ---
         layout.label(text="Backup Manager operations are now handled in a dedicated window.")
-        layout.operator("bm.open_backup_manager_window", text="Open Backup Manager Window", icon='DISK_DRIVE')
+        layout.operator("bm.backup_manager_window", text="Open Backup Manager Window", icon='DISK_DRIVE')
 
         layout.separator()
         

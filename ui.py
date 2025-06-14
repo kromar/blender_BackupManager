@@ -433,3 +433,13 @@ class OT_BackupManagerWindow(Operator):
         if prefs_instance and prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.cancel() ENTER.")
         # No need to abort OT_BackupManager operation from here.
         if prefs_instance and prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.cancel() EXIT.")
+
+class OT_OpenBackupManagerWindow(Operator):
+    """Open the Backup Manager main window from preferences."""
+    bl_idname = "bm.open_backup_manager_window"
+    bl_label = "Open Backup Manager Window"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        bpy.ops.bm.backup_manager_window('INVOKE_DEFAULT')
+        return {'FINISHED'}
