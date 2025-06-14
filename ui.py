@@ -27,6 +27,7 @@ from . import preferences # For ITEM_DEFINITIONS, BM_Preferences
 from .preferences_utils import get_addon_preferences
 from . import core # For OT_BackupManager bl_idname
 from .path_stats import _calculate_path_age_str_combined, _calculate_path_size_str
+from blender_BackupManager.__init__ import bl_info
 
 # --- Utility function for path normalization (for OT_OpenPathInExplorer and future use) ---
 def normalize_and_validate_path(path):
@@ -182,9 +183,10 @@ class OT_ShowFinalReport(Operator):
 
 # --- Main UI Window Operator ---
 class OT_BackupManagerWindow(Operator):
-    """Open the Backup Manager window."""
-    bl_idname = "bm.open_backup_manager_window" # This ID is referenced by preferences.py for the addon prefs button
-    bl_label = "Backup Manager"
+    """Main window for the Backup Manager UI."""
+    bl_idname = "bm.backup_manager_window"
+    version_str = '.'.join(str(v) for v in bl_info.get('version', []))
+    bl_label = f"Backup Manager v{version_str}"
     # (Content of this operator is moved from core.py, ensure utils.get_addon_preferences() and other new module paths are used)
     # ... (implementation from core.py, adapted for new structure) ...
     bl_options = {'REGISTER'}
