@@ -20,29 +20,6 @@ import bpy
 import os
 from datetime import datetime
 
-# For profiling purposes, if needed
-import subprocess
-import sys
-
-def ensure_pyinstrument_installed():
-    try:
-        import pyinstrument
-        return True
-    except ImportError:
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "pyinstrument"])
-            import pyinstrument
-            return True
-        except Exception as e:
-            print(f"Failed to install pyinstrument: {e}")
-            return False
-
-if ensure_pyinstrument_installed():
-    from pyinstrument import Profiler
-else:
-    Profiler = None
-
-
 
 def get_addon_preferences():
     """
