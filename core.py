@@ -42,7 +42,7 @@ from .constants import (SHARED_FOLDER_NAME,
 from .logger import debug
 from .version_utils import find_versions
 from . import ui
-
+from .debug_utils import get_prefs_and_debug
                 
 class OT_BackupManager(Operator):
     ''' run backup & restore '''
@@ -125,22 +125,14 @@ class OT_BackupManager(Operator):
     
     def cancel(self, context):
         """Ensures timer and progress UI are cleaned up if the operator is cancelled externally."""
-        # Use the robust prefs() function from core.py
-        _debug_active = False # Default to False for safety during cancel
-        prefs_instance_for_cancel = None
-        try:
-            prefs_instance_for_cancel = get_addon_preferences()
-            if prefs_instance_for_cancel:
-                _debug_active = prefs_instance_for_cancel.debug
-        except Exception:
-            pass # Ignore errors getting prefs during cancel, prioritize cleanup
+        prefs_instance_for_cancel, _debug_active = get_prefs_and_debug()
 
         if self._timer:
             try:
                 context.window_manager.event_timer_remove(self._timer)
-                if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): Timer removed.")
+                debug(f"DEBUG: OT_BackupManager.cancel(): Timer removed.")
             except Exception as e:
-                if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): Error removing timer: {e}")
+                debug(f"DEBUG: OT_BackupManager.cancel(): Error removing timer: {e}")
             self._timer = None
 
         # Reset UI state related to this operator's modal operation
@@ -153,22 +145,21 @@ class OT_BackupManager(Operator):
                 self.is_batch_operation = False # Reset batch flag
                 prefs_instance_for_cancel.operation_progress_value = 0.0 # Reset progress value
                 prefs_instance_for_cancel.abort_operation_requested = False # Reset this flag too
-                if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): show_operation_progress and abort_operation_requested reset.")
+                debug(f"DEBUG: OT_BackupManager.cancel(): show_operation_progress and abort_operation_requested reset.")
         except Exception as e:
-            if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): Error resetting preference flags: {e}")
+            debug(f"DEBUG: OT_BackupManager.cancel(): Error resetting preference flags: {e}")
         
         # Clean up progress if it was started
         if self._progress_started_on_wm:
             blender_version_for_cancel = getattr(bpy.app, 'version', (0, 0, 0))
-            if blender_version_for_cancel >= (4, 1, 0): # Check version for progress_end
+            if blender_version_for_cancel >= (4, 1, 0):
                 try:
                     context.window_manager.progress_end()
-                    if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): Progress ended.")
+                    debug(f"DEBUG: OT_BackupManager.cancel(): Progress ended.")
                 except Exception as e_prog_end:
-                    if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): Error ending progress: {e_prog_end}")
+                    debug(f"DEBUG: OT_BackupManager.cancel(): Error ending progress: {e_prog_end}")
             self._progress_started_on_wm = False        
-        
-        if _debug_active: print(f"DEBUG: OT_BackupManager.cancel() EXIT.")
+        debug(f"DEBUG: OT_BackupManager.cancel() EXIT.")
         # Blender expects cancel() to return None
 
 
@@ -192,8 +183,9 @@ class OT_BackupManager(Operator):
     @staticmethod
     def _deferred_show_report_static(message_lines, title, icon, show_restart=False, restart_op_idname=""):
         from . import ui # Import ui locally
-        if get_addon_preferences().debug: 
-            print(f"DEBUG: _deferred_show_report_static: Preparing to invoke bm.show_final_report. Title='{title}', ShowRestart={show_restart}, RestartOp='{restart_op_idname}'")
+        _, debug_flag = get_prefs_and_debug()
+        if debug_flag:
+            debug(f"DEBUG: _deferred_show_report_static: Preparing to invoke bm.show_final_report. Title='{title}', ShowRestart={show_restart}, RestartOp='{restart_op_idname}'")
         ui.OT_ShowFinalReport.set_report_data(lines=message_lines, 
                                            title=title, 
                                            icon=icon, 

@@ -28,6 +28,8 @@ from .preferences_utils import get_addon_preferences
 from . import core # For OT_BackupManager bl_idname and constants
 from .constants import SHARED_FOLDER_NAME # For constructing shared paths
 from .path_stats import _calculate_path_age_str_combined, _calculate_path_size_str
+from .debug_utils import get_prefs_and_debug
+from .logger import debug
 import addon_utils
 import inspect
 
@@ -155,8 +157,7 @@ class OT_AbortOperation(Operator):
     def execute(self, context):
         prefs_instance = get_addon_preferences()
         prefs_instance.abort_operation_requested = True
-        if prefs_instance.debug:
-            print("DEBUG (ui): OT_AbortOperation executed, abort_operation_requested set to True.")
+        debug("OT_AbortOperation executed, abort_operation_requested set to True.")
         return {'FINISHED'}
 
 class OT_QuitBlenderNoSave(Operator):
@@ -192,7 +193,7 @@ class OT_QuitBlenderNoSave(Operator):
                 subprocess.Popen(args, **kwargs)
                 new_instance_launched_successfully = True
             except Exception as e:
-                if addon_prefs.debug: print(f"ERROR (ui): OT_QuitBlenderNoSave: Failed to launch new Blender instance: {e}")
+                debug(f"ERROR (ui): OT_QuitBlenderNoSave: Failed to launch new Blender instance: {e}")
         bpy.ops.wm.quit_blender()
         return {'FINISHED'}
 
@@ -211,8 +212,7 @@ class OT_CloseReportDialog(Operator):
     bl_label = "Don't Quit Now"
     bl_options = {'INTERNAL'}
     def execute(self, context):
-        if get_addon_preferences().debug:
-            print("DEBUG (ui): OT_CloseReportDialog executed.")
+        debug("OT_CloseReportDialog executed.")
         return {'FINISHED'}
 
 class OT_ShowFinalReport(Operator):
@@ -271,7 +271,7 @@ class OT_BackupManagerWindow(Operator):
         prefs_instance = get_addon_preferences()
         if not prefs_instance: return
         if prefs_instance.tabs != self.tabs:
-            if prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow._update_window_tabs: Updating prefs.tabs to {self.tabs}")
+            debug(f"OT_BackupManagerWindow._update_window_tabs: Updating prefs.tabs to {self.tabs}")
             prefs_instance.tabs = self.tabs
 
     tabs: EnumProperty(
@@ -504,31 +504,31 @@ class OT_BackupManagerWindow(Operator):
 
     def execute(self, context):
         prefs_instance = get_addon_preferences()
-        if prefs_instance and prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.execute() EXIT.")
+        if prefs_instance and prefs_instance.debug: debug(f"OT_BackupManagerWindow.execute() EXIT.")
         return {'FINISHED'}
 
     def invoke(self, context, event):
         self._cancelled = False
         prefs_instance = get_addon_preferences()
         if not prefs_instance: return {'CANCELLED'}
-        if prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.invoke() CALLED. Initializing tabs from prefs: {prefs_instance.tabs}")
+        if prefs_instance.debug: debug(f"OT_BackupManagerWindow.invoke() CALLED. Initializing tabs from prefs: {prefs_instance.tabs}")
         self.tabs = prefs_instance.tabs
         # Only update/scan for versions if no operation is currently running
         # to prevent interrupting an active backup/restore modal.
         if not prefs_instance.show_operation_progress:
             prefs_instance._update_backup_path_and_versions(context) 
         elif prefs_instance.debug:
-            print(f"DEBUG (ui): OT_BackupManagerWindow.invoke(): Operation in progress, SKIPPING _update_backup_path_and_versions.")
+            debug(f"OT_BackupManagerWindow.invoke(): Operation in progress, SKIPPING _update_backup_path_and_versions.")
         result = context.window_manager.invoke_props_dialog(self, width=700)
-        if prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.invoke() EXIT. Result: {result}.")
+        if prefs_instance.debug: debug(f"OT_BackupManagerWindow.invoke() EXIT. Result: {result}.")
         return result
 
     def cancel(self, context):
         self._cancelled = True
         prefs_instance = get_addon_preferences()
-        if prefs_instance and prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.cancel() ENTER.")
+        if prefs_instance and prefs_instance.debug: debug(f"OT_BackupManagerWindow.cancel() ENTER.")
         # No need to abort OT_BackupManager operation from here.
-        if prefs_instance and prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.cancel() EXIT.")
+        if prefs_instance and prefs_instance.debug: debug(f"OT_BackupManagerWindow.cancel() EXIT.")
 
 class OT_OpenBackupManagerWindow(Operator):
     """Open the Backup Manager main window from preferences."""
