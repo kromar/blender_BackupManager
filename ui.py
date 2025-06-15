@@ -26,6 +26,7 @@ from bpy.props import StringProperty, EnumProperty, BoolProperty
 from . import preferences # For ITEM_DEFINITIONS, BM_Preferences
 from .preferences_utils import get_addon_preferences
 from . import core # For OT_BackupManager bl_idname and constants
+from .constants import SHARED_FOLDER_NAME # For constructing shared paths
 from .path_stats import _calculate_path_age_str_combined, _calculate_path_size_str
 import addon_utils
 import inspect
@@ -44,18 +45,73 @@ def normalize_and_validate_path(path):
 class BM_UL_BackupItemsList(UIList):
     """UIList for displaying backup/restore items with enabled/shared toggles."""
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        prefs_for_list = active_data
-        toggles = [
-            (f"{prefs_for_list.tabs.lower()}_{item.identifier}", 'CHECKBOX_HLT', 'CHECKBOX_DEHLT'),
-            (f"shared_{item.identifier}", 'LINKED', 'UNLINKED')
-        ]
+        prefs_instance = active_data  # This is the addon's preferences instance
         item_row = layout.row(align=True)
-        for prop_name, icon_true, icon_false in toggles:
-            is_set = getattr(prefs_for_list, prop_name, False)
-            icon_val = icon_true if is_set else icon_false
-            item_row.prop(prefs_for_list, prop_name, text="", icon=icon_val, icon_only=True, emboss=False)
-        item_row.label(text=item.name)
 
+        # 1. Draw "Enabled" toggle for the current operation (Backup/Restore)
+        enabled_prop_name = f"{prefs_instance.tabs.lower()}_{item.identifier}"
+        is_item_enabled_for_current_op = getattr(prefs_instance, enabled_prop_name, False)
+        enabled_icon = 'CHECKBOX_HLT' if is_item_enabled_for_current_op else 'CHECKBOX_DEHLT'
+        item_row.prop(prefs_instance, enabled_prop_name, text="", icon=enabled_icon, icon_only=True, emboss=False)
+
+        # 2. Draw Item Name
+        item_row.label(text=item.name)
+        # 3. Draw Path/Status Display (logic remains the same)
+        display_info_text = "Disabled" # Default
+
+        is_item_enabled_for_current_op = getattr(prefs_instance, f"{prefs_instance.tabs.lower()}_{item.identifier}", False)
+
+        if not prefs_instance.backup_path:
+            display_info_text = "Backup Path Not Set"
+        elif is_item_enabled_for_current_op:
+            version_name_for_display = ""
+            if prefs_instance.tabs == "BACKUP":
+                if not prefs_instance.advanced_mode:
+                    version_name_for_display = str(prefs_instance.active_blender_version)
+                else: # Advanced mode
+                    if prefs_instance.custom_version_toggle:
+                        version_name_for_display = str(prefs_instance.custom_version)
+                    else:
+                        # For advanced backup, target folder name is based on the selected source version
+                        version_name_for_display = prefs_instance.backup_versions
+            elif prefs_instance.tabs == core.OPERATION_RESTORE:
+                if not prefs_instance.advanced_mode:
+                    version_name_for_display = str(prefs_instance.active_blender_version)
+                else: # Advanced mode
+                    version_name_for_display = prefs_instance.restore_versions
+
+            if not version_name_for_display or version_name_for_display == "(NONE)":
+                display_info_text = "Version N/A"
+            else:
+                is_item_shared = getattr(prefs_instance, f"shared_{item.identifier}", False)
+                
+                path_parts = [prefs_instance.backup_path]
+                if is_item_shared:
+                    path_parts.append(SHARED_FOLDER_NAME)
+                else:
+                    path_parts.append(prefs_instance.system_id if prefs_instance.system_id else "") # Add system_id or empty if not set
+                path_parts.append(version_name_for_display)
+                path_parts.append(item.identifier)
+                
+                # Filter out any potentially empty crucial parts like backup_path itself
+                # os.path.join handles intermediate empty strings gracefully (e.g. empty system_id)
+                if prefs_instance.backup_path: # Ensure base backup path is present
+                    display_info_text = os.path.join(*path_parts)
+                else: # Should be caught by the initial check, but as a safeguard
+                    display_info_text = "Path Incomplete"
+        
+
+        item_row.separator(factor=0.1) # Separator before the path/status text
+        # Conditionally Draw "Shared" Toggle (if item is enabled for current op)
+        if is_item_enabled_for_current_op:
+            shared_prop_name = f"shared_{item.identifier}"
+            is_shared = getattr(prefs_instance, shared_prop_name, False)
+            shared_icon = 'NETWORK_DRIVE' if is_shared else 'RESTRICT_VIEW_OFF'
+            item_row.prop(prefs_instance, shared_prop_name, text="", icon=shared_icon, icon_only=True, emboss=True)
+
+        item_row.label(text=display_info_text)
+
+        
 # --- UI Helper Operators ---
 class OT_OpenPathInExplorer(Operator):
     """Operator to open a given path in the system's file explorer."""
@@ -215,7 +271,7 @@ class OT_BackupManagerWindow(Operator):
         default="BACKUP",
         update=_update_window_tabs
     )
-    show_item_configuration: BoolProperty(name="Configure Items", default=False)
+    show_item_configuration: BoolProperty(name="Item Backup Selection & Sharing", default=False)
 
     def _draw_path_age(self, layout, path_to_check, backup_path=None, system_id=None, version_name=None):
         """Draws the age string for a path, using the cache or robust versioned-folder logic."""
@@ -423,19 +479,19 @@ class OT_BackupManagerWindow(Operator):
         elif self.tabs == "RESTORE": self._draw_restore_tab(tab_content_box, context, prefs_instance)
             
         # --- Item Configuration Section ---
-        if prefs_instance.advanced_mode:
-            layout.separator()
-            item_config_box = layout.box()
-            item_config_box.prop(self, "show_item_configuration", icon="TRIA_DOWN" if self.show_item_configuration else "TRIA_RIGHT", icon_only=False, emboss=False)
-            if self.show_item_configuration:
-                prefs_instance._ensure_backup_items_populated()
-                item_config_box.template_list(
-                    "BM_UL_BackupItemsList", "",
-                    prefs_instance, "backup_items_collection",
-                    prefs_instance, "active_backup_item_index",
-                    rows=len(preferences.ITEM_DEFINITIONS) if len(preferences.ITEM_DEFINITIONS) <= 10 else 10)
-            # Disable the item configuration box if an operation is running
-            item_config_box.enabled = not is_operation_running
+        layout.separator()
+        item_config_box = layout.box()
+        item_config_box.prop(self, "show_item_configuration", icon="TRIA_DOWN" if self.show_item_configuration else "TRIA_RIGHT", icon_only=False, emboss=False)
+        if self.show_item_configuration:
+            prefs_instance._ensure_backup_items_populated() # Defined in preferences.py
+            item_config_box.template_list(
+                "BM_UL_BackupItemsList", "",
+                prefs_instance, "backup_items_collection",
+                prefs_instance, "active_backup_item_index",
+                rows=len(preferences.ITEM_DEFINITIONS) if len(preferences.ITEM_DEFINITIONS) <= 10 else 10)
+        # Disable the item configuration box if an operation is running
+        item_config_box.enabled = not is_operation_running
+
     def execute(self, context):
         prefs_instance = get_addon_preferences()
         if prefs_instance and prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.execute() EXIT.")
