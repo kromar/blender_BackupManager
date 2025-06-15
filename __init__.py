@@ -145,7 +145,8 @@ def topbar_warning_draw_fn(self, context: Context) -> None:
             system_exists = system_path and os.path.isdir(system_path)
             shared_exists = shared_path and os.path.isdir(shared_path)
 
-            if not system_exists and not shared_exists:
+            # Show missing if system-specific backup is missing, regardless of shared
+            if not system_exists:
                 backup_missing = True
                 show_backup_now = True
             else:
@@ -173,7 +174,8 @@ def topbar_warning_draw_fn(self, context: Context) -> None:
     import time
     if addon_prefs and getattr(addon_prefs, 'show_backup_complete', False):
         elapsed = time.time() - getattr(addon_prefs, 'backup_complete_time', 0)
-        print(f"DEBUG: topbar_warning_draw_fn: show_backup_complete={addon_prefs.show_backup_complete}, elapsed={elapsed:.2f}, backup_complete_time={getattr(addon_prefs, 'backup_complete_time', 0)}")
+        if _local_debug_active:
+            print(f"DEBUG: topbar_warning_draw_fn: show_backup_complete={addon_prefs.show_backup_complete}, elapsed={elapsed:.2f}, backup_complete_time={getattr(addon_prefs, 'backup_complete_time', 0)}")
         if elapsed < 10.0:
             layout.operator(ui.OT_BackupManagerWindow.bl_idname, text="Backup Complete!", icon='FILE_TICK')
             layout.separator(factor=0.5)

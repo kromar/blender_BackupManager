@@ -162,10 +162,19 @@ class OT_BackupManager(Operator):
 
     @staticmethod
     def ShowReport_static(message = [], title = "Message Box", icon = 'INFO'):
-        def draw(self_popup, context): # self_popup refers to the Menu instance for the popup
-            # This function is kept for direct calls, but deferred calls will use BM_MT_PopupMessage
-            for i in message:
-                self_popup.layout.label(text=i)
+        def draw(self_popup, context):
+            # Enhanced: visually prominent warning for delete actions
+            for idx, i in enumerate(message):
+                if idx == 0 and ("delete" in i.lower() or "cannot be undone" in i.lower()):
+                    self_popup.layout.label(text=i, icon='ERROR')
+                elif 'CANNOT be undone' in i:
+                    row = self_popup.layout.row()
+                    row.label(text=i, icon='CANCEL')
+                elif 'DELETE' in i or 'delete' in i:
+                    row = self_popup.layout.row()
+                    row.label(text=i, icon='TRASH')
+                else:
+                    self_popup.layout.label(text=i)
         bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
 
     @staticmethod
@@ -732,25 +741,7 @@ class OT_BackupManager(Operator):
 
     def invoke(self, context, event):
         prefs_instance = get_addon_preferences()
-        if self.button_input in {OPERATION_DELETE_ALL_BACKUPS, 
-                                 OPERATION_DELETE_ALL_SHARED_BACKUPS, 
-                                 OPERATION_DELETE_SELECTED_BACKUP, 
-                                 OPERATION_DELETE_SELECTED_SHARED_BACKUP}:
-            confirm_message_lines = []
-            if self.button_input == OPERATION_DELETE_ALL_BACKUPS:
-                confirm_message_lines.append(f"Delete ALL system-specific backups for System ID: '{prefs_instance.system_id}'?")
-            elif self.button_input == OPERATION_DELETE_ALL_SHARED_BACKUPS:
-                confirm_message_lines.append(f"Delete ALL shared configuration backups from '{SHARED_FOLDER_NAME}'?")
-            elif self.button_input == OPERATION_DELETE_SELECTED_BACKUP:
-                confirm_message_lines.append("Delete the currently selected backup version?")
-            elif self.button_input == OPERATION_DELETE_SELECTED_SHARED_BACKUP:
-                confirm_message_lines.append("Delete the SHARED CONFIG part of the selected backup version?")
-            
-            confirm_message_lines.append("This action CANNOT be undone.")
-            if prefs_instance.dry_run:
-                 confirm_message_lines.append("\n(Dry Run - No files will actually be deleted)")
-            OT_BackupManager._confirm_message = "\n".join(confirm_message_lines)
-            return context.window_manager.invoke_confirm(self, event)
+        # Remove confirmation popups: always execute directly
         return self.execute(context)
 
     def execute(self, context): 
@@ -1257,9 +1248,20 @@ class OT_BackupManager(Operator):
 
     # For the confirmation dialog
     def draw(self, context):
+        print("DEBUG: OT_BackupManager.draw called")  # Debug print
         layout = self.layout
         if hasattr(OT_BackupManager, '_confirm_message') and OT_BackupManager._confirm_message:
-            for line in OT_BackupManager._confirm_message.split('\n'):
-                layout.label(text=line)
+            for idx, line in enumerate(OT_BackupManager._confirm_message.split('\n')):
+                if idx == 0:
+                    # First line is usually the main warning
+                    layout.label(text=line, icon='ERROR')
+                elif 'CANNOT be undone' in line:
+                    row = layout.row()
+                    row.label(text=line, icon='CANCEL')
+                elif 'DELETE' in line or 'delete' in line:
+                    row = layout.row()
+                    row.label(text=line, icon='TRASH')
+                else:
+                    layout.label(text=line)
         else: # Fallback if message not set
-            layout.label(text="Are you sure you want to proceed with this destructive operation?")
+            layout.label(text="Are you sure you want to proceed with this destructive operation?", icon='ERROR')
