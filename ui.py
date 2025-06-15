@@ -430,9 +430,10 @@ class OT_BackupManagerWindow(Operator):
         if self._cancelled or not prefs_instance:
             layout.label(text="Window closing..."); return
 
-        # --- Prominent Header ---
-        header_row = layout.row(align=True)
+        # --- Prominent Header (left-aligned title, no X button) ---
+        header_row = layout.row(align=False)
         header_row.scale_y = 1.4
+        header_row.alignment = 'LEFT'
         header_row.label(text=self.bl_label, icon='DISK_DRIVE')
         layout.separator()
 
@@ -508,12 +509,6 @@ class OT_BackupManagerWindow(Operator):
         # Disable the item configuration box if an operation is running
         item_config_box.enabled = not is_operation_running
 
-        # --- Close Button ---
-        layout.separator()
-        row = layout.row()
-        row.alignment = 'RIGHT'
-        row.operator("wm.cancel_modal", text="Close", icon='CHECKMARK')
-
     def execute(self, context):
         prefs_instance = get_addon_preferences()
         if prefs_instance and prefs_instance.debug: debug(f"OT_BackupManagerWindow.execute() EXIT.")
@@ -535,8 +530,8 @@ class OT_BackupManagerWindow(Operator):
         return result
 
     def draw_buttons(self, context):
-        layout = self.layout
-        layout.operator("wm.cancel_modal", text="Close", icon='CHECKMARK')
+        # No-op for popup
+        pass
 
     def cancel(self, context):
         self._cancelled = True
@@ -544,13 +539,3 @@ class OT_BackupManagerWindow(Operator):
         if prefs_instance and prefs_instance.debug: debug(f"OT_BackupManagerWindow.cancel() ENTER.")
         # No need to abort OT_BackupManager operation from here.
         if prefs_instance and prefs_instance.debug: debug(f"OT_BackupManagerWindow.cancel() EXIT.")
-
-class OT_OpenBackupManagerWindow(Operator):
-    """Open the Backup Manager main window from preferences."""
-    bl_idname = "bm.open_backup_manager_window"
-    bl_label = "Open Backup Manager Window"
-    bl_options = {'INTERNAL'}
-
-    def execute(self, context):
-        bpy.ops.bm.backup_manager_window('INVOKE_DEFAULT')
-        return {'FINISHED'}
