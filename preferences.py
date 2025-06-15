@@ -240,8 +240,8 @@ class BM_Preferences(AddonPreferences):
     operation_progress_value: FloatProperty(
         default=0.0,
         min=0.0,
-        max=100.0,  # Back to 0-100 range
-        subtype='PERCENTAGE', # Back to PERCENTAGE subtype
+        max=100.0,
+        subtype='PERCENTAGE',
         options={'SKIP_SAVE'} # Internal: Progress value, should not persist.
     )
     operation_progress_message: StringProperty(

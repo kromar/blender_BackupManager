@@ -76,27 +76,28 @@ def _get_latest_backup_mtime(prefs):
 def topbar_warning_draw_fn(self, context: Context) -> None:
     """Draws the Backup Manager button in the TOPBAR header if needed."""
     layout = self.layout
-    # --- Debug flag retrieval (early, for use in this function) ---
+    addon_prefs = None
     _local_debug_active = False
-    _addon_prefs_for_debug_check = None # Renamed to avoid conflict if it remains None
+
     try:
-        # Try to get prefs once for debug flag and potential reuse
-        _addon_prefs_for_debug_check = get_prefs_for_init()
-        if _addon_prefs_for_debug_check and hasattr(_addon_prefs_for_debug_check, 'debug'):
-            _local_debug_active = _addon_prefs_for_debug_check.debug
-    except Exception:
-        # If prefs_func() fails here, _local_debug_active remains False.
-        # This is acceptable as we can't log debug messages without prefs.
-        pass
+        addon_prefs = get_prefs_for_init()
+        if addon_prefs and hasattr(addon_prefs, 'debug'):
+            _local_debug_active = addon_prefs.debug
+    except Exception as e_prefs_initial:
+        print(f"ERROR: Backup Manager: topbar_warning_draw_fn: Initial attempt to get preferences failed: {type(e_prefs_initial).__name__}: {e_prefs_initial}. Cannot proceed.")
+        return 
+
+    if addon_prefs is None:
+        print(f"ERROR: Backup Manager: topbar_warning_draw_fn: Addon preferences object is None. Cannot proceed.")
+        return
 
     if _local_debug_active:
-        print(f"DEBUG __init__.topbar_warning_draw_fn: Entered. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
+        print(f"DEBUG __init__.topbar_warning_draw_fn: Entered. Prefs {'obtained' if addon_prefs else 'NOT obtained'}. Debug: {_local_debug_active}. Time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
 
     # Ensure the ui module and the operator class are loaded
     if not hasattr(ui, 'OT_BackupManagerWindow'):
         if _local_debug_active: print("DEBUG __init__.topbar_warning_draw_fn: ui.OT_BackupManagerWindow missing. Skipping draw.")
         return
-
     op_idname = ui.OT_BackupManagerWindow.bl_idname
     # Check if the operator is actually registered and available in bpy.ops.bm
     if not hasattr(bpy.ops.bm, op_idname.split('.')[-1]):
@@ -104,29 +105,21 @@ def topbar_warning_draw_fn(self, context: Context) -> None:
         if _local_debug_active: print(f"DEBUG __init__.topbar_warning_draw_fn: Operator {op_idname} missing in bpy.ops.bm. Skipping draw.")
         return
 
-    # Try to get preferences to check operation status
-    # Reuse _addon_prefs_for_debug_check if it was successfully retrieved
-    addon_prefs = _addon_prefs_for_debug_check
-    if addon_prefs is None: # If it failed to fetch earlier or was None from the start
-        try:
-            addon_prefs = get_prefs_for_init()
-        except Exception as e_prefs_get:
-            if _local_debug_active:
-                print(f"ERROR __init__.topbar_warning_draw_fn: Exception getting addon_prefs: {e_prefs_get}. Cannot draw warning.")
-            # If prefs fail, we can't determine if a warning is needed.
-            if _local_debug_active: print(f"DEBUG __init__.topbar_warning_draw_fn: Exiting due to prefs error. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
-            return
+    # addon_prefs is already fetched and checked at the beginning of the function.
 
-    # --- Check if an operation is currently in progress ---
+    # --- Operation in Progress Indicator (PRIORITY) ---
     if addon_prefs and hasattr(addon_prefs, 'show_operation_progress') and addon_prefs.show_operation_progress:
-        # Operation is in progress, show a progress bar in the topbar
-        if getattr(addon_prefs, 'operation_progress_message', None):
-            layout.label(text=addon_prefs.operation_progress_message)
-        layout.prop(addon_prefs, "operation_progress_value", slider=True, text="Backup Progress")
-        layout.separator(factor=0.5) # Keep separator consistent
+        # Display a static "Backup in Progress..." message with a yellow icon
+        # This is similar to the File menu indicator.
+        # Make it an operator to open the window.
+        layout.operator(op_idname, text="Backup in Progress...", icon='COLORSET_09_VEC')
+        layout.separator(factor=0.5)
         if _local_debug_active:
-            print(f"DEBUG __init__.topbar_warning_draw_fn: Drawing progress bar. Progress: {getattr(addon_prefs, 'operation_progress_value', 0):.1f}%")
-        return # Do not show age warning if an operation is active
+            print(f"DEBUG __init__.topbar_warning_draw_fn: Drawing 'Backup in Progress...' indicator.")
+        return # If an operation is in progress, don't show other warnings from this function.
+    elif _local_debug_active: # This else corresponds to the "if show_operation_progress"
+        # Only log if debug is on and the condition was false.
+        print(f"DEBUG __init__.topbar_warning_draw_fn: Condition for 'Backup in Progress...' NOT met. Proceeding to age warning.")
 
         
     # --- Backup Age Warning Button Logic ---
@@ -176,63 +169,54 @@ def topbar_warning_draw_fn(self, context: Context) -> None:
 def file_menu_draw_fn(self, context: Context) -> None:
     """Draws the main Backup Manager button in the File menu."""
     layout = self.layout
+    addon_prefs = None
     _local_debug_active = False
-    _addon_prefs_for_debug_check = None
+
     try:
-        _addon_prefs_for_debug_check = get_prefs_for_init()
-        if _addon_prefs_for_debug_check and hasattr(_addon_prefs_for_debug_check, 'debug'):
-            _local_debug_active = _addon_prefs_for_debug_check.debug
-    except Exception:
-        pass
+        addon_prefs = get_prefs_for_init()
+        if addon_prefs and hasattr(addon_prefs, 'debug'):
+            _local_debug_active = addon_prefs.debug
+    except Exception as e_prefs_initial:
+        print(f"ERROR: Backup Manager: file_menu_draw_fn: Initial attempt to get preferences failed: {type(e_prefs_initial).__name__}: {e_prefs_initial}. Cannot proceed.")
+        # Draw a fallback item if prefs fail, as menu items are expected
+        layout.operator(ui.OT_BackupManagerWindow.bl_idname if hasattr(ui, 'OT_BackupManagerWindow') else "bm.backup_manager_window", text="Backup Manager (Prefs Error)", icon='DISK_DRIVE')
+        return
+
+    if addon_prefs is None:
+        print(f"ERROR: Backup Manager: file_menu_draw_fn: Addon preferences object is None. Cannot proceed.")
+        layout.operator(ui.OT_BackupManagerWindow.bl_idname if hasattr(ui, 'OT_BackupManagerWindow') else "bm.backup_manager_window", text="Backup Manager (Prefs Error)", icon='DISK_DRIVE')
+        return
 
     if _local_debug_active:
-        print(f"DEBUG __init__.file_menu_draw_fn: Entered. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
+        print(f"DEBUG __init__.file_menu_draw_fn: Entered. Prefs {'obtained' if addon_prefs else 'NOT obtained'}. Debug: {_local_debug_active}. Time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
 
     if not hasattr(ui, 'OT_BackupManagerWindow'):
         if _local_debug_active: print("DEBUG __init__.file_menu_draw_fn: ui.OT_BackupManagerWindow missing. Skipping draw.")
         return
-
     op_idname = ui.OT_BackupManagerWindow.bl_idname
     if not hasattr(bpy.ops.bm, op_idname.split('.')[-1]):
         if _local_debug_active: print(f"DEBUG __init__.file_menu_draw_fn: Operator {op_idname} missing in bpy.ops.bm. Skipping draw.")
         return
-
-    addon_prefs = _addon_prefs_for_debug_check
-    if addon_prefs is None:
-        try:
-            addon_prefs = get_prefs_for_init()
-        except Exception as e_prefs_get:
-            if _local_debug_active:
-                print(f"ERROR __init__.file_menu_draw_fn: Exception getting addon_prefs: {e_prefs_get}")
-            layout.operator(op_idname, text="Backup Manager (Prefs Error)", icon='DISK_DRIVE')
-            if _local_debug_active: print(f"DEBUG __init__.file_menu_draw_fn: Drew fallback operator due to prefs error. Exiting.")
-            return
         
     # --- Main Backup Manager Button ---
-    button_text = "Backup Manager"
-    button_icon = 'DISK_DRIVE'
-    
+    button_text = "Backup Manager" # Default text
+    button_icon = 'DISK_DRIVE'   # Default icon
+
     if addon_prefs and hasattr(addon_prefs, 'show_operation_progress') and addon_prefs.show_operation_progress:
         if _local_debug_active:
-            print("DEBUG __init__.file_menu_draw_fn: Condition MET. Setting text/icon to 'Backup in Progress...'.")
+            print("DEBUG __init__.file_menu_draw_fn: Operation in progress. Changing text/icon for File Menu operator.")
         button_text = "Backup in Progress..."
-        button_icon = 'COLORSET_09_VEC' # Icon indicating activity/warning
-    elif _local_debug_active: # Only print if debug is on and condition was false
-        print("DEBUG __init__.file_menu_draw_fn: Condition NOT MET for 'Backup in Progress...' state.")
+        button_icon = 'COLORSET_09_VEC' 
+    elif _local_debug_active:
+        print("DEBUG __init__.file_menu_draw_fn: No operation in progress. Standard File Menu operator.")
 
     try:
         layout.operator(op_idname, text=button_text, icon=button_icon)
-        if _local_debug_active:
-            print(f"DEBUG __init__.file_menu_draw_fn: Operator drawn with text='{button_text}', icon='{button_icon}'.")
-        layout.separator()
     except Exception as e:
-        print(f"ERROR: Backup Manager: topbar_header_draw_fn failed to draw operator '{op_idname}'. Exception: {type(e).__name__}: {e}")
+        print(f"ERROR: Backup Manager: file_menu_draw_fn failed to draw operator '{op_idname}'. Exception: {type(e).__name__}: {e}")
+    layout.separator() # Common separator after the label or operator
 
     if _local_debug_active:
-        print(f"DEBUG __init__.topbar_header_draw_fn: Exiting. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
-        print(f"ERROR: Backup Manager: file_menu_draw_fn failed to draw operator '{op_idname}'. Exception: {type(e).__name__}: {e}")
-    
-    if _local_debug_active: 
         print(f"DEBUG __init__.file_menu_draw_fn: Exiting.")
 
 # Register and unregister functions

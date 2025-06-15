@@ -151,7 +151,6 @@ class OT_BackupManager(Operator):
                 if self.is_batch_operation:
                     prefs_instance_for_cancel.operation_progress_message = f"Batch operation cancelled."
                 self.is_batch_operation = False # Reset batch flag
-
                 prefs_instance_for_cancel.operation_progress_value = 0.0 # Reset progress value
                 prefs_instance_for_cancel.abort_operation_requested = False # Reset this flag too
                 if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): show_operation_progress and abort_operation_requested reset.")
@@ -426,12 +425,12 @@ class OT_BackupManager(Operator):
             # Item has files, set up for modal processing
             # ... (existing code for setting up modal processing)
 
-            self.processed_files_count = 0 # Reset for the new item
             initial_message = f"Batch {self.current_operation_type} ({self.current_batch_item_index + 1}/{self.total_batch_items} - {item_name_for_log}): Starting... ({self.total_files} files)"
             self.report({'INFO'}, initial_message) # Report to Blender status bar
             pref_instance.show_operation_progress = True
             pref_instance.operation_progress_message = initial_message
             pref_instance.operation_progress_value = 0.0
+            self.processed_files_count = 0 # Reset for the new item
             
             if self._timer is None:
                 self._timer = context.window_manager.event_timer_add(0.1, window=context.window)
@@ -445,8 +444,9 @@ class OT_BackupManager(Operator):
             final_batch_message = f"Batch operation complete. Processed {self.total_batch_items} items."
             self.report({'INFO'}, final_batch_message)
             
-            report_title = "Batch Operation Report"
             overall_op_type = "Operation"
+            report_title = f"Batch {overall_op_type} Report" # Default title
+
             if self.batch_operations_list:
                  overall_op_type = self.batch_operations_list[0][2] # Get op_type from first item
                  report_title = f"Batch {overall_op_type.capitalize()} Report"
@@ -518,16 +518,17 @@ class OT_BackupManager(Operator):
                 cancel_message = f"{op_description} cancelled by user."
                 self.report({'WARNING'}, cancel_message)
                 bpy.app.timers.register(
-                    lambda: OT_BackupManager._deferred_show_report_static([cancel_message], "Operation Cancelled", "ERROR"), 
+                    # Pass necessary args to lambda
+                    lambda msg=cancel_message: OT_BackupManager._deferred_show_report_static([msg], "Operation Cancelled", "ERROR"), 
                     first_interval=0.01
                 ) # This will call ui.OT_ShowFinalReport
                 
-                pref_instance.operation_progress_message = cancel_message
-                pref_instance.operation_progress_value = 0.0 
-                pref_instance.show_operation_progress = False 
                 self.is_batch_operation = False # Ensure batch mode is exited
                 return {'CANCELLED'}
             else: # Operation completed successfully or no files to process
+                # This is the completion of an individual item (batch or single)
+                # For single operations, this is the final step.
+                # For batch, _process_next_batch_item_or_finish will handle overall batch completion.
                 # This block handles completion of an individual item (could be part of a batch or a single op)
                 completion_status_item = "Dry run complete" if pref_instance.dry_run else "Complete"
                 display_processed_count = min(self.processed_files_count, self.total_files)
@@ -548,7 +549,8 @@ class OT_BackupManager(Operator):
                     if result_next_item == {'RUNNING_MODAL'}:
                         # New item is set up, its timer is running. Modal loop continues.
                         return {'PASS_THROUGH'} 
-                    else: # {'FINISHED'} - batch fully complete
+                    else: # {'FINISHED'} - batch fully complete (or an error occurred preventing continuation)
+                        # _process_next_batch_item_or_finish already set show_operation_progress = False
                         # _process_next_batch_item_or_finish handled final report and prefs update
                         return {'FINISHED'}
                 else: # Single operation completed
@@ -610,23 +612,16 @@ class OT_BackupManager(Operator):
                 self._progress_started_on_wm = True
 
             if not self.files_to_process: 
+                # This case should ideally be caught by the check at the start of modal()
+                # but as a fallback, ensure progress is marked as complete.
+                pref_instance.operation_progress_value = 100.0
                 # This state (timer event but no files left) should lead to FINISHED immediately
-                if self.total_files > 0:
-                    current_progress_val = (self.processed_files_count / self.total_files) * 100.0
-                else:
-                    current_progress_val = 100.0
-                finalizing_msg = f"{self.current_operation_type}: {self.processed_files_count}/{self.total_files} files ({current_progress_val:.1f}%) - Finalizing..."
-                if self.is_batch_operation:
-                    version_name_finalize = self.batch_operations_list[self.current_batch_item_index][3] if self.current_batch_item_index < self.total_batch_items else "item"
-                    finalizing_msg = f"Batch {self.current_operation_type} ({self.current_batch_item_index + 1}/{self.total_batch_items} - {version_name_finalize}): Finalizing..."
-                pref_instance.operation_progress_message = finalizing_msg
-                pref_instance.operation_progress_value = current_progress_val
                 return {'FINISHED'}  # Immediately finish instead of waiting for another event
 
             # Process a batch of files
             for _ in range(preferences.BM_Preferences.FILES_PER_TICK_MODAL_OP):
                 if not self.files_to_process:
-                    break
+                    break # No more files in the current list for this item
                 src_file, dest_file = self.files_to_process.pop(0)
                 if not pref_instance.dry_run:
                     try:
@@ -663,12 +658,9 @@ class OT_BackupManager(Operator):
                 print(f"DEBUG: [{timestamp}] OT_BackupManager.modal() (TIMER) updated progress to: {pref_instance.operation_progress_value:.1f}%, Msg: '{pref_instance.operation_progress_message}'")
 
             # Force redraw of UI to show progress, including the Backup Manager window if it's open
-            for wm_window_iter_local in context.window_manager.windows: # Use different var name
-                for area_iter_local in wm_window_iter_local.screen.areas:
-                    area_iter_local.tag_redraw()
-                    # Force redraw of the topbar header if present
-                    if area_iter_local.type == 'TOPBAR':
-                        area_iter_local.tag_redraw()
+            for window_iter_local in context.window_manager.windows: # Use different var name
+                for area_iter_local in window_iter_local.screen.areas:
+                    area_iter_local.tag_redraw() # This already tags all areas, including TOPBAR
             if pref_instance.debug:
                 # This log can be very verbose, so it's commented out by default.
                 # print(f"DEBUG: OT_BackupManager.modal() (TIMER) tagged all areas for redraw at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}.")
@@ -902,8 +894,6 @@ class OT_BackupManager(Operator):
                         report_lines.append("(This was a Dry Run - no files would have been processed anyway).")
                     
                     self.report({'INFO'}, " ".join(report_lines))
-                    pref_instance.show_operation_progress = False # No modal progress needed
-                    pref_instance.operation_progress_message = report_lines[0] if report_lines else "Operation complete."
 
                     bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static(
                         report_lines[:], # Pass a copy
@@ -911,11 +901,10 @@ class OT_BackupManager(Operator):
                         icon_for_report
                     ), first_interval=0.01)
                     return {'FINISHED'}
-
+                
                 initial_message = f"Starting {self.current_operation_type}... ({self.total_files} files)"
                 self.report({'INFO'}, initial_message) # Report initial status to Blender status bar
-                
-                # Set preferences for the addon window's display
+                # Set preferences for the addon window's display and topbar indicator
                 pref_instance.show_operation_progress = True
                 pref_instance.operation_progress_message = initial_message # For the window label
                 pref_instance.operation_progress_value = 0.0 # Initialize progress value
@@ -940,6 +929,11 @@ class OT_BackupManager(Operator):
                     self.report({'INFO'}, "No items found for batch backup.")
                     self.is_batch_operation = False # Reset
                     return {'FINISHED'}
+                # Set initial progress for the batch operation
+                pref_instance.show_operation_progress = True
+                pref_instance.operation_progress_message = f"Starting Batch {OPERATION_BACKUP} ({self.total_batch_items} items)..."
+                pref_instance.operation_progress_value = 0.0
+
                 context.window_manager.modal_handler_add(self) # Add modal handler ONCE for the whole batch
                 return self._process_next_batch_item_or_finish(context)
 
@@ -974,6 +968,11 @@ class OT_BackupManager(Operator):
                     self.report({'INFO'}, "No items found for batch restore.")
                     self.is_batch_operation = False # Reset
                     return {'FINISHED'}
+                # Set initial progress for the batch operation
+                pref_instance.show_operation_progress = True
+                pref_instance.operation_progress_message = f"Starting Batch {OPERATION_RESTORE} ({self.total_batch_items} items)..."
+                pref_instance.operation_progress_value = 0.0
+
                 context.window_manager.modal_handler_add(self) # Add modal handler ONCE for the whole batch
                 return self._process_next_batch_item_or_finish(context)
 
@@ -1258,7 +1257,12 @@ class OT_BackupManager(Operator):
                 pref_backup_versions.sort(reverse=True)
                 if pref_instance.debug and _search_start_sr:
                     _search_end_sr = datetime.now()
-                    print(f"DEBUG: (took: {(_search_end_sr - _search_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE END")
+                    print(f"DEBUG: (took: {(_search_end_sr - _search_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE END")            
+            # After any search operation, ensure progress UI is reset if it was somehow active
+            if self.button_input.startswith("SEARCH_"):
+                pref_instance.show_operation_progress = False
+                pref_instance.operation_progress_message = "Search complete."
+                pref_instance.operation_progress_value = 0.0
 
         else:
             OT_BackupManager.ShowReport_static(["Specify a Backup Path"] , "Backup Path missing", 'ERROR')

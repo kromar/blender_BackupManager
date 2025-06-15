@@ -447,7 +447,12 @@ class OT_BackupManagerWindow(Operator):
         if not prefs_instance: return {'CANCELLED'}
         if prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.invoke() CALLED. Initializing tabs from prefs: {prefs_instance.tabs}")
         self.tabs = prefs_instance.tabs
-        prefs_instance._update_backup_path_and_versions(context) # Ensure initial scan
+        # Only update/scan for versions if no operation is currently running
+        # to prevent interrupting an active backup/restore modal.
+        if not prefs_instance.show_operation_progress:
+            prefs_instance._update_backup_path_and_versions(context) 
+        elif prefs_instance.debug:
+            print(f"DEBUG (ui): OT_BackupManagerWindow.invoke(): Operation in progress, SKIPPING _update_backup_path_and_versions.")
         result = context.window_manager.invoke_props_dialog(self, width=700)
         if prefs_instance.debug: print(f"DEBUG (ui): OT_BackupManagerWindow.invoke() EXIT. Result: {result}.")
         return result
