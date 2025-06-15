@@ -58,7 +58,7 @@ class OT_BackupManager(Operator):
     processed_files_count: int = 0
     current_source_path: str = ""
     current_target_path: str = ""
-    current_operation_type: str = "" # 'BACKUP' or 'RESTORE'
+    current_operation_type: str = "" # OPERATION_BACKUP or OPERATION_RESTORE
     _progress_started_on_wm: bool = False # True if Blender's WM progress has been started
     # --- Batch operation state variables ---
     is_batch_operation: bool = False
@@ -339,7 +339,7 @@ class OT_BackupManager(Operator):
             # For BACKUP, source_path is local Blender version, target_path is primary backup location (e.g. .../system_id/version_name)
             # For RESTORE, source_path is primary backup location (e.g. .../system_id/version_name), target_path is local Blender version
 
-            self.current_operation_type = op_type # 'BACKUP' or 'RESTORE'
+            self.current_operation_type = op_type # OPERATION_BACKUP or OPERATION_RESTORE
             item_name_for_log = version_name # Use the version name for logging
 
             if pref_instance.clean_path and self.current_operation_type == OPERATION_BACKUP:
@@ -412,7 +412,7 @@ class OT_BackupManager(Operator):
             pref_instance.operation_progress_value = 0.0
             
             if self._timer is None:
-                self._timer = context.window_manager.event_timer_add(0.0, window=context.window)
+                self._timer = context.window_manager.event_timer_add(0.1, window=context.window)
                 if pref_instance.debug: print(f"DEBUG: Batch: Timer ADDED for item {self.current_batch_item_index + 1} ('{item_name_for_log}')")
             # Modal handler should already be active from the initial execute call for the batch.
             return {'RUNNING_MODAL'} # Signal that an item is ready for modal processing
@@ -574,41 +574,43 @@ class OT_BackupManager(Operator):
 
 
         if event.type == 'TIMER':
+            # --- Blender 4.4+ Status Bar Progress Bar ---
+            blender_version = getattr(bpy.app, 'version', (0, 0, 0))
+            use_status_progress = blender_version >= (4, 4, 0)
+            wm = bpy.context.window_manager if use_status_progress else None
+            if use_status_progress and self.processed_files_count == 0 and self.total_files > 0:
+                wm.progress_begin(0, self.total_files)
+
             if not self.files_to_process: 
-                # This state (timer event but no files left) should lead to FINISHED via the top condition
-                # in the next event cycle. Update progress one last time for safety.
+                # This state (timer event but no files left) should lead to FINISHED immediately
                 if self.total_files > 0:
-                    # Ensure progress doesn't exceed 100% due to float inaccuracies
                     current_progress_val = (self.processed_files_count / self.total_files) * 100.0
-                else: # No files to begin with
+                else:
                     current_progress_val = 100.0
-                
                 finalizing_msg = f"{self.current_operation_type}: {self.processed_files_count}/{self.total_files} files ({current_progress_val:.1f}%) - Finalizing..."
                 if self.is_batch_operation:
                     version_name_finalize = self.batch_operations_list[self.current_batch_item_index][3] if self.current_batch_item_index < self.total_batch_items else "item"
                     finalizing_msg = f"Batch {self.current_operation_type} ({self.current_batch_item_index + 1}/{self.total_batch_items} - {version_name_finalize}): Finalizing..."
-
                 pref_instance.operation_progress_message = finalizing_msg
                 pref_instance.operation_progress_value = current_progress_val
-                return {'PASS_THROUGH'} # Keep modal running, next event will check completion
+                return {'FINISHED'}  # Immediately finish instead of waiting for another event
 
             # Process a batch of files
-            for _ in range(preferences.BM_Preferences.FILES_PER_TICK_MODAL_OP): # Use constant from preferences
+            for _ in range(preferences.BM_Preferences.FILES_PER_TICK_MODAL_OP):
                 if not self.files_to_process:
-                    break # No more files in the list for this tick
-
+                    break
                 src_file, dest_file = self.files_to_process.pop(0)
-
                 if not pref_instance.dry_run:
                     try:
                         os.makedirs(os.path.dirname(dest_file), exist_ok=True)
                         shutil.copy2(src_file, dest_file)
-                    except (OSError, shutil.Error) as e: # Catch more specific errors
+                    except (OSError, shutil.Error) as e:
                         print(f"Error copying {src_file} to {dest_file}: {e}")
-                        # Consider collecting errors for a summary report
-                
                 self.processed_files_count += 1
-                        
+                # Update status bar progress for Blender 4.4+
+                if use_status_progress:
+                    wm.progress_update(self.processed_files_count)
+
             # Update UI progress after processing the batch of files for this tick
             # Update progress after processing the batch
             if self.total_files > 0:
@@ -637,6 +639,9 @@ class OT_BackupManager(Operator):
             for wm_window_iter in context.window_manager.windows:
                 for area_iter in wm_window_iter.screen.areas:
                     area_iter.tag_redraw()
+                    # Force redraw of the topbar header if present
+                    if area_iter.type == 'TOPBAR':
+                        area_iter.tag_redraw()
             if pref_instance.debug:
                 # This log can be very verbose, so it's commented out by default.
                 # print(f"DEBUG: OT_BackupManager.modal() (TIMER) tagged all areas for redraw at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}.")
@@ -906,7 +911,7 @@ class OT_BackupManager(Operator):
                 pref_instance.operation_progress_message = initial_message # For the window label
                 pref_instance.operation_progress_value = 0.0 # Initialize progress value
                 
-                self._timer = context.window_manager.event_timer_add(0.0, window=context.window) # Adjusted interval
+                self._timer = context.window_manager.event_timer_add(0.1, window=context.window) # Adjusted interval
                 
                 context.window_manager.modal_handler_add(self)
                 return {'RUNNING_MODAL'}

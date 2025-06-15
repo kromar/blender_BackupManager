@@ -72,10 +72,8 @@ def _get_latest_backup_mtime(prefs):
                         continue
     return latest_mtime
 
-
-# This function will draw the "Backup Now!" warning button in the top bar header
 def topbar_warning_draw_fn(self, context: Context) -> None:
-    """Draws the Backup Manager 'Backup Now!' warning button in the TOPBAR header if needed."""
+    """Draws the Backup Manager button in the TOPBAR header if needed."""
     layout = self.layout
     # --- Debug flag retrieval (early, for use in this function) ---
     _local_debug_active = False
@@ -120,11 +118,13 @@ def topbar_warning_draw_fn(self, context: Context) -> None:
 
     # --- Check if an operation is currently in progress ---
     if addon_prefs and hasattr(addon_prefs, 'show_operation_progress') and addon_prefs.show_operation_progress:
-        # Operation is in progress, show a status button that opens the main window
-        layout.operator(ui.OT_BackupManagerWindow.bl_idname, text="Backup in Progress", icon='COLORSET_09_VEC')
+        # Operation is in progress, show a progress bar in the topbar
+        if getattr(addon_prefs, 'operation_progress_message', None):
+            layout.label(text=addon_prefs.operation_progress_message)
+        layout.prop(addon_prefs, "operation_progress_value", slider=True, text="Backup Progress")
         layout.separator(factor=0.5) # Keep separator consistent
         if _local_debug_active:
-            print(f"DEBUG __init__.topbar_warning_draw_fn: Drawing 'Backup Active...' button. Exiting. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
+            print(f"DEBUG __init__.topbar_warning_draw_fn: Drawing progress bar. Progress: {getattr(addon_prefs, 'operation_progress_value', 0):.1f}%")
         return # Do not show age warning if an operation is active
 
         
@@ -166,8 +166,19 @@ def topbar_warning_draw_fn(self, context: Context) -> None:
         elif backup_age_days is not None:
             label += f" (v{version_name} - {int(backup_age_days)}d old)"
         # Use the core.OT_BackupManager for the "Backup Now!" action
-        layout.operator(core.OT_BackupManager.bl_idname, text=label, icon='ERROR').button_input = 'BACKUP'
+        layout.operator(core.OT_BackupManager.bl_idname, text=label, icon='ERROR').button_input = core.OPERATION_BACKUP
         layout.separator(factor=0.5) # Smaller separator for header
+
+    # --- Show Backup Complete Button for 10 seconds after backup (PRIORITY) ---
+    import time
+    if addon_prefs and getattr(addon_prefs, 'show_backup_complete', False):
+        elapsed = time.time() - getattr(addon_prefs, 'backup_complete_time', 0)
+        print(f"DEBUG: topbar_warning_draw_fn: show_backup_complete={addon_prefs.show_backup_complete}, elapsed={elapsed:.2f}, backup_complete_time={getattr(addon_prefs, 'backup_complete_time', 0)}")
+        if elapsed < 10.0:
+            layout.operator(ui.OT_BackupManagerWindow.bl_idname, text="Backup Complete!", icon='FILE_TICK')
+            layout.separator(factor=0.5)
+            return  # Do not show other buttons if backup just completed
+        # No need to set show_backup_complete = False here; timer handles it
 
     if _local_debug_active:
         print(f"DEBUG __init__.topbar_warning_draw_fn: Exiting. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
@@ -214,11 +225,11 @@ def file_menu_draw_fn(self, context: Context) -> None:
     
     if addon_prefs and hasattr(addon_prefs, 'show_operation_progress') and addon_prefs.show_operation_progress:
         if _local_debug_active:
-            print("DEBUG __init__.file_menu_draw_fn: Condition MET. Setting text/icon to 'Backup in Progress'.")
-        button_text = "Backup in Progress"
+            print("DEBUG __init__.file_menu_draw_fn: Condition MET. Setting text/icon to 'Backup in Progress...'.")
+        button_text = "Backup in Progress..."
         button_icon = 'COLORSET_09_VEC' # Icon indicating activity/warning
     elif _local_debug_active: # Only print if debug is on and condition was false
-        print("DEBUG __init__.file_menu_draw_fn: Condition NOT MET for 'Backup in Progress' state.")
+        print("DEBUG __init__.file_menu_draw_fn: Condition NOT MET for 'Backup in Progress...' state.")
 
     try:
         layout.operator(op_idname, text=button_text, icon=button_icon)

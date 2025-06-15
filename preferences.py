@@ -298,7 +298,7 @@ class BM_Preferences(AddonPreferences):
 
     def populate_backuplist(self, context):
         #if hasattr(self, 'debug') and self.debug: # Check if self has debug, might not always if context is weird
-            #print(f"DEBUG: populate_backuplist CALLED. Returning BM_Preferences.backup_version_list (len={len(BM_Preferences.backup_version_list)}): {BM_PPreferences.backup_version_list}")
+            #print(f"DEBUG: populate_backuplist CALLED. Returning BM_Preferences.backup_version_list (len={len(BM_PReferences.backup_version_list)}): {BM_PReferences.backup_version_list}")
         current_list = BM_Preferences.backup_version_list
         if not isinstance(current_list, list) or not all(isinstance(item, tuple) and len(item) == 3 for item in current_list if item): # Check list integrity
             print("ERROR: Backup Manager: BM_Preferences.backup_version_list is malformed in populate_backuplist. Returning default.")
@@ -340,7 +340,7 @@ class BM_Preferences(AddonPreferences):
     # RESTORE      
     def populate_restorelist(self, context):
         #if hasattr(self, 'debug') and self.debug:
-            #print(f"DEBUG: populate_restorelist CALLED. Returning BM_Preferences.restore_version_list (len={len(BM_Preferences.restore_version_list)}): {BM_Preferences.restore_version_list}")
+            #print(f"DEBUG: populate_restorelist CALLED. Returning BM_Preferences.restore_version_list (len={len(BM_PReferences.restore_version_list)}): {BM_PReferences.restore_version_list}")
         current_list = BM_Preferences.restore_version_list
         if not isinstance(current_list, list) or not all(isinstance(item, tuple) and len(item) == 3 for item in current_list if item): # Check list integrity
             print("ERROR: Backup Manager: BM_Preferences.restore_version_list is malformed in populate_restorelist. Returning default.")
@@ -462,3 +462,16 @@ class BM_Preferences(AddonPreferences):
         elif self.debug:
             print(f"DEBUG: draw_backup_size: Using cached value for '{path}': {display_text}")
         col.label(text=display_text)
+
+    show_backup_complete: BoolProperty(
+        name="Show Backup Complete Button",
+        description="Show the backup complete button in the top bar for a short time after backup finishes.",
+        default=False,
+        options={'SKIP_SAVE'}
+    )
+    backup_complete_time: FloatProperty(
+        name="Backup Complete Timestamp",
+        description="Timestamp of when the backup completed (for transient UI display).",
+        default=0.0,
+        options={'SKIP_SAVE'}
+    )
