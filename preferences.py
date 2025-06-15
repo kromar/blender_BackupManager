@@ -462,16 +462,3 @@ class BM_Preferences(AddonPreferences):
         elif self.debug:
             print(f"DEBUG: draw_backup_size: Using cached value for '{path}': {display_text}")
         col.label(text=display_text)
-
-    show_backup_complete: BoolProperty(
-        name="Show Backup Complete Button",
-        description="Show the backup complete button in the top bar for a short time after backup finishes.",
-        default=False,
-        options={'SKIP_SAVE'}
-    )
-    backup_complete_time: FloatProperty(
-        name="Backup Complete Timestamp",
-        description="Timestamp of when the backup completed (for transient UI display).",
-        default=0.0,
-        options={'SKIP_SAVE'}
-    )

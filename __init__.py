@@ -18,6 +18,8 @@
 
 import bpy
 from bpy.types import Context
+import os
+import time
 from datetime import datetime # Added for debug timestamps
 
 # --- Module Imports ---
@@ -53,7 +55,6 @@ def _get_latest_backup_mtime(prefs):
     """
     Returns the latest backup modification time (as a timestamp) for the current system/version, or None if not found.
     """
-    import os
     backup_path = prefs.backup_path
     system_id = prefs.system_id
     version_name = str(prefs.active_blender_version)
@@ -133,7 +134,6 @@ def topbar_warning_draw_fn(self, context: Context) -> None:
     backup_age_days = None
     backup_missing = False
     if addon_prefs and hasattr(addon_prefs, 'backup_reminder_duration') and addon_prefs.backup_reminder:
-        import os
         backup_path = addon_prefs.backup_path
         system_id = addon_prefs.system_id
         version_name = str(addon_prefs.active_blender_version)
@@ -152,7 +152,6 @@ def topbar_warning_draw_fn(self, context: Context) -> None:
             else:
                 latest_mtime = _get_latest_backup_mtime(addon_prefs)
                 if latest_mtime is not None:
-                    import time # Local import
                     age_seconds = time.time() - latest_mtime
                     backup_age_days = age_seconds / 86400.0 # Seconds in a day
                     if backup_age_days > addon_prefs.backup_reminder_duration:
@@ -169,18 +168,6 @@ def topbar_warning_draw_fn(self, context: Context) -> None:
         # Use the core.OT_BackupManager for the "Backup Now!" action
         layout.operator(core.OT_BackupManager.bl_idname, text=label, icon='ERROR').button_input = core.OPERATION_BACKUP
         layout.separator(factor=0.5) # Smaller separator for header
-
-    # --- Show Backup Complete Button for 10 seconds after backup (PRIORITY) ---
-    import time
-    if addon_prefs and getattr(addon_prefs, 'show_backup_complete', False):
-        elapsed = time.time() - getattr(addon_prefs, 'backup_complete_time', 0)
-        if _local_debug_active:
-            print(f"DEBUG: topbar_warning_draw_fn: show_backup_complete={addon_prefs.show_backup_complete}, elapsed={elapsed:.2f}, backup_complete_time={getattr(addon_prefs, 'backup_complete_time', 0)}")
-        if elapsed < 10.0:
-            layout.operator(ui.OT_BackupManagerWindow.bl_idname, text="Backup Complete!", icon='FILE_TICK')
-            layout.separator(factor=0.5)
-            return  # Do not show other buttons if backup just completed
-        # No need to set show_backup_complete = False here; timer handles it
 
     if _local_debug_active:
         print(f"DEBUG __init__.topbar_warning_draw_fn: Exiting. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")

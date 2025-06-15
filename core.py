@@ -19,6 +19,7 @@
 
 import bpy
 import os
+import time
 import shutil
 import fnmatch # For pattern matching in ignore list
 import re as regular_expression
@@ -156,6 +157,18 @@ class OT_BackupManager(Operator):
                 if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): show_operation_progress and abort_operation_requested reset.")
         except Exception as e:
             if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): Error resetting preference flags: {e}")
+        
+        # Clean up progress if it was started
+        if self._progress_started_on_wm:
+            blender_version_for_cancel = getattr(bpy.app, 'version', (0, 0, 0))
+            if blender_version_for_cancel >= (4, 1, 0): # Check version for progress_end
+                try:
+                    context.window_manager.progress_end()
+                    if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): Progress ended.")
+                except Exception as e_prog_end:
+                    if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): Error ending progress: {e_prog_end}")
+            self._progress_started_on_wm = False        
+        
         if _debug_active: print(f"DEBUG: OT_BackupManager.cancel() EXIT.")
         # Blender expects cancel() to return None
 
@@ -458,6 +471,7 @@ class OT_BackupManager(Operator):
             pref_instance.operation_progress_message = final_batch_message
             pref_instance.operation_progress_value = 100.0
             pref_instance.abort_operation_requested = False # Reset abort flag
+
             
             if self._timer: # Clean up timer if it was from the last item
                 context.window_manager.event_timer_remove(self._timer)
@@ -468,6 +482,8 @@ class OT_BackupManager(Operator):
         pref_instance = get_addon_preferences() # Get fresh preferences
         # Capture the state of the abort request flag at the beginning of this modal event
         was_aborted_by_ui_button = pref_instance.abort_operation_requested
+        wm = context.window_manager # Store window manager for progress bar
+
         
         # Check for abort request first or ESC key
         # Or if all files are processed (files_to_process is empty AND processed_files_count matches total_files)
@@ -475,6 +491,14 @@ class OT_BackupManager(Operator):
         if was_aborted_by_ui_button or event.type == 'ESC' or \
            (not self.files_to_process and self.processed_files_count >= self.total_files and self.total_files > 0) or \
            (self.total_files == 0 and self.processed_files_count == 0): # Handles case of no files to process initially
+
+            # Clean up progress for the item that just finished/was cancelled
+            if self._progress_started_on_wm:
+                blender_version_modal_cleanup = getattr(bpy.app, 'version', (0, 0, 0))
+                if blender_version_modal_cleanup >= (4, 1, 0): # Check version for progress_end
+                    wm.progress_end()
+                self._progress_started_on_wm = False
+                if pref_instance.debug: print(f"DEBUG: OT_BackupManager.modal(): Progress ended for completed/cancelled item.")
 
             # Timer for the *just completed* item (or an item that had 0 files)
             if self._timer:
@@ -536,13 +560,6 @@ class OT_BackupManager(Operator):
                     ]
                     if self.current_source_path: report_message_lines.append(f"Source: {self.current_source_path}")
                     if self.current_target_path: report_message_lines.append(f"Target: {self.current_target_path}")
-
-                    report_message_lines = [
-                        f"{self.current_operation_type} {completion_status_item.lower()}.",
-                        f"{display_processed_count}/{self.total_files} files processed."
-                    ]
-                    if self.current_source_path: report_message_lines.append(f"Source: {self.current_source_path}")
-                    if self.current_target_path: report_message_lines.append(f"Target: {self.current_target_path}")
                     if pref_instance.dry_run and self.total_files > 0: 
                         report_message_lines.append("(Dry Run - No files were actually copied/deleted)")
 
@@ -585,10 +602,12 @@ class OT_BackupManager(Operator):
         if event.type == 'TIMER':
             # --- Blender 4.4+ Status Bar Progress Bar ---
             blender_version = getattr(bpy.app, 'version', (0, 0, 0))
-            use_status_progress = blender_version >= (4, 4, 0)
-            wm = bpy.context.window_manager if use_status_progress else None
-            if use_status_progress and self.processed_files_count == 0 and self.total_files > 0:
+            use_status_progress = blender_version >= (4, 1, 0)
+
+            # Start progress if it's the beginning of processing for this item and not already started
+            if use_status_progress and self.processed_files_count == 0 and self.total_files > 0 and not self._progress_started_on_wm:
                 wm.progress_begin(0, self.total_files)
+                self._progress_started_on_wm = True
 
             if not self.files_to_process: 
                 # This state (timer event but no files left) should lead to FINISHED immediately
@@ -614,14 +633,13 @@ class OT_BackupManager(Operator):
                         os.makedirs(os.path.dirname(dest_file), exist_ok=True)
                         shutil.copy2(src_file, dest_file)
                     except (OSError, shutil.Error) as e:
-                        print(f"Error copying {src_file} to {dest_file}: {e}")
+                        if pref_instance.debug: print(f"Error copying {src_file} to {dest_file}: {e}")
                 self.processed_files_count += 1
                 # Update status bar progress for Blender 4.4+
-                if use_status_progress:
+                if use_status_progress and self._progress_started_on_wm: # Check if progress has begun
                     wm.progress_update(self.processed_files_count)
 
             # Update UI progress after processing the batch of files for this tick
-            # Update progress after processing the batch
             if self.total_files > 0:
                 current_progress_val = (self.processed_files_count / self.total_files) * 100.0
             else: 
@@ -645,12 +663,12 @@ class OT_BackupManager(Operator):
                 print(f"DEBUG: [{timestamp}] OT_BackupManager.modal() (TIMER) updated progress to: {pref_instance.operation_progress_value:.1f}%, Msg: '{pref_instance.operation_progress_message}'")
 
             # Force redraw of UI to show progress, including the Backup Manager window if it's open
-            for wm_window_iter in context.window_manager.windows:
-                for area_iter in wm_window_iter.screen.areas:
-                    area_iter.tag_redraw()
+            for wm_window_iter_local in context.window_manager.windows: # Use different var name
+                for area_iter_local in wm_window_iter_local.screen.areas:
+                    area_iter_local.tag_redraw()
                     # Force redraw of the topbar header if present
-                    if area_iter.type == 'TOPBAR':
-                        area_iter.tag_redraw()
+                    if area_iter_local.type == 'TOPBAR':
+                        area_iter_local.tag_redraw()
             if pref_instance.debug:
                 # This log can be very verbose, so it's commented out by default.
                 # print(f"DEBUG: OT_BackupManager.modal() (TIMER) tagged all areas for redraw at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}.")
@@ -1265,3 +1283,5 @@ class OT_BackupManager(Operator):
                     layout.label(text=line)
         else: # Fallback if message not set
             layout.label(text="Are you sure you want to proceed with this destructive operation?", icon='ERROR')
+
+        # A draw method should implicitly return None, not {'FINISHED'}
