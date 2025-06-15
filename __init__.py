@@ -45,6 +45,15 @@ bl_info = {
 # Module-level list to keep track of classes registered by this addon instance.
 _registered_classes = []
 
+# --- Backup warning cache and next-check timestamp ---
+_backup_warning_cache = {
+    "show_backup_now": False,
+    "backup_missing": False,
+    "backup_age_days": None,
+    "version_name": "",
+}
+_next_backup_check_time = 0  # Timestamp for next allowed check
+
 def get_prefs_for_init():
     """
     Directly retrieves the addon's preferences.
@@ -74,6 +83,57 @@ def _get_latest_backup_mtime(prefs):
                     except Exception:
                         continue
     return latest_mtime
+
+def update_backup_warning_cache(force=False):
+    """
+    Updates the backup warning cache if the reminder duration has expired or if forced.
+    """
+    global _backup_warning_cache, _next_backup_check_time
+    now = time.time()
+    if not force and now < _next_backup_check_time:
+        return  # Not time to check yet
+
+    show_backup_now = False
+    backup_missing = False
+    backup_age_days = None
+    version_name = ""
+    next_check_in = 86400  # Default: check again in 1 day if something goes wrong
+
+    try:
+        prefs_instance = get_prefs_for_init()
+        if prefs_instance and hasattr(prefs_instance, 'backup_reminder_duration') and prefs_instance.backup_reminder:
+            backup_path = prefs_instance.backup_path
+            system_id = prefs_instance.system_id
+            version_name = str(prefs_instance.active_blender_version)
+            if backup_path:
+                system_path = os.path.join(backup_path, system_id, version_name) if system_id else None
+                system_exists = system_path and os.path.isdir(system_path)
+                if not system_exists:
+                    backup_missing = True
+                    show_backup_now = True
+                    next_check_in = 3600  # Check again in 1 hour if missing
+                else:
+                    latest_mtime = _get_latest_backup_mtime(prefs_instance)
+                    if latest_mtime is not None:
+                        age_seconds = now - latest_mtime
+                        backup_age_days = age_seconds / 86400.0
+                        if backup_age_days > prefs_instance.backup_reminder_duration:
+                            show_backup_now = True
+                            next_check_in = 3600  # Check again in 1 hour if overdue
+                        else:
+                            # Next check: when the duration will be exceeded
+                            seconds_until_due = (prefs_instance.backup_reminder_duration * 86400) - age_seconds
+                            next_check_in = max(60, seconds_until_due)  # At least 1 minute
+    except Exception as e:
+        debug(f"ERROR: Could not update backup warning cache: {e}")
+
+    _backup_warning_cache = {
+        "show_backup_now": show_backup_now,
+        "backup_missing": backup_missing,
+        "backup_age_days": backup_age_days,
+        "version_name": version_name,
+    }
+    _next_backup_check_time = now + next_check_in
 
 def topbar_warning_draw_fn(self, context: Context) -> None:
     """Draws the Backup Manager button in the TOPBAR header if needed."""
@@ -105,40 +165,19 @@ def topbar_warning_draw_fn(self, context: Context) -> None:
     else:
         debug(f"DEBUG __init__.topbar_warning_draw_fn: Condition for 'Backup in Progress...' NOT met. Proceeding to age warning.")
 
-    # --- Backup Age Warning Button Logic ---
-    show_backup_now = False
-    backup_age_days = None
-    backup_missing = False
-    if addon_prefs and hasattr(addon_prefs, 'backup_reminder_duration') and addon_prefs.backup_reminder:
-        backup_path = addon_prefs.backup_path
-        system_id = addon_prefs.system_id
-        version_name = str(addon_prefs.active_blender_version)
+    # --- Backup Age Warning Button Logic (use cache, update only if needed) ---
+    update_backup_warning_cache()  # Will only update if time has come
 
-        if backup_path: # Ensure backup_path is set
-            system_path = os.path.join(backup_path, system_id, version_name) if system_id else None
-            shared_path = os.path.join(backup_path, 'SharedConfigs', version_name)
-
-            system_exists = system_path and os.path.isdir(system_path)
-            shared_exists = shared_path and os.path.isdir(shared_path)
-
-            # Show missing if system-specific backup is missing, regardless of shared
-            if not system_exists:
-                backup_missing = True
-                show_backup_now = True
-            else:
-                latest_mtime = _get_latest_backup_mtime(addon_prefs)
-                if latest_mtime is not None:
-                    age_seconds = time.time() - latest_mtime
-                    backup_age_days = age_seconds / 86400.0 # Seconds in a day
-                    if backup_age_days > addon_prefs.backup_reminder_duration:
-                        show_backup_now = True
-        else:
-            debug("DEBUG __init__.topbar_warning_draw_fn: backup_path is not set, skipping backup age check.")
+    global _backup_warning_cache
+    show_backup_now = _backup_warning_cache["show_backup_now"]
+    backup_missing = _backup_warning_cache["backup_missing"]
+    backup_age_days = _backup_warning_cache["backup_age_days"]
+    version_name = _backup_warning_cache["version_name"]
 
     if show_backup_now:
         label = "Backup Now!"
         if backup_missing:
-            label += f" (v{version_name} Missing)" # Shorter for header, with version
+            label += f" (v{version_name} Missing)"
         elif backup_age_days is not None:
             label += f" (v{version_name} - {int(backup_age_days)}d old)"
         # Use the core.OT_BackupManager for the "Backup Now!" action

@@ -22,8 +22,7 @@ import os
 import time
 import shutil
 import fnmatch # For pattern matching in ignore list
-import re as regular_expression
-import pathlib # Added for path manipulation
+import pathlib 
 from datetime import datetime # Added for debug timestamps
 from bpy.types import Operator
 from bpy.props import StringProperty
@@ -244,7 +243,8 @@ class OT_BackupManager(Operator):
             if self.is_batch_operation:
                 # For batch backup, the version name comes directly from the current batch item
                 if self.current_batch_item_index < len(self.batch_operations_list):
-                    version_name_for_path_construction = self.batch_operations_list[self.current_batch_item_index][3]
+                    non_shared_source_path, shared_source_path, op_type, version_name = self.batch_operations_list[self.current_batch_item_index]
+                    version_name_for_path_construction = version_name
                 else:
                     # This case should ideally not be reached if batch processing is managed correctly.
                     # Log an error and use a fallback to prevent crashes.
@@ -570,6 +570,15 @@ class OT_BackupManager(Operator):
                     report_icon = 'INFO' 
                     if self.current_operation_type == OPERATION_BACKUP: report_icon = 'COLORSET_03_VEC'
                     elif self.current_operation_type == OPERATION_RESTORE: report_icon = 'COLORSET_04_VEC'
+
+                    # --- Backup warning cache update logic ---
+                    if self.current_operation_type == OPERATION_BACKUP and not pref_instance.dry_run:
+                        try:
+                            from . import update_backup_warning_cache
+                            update_backup_warning_cache(force=True)
+                        except Exception as e:
+                            debug(f"DEBUG: Failed to update backup warning cache after backup: {e}")
+                    # --- End backup warning cache update logic ---
 
                     # Capture self.current_operation_type for the lambda
                     op_type_for_report_title = self.current_operation_type
@@ -982,6 +991,8 @@ class OT_BackupManager(Operator):
                     try:
                         if not pref_instance.dry_run:
                             shutil.rmtree(target_path)
+                            from . import update_backup_warning_cache as _update_backup_warning_cache
+                            _update_backup_warning_cache(force=True)
                         action_verb = "Would delete" if pref_instance.dry_run else "Deleted"
                         report_msg_line1 = f"{action_verb} backup:"
                         report_msg_line2 = target_path
@@ -1038,6 +1049,8 @@ class OT_BackupManager(Operator):
                     try:
                         if not pref_instance.dry_run:
                             shutil.rmtree(shared_path_to_delete)
+                            from . import update_backup_warning_cache as _update_backup_warning_cache
+                            _update_backup_warning_cache(force=True)
                         final_report_lines.append(f"{action_verb} shared config for version '{target_version_name_for_shared_delete}':")
                         final_report_lines.append(shared_path_to_delete)
                         if pref_instance.dry_run:
@@ -1075,6 +1088,8 @@ class OT_BackupManager(Operator):
                             try:
                                 if not pref_instance.dry_run:
                                     shutil.rmtree(item_path)
+                                    from . import update_backup_warning_cache as _update_backup_warning_cache
+                                    _update_backup_warning_cache(force=True)
                                 report_lines.append(f"  - {'Would remove' if pref_instance.dry_run else 'Removed'}: {item_name}")
                                 deleted_count +=1
                             except OSError as e:
@@ -1106,6 +1121,8 @@ class OT_BackupManager(Operator):
                             try:
                                 if not pref_instance.dry_run:
                                     shutil.rmtree(item_path)
+                                    from . import update_backup_warning_cache as _update_backup_warning_cache
+                                    _update_backup_warning_cache(force=True)
                                 report_lines.append(f"  - {'Would remove' if pref_instance.dry_run else 'Removed'}: {item_name}")
                                 deleted_count += 1
                             except OSError as e:
