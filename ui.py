@@ -428,14 +428,7 @@ class OT_BackupManagerWindow(Operator):
         layout = self.layout
         prefs_instance = get_addon_preferences()
         if self._cancelled or not prefs_instance:
-            layout.label(text="Window closing..."); return
-
-        # --- Prominent Header (left-aligned title, no X button) ---
-        header_row = layout.row(align=False)
-        header_row.scale_y = 1.4
-        header_row.alignment = 'LEFT'
-        header_row.label(text=self.bl_label, icon='DISK_DRIVE')
-        layout.separator()
+            return
 
         _debug_draw = prefs_instance.debug
         is_operation_running = prefs_instance.show_operation_progress
@@ -524,8 +517,7 @@ class OT_BackupManagerWindow(Operator):
             prefs_instance._update_backup_path_and_versions(context)
         elif prefs_instance.debug:
             debug(f"OT_BackupManagerWindow.invoke(): Operation in progress, SKIPPING _update_backup_path_and_versions.")
-        # Use invoke_popup instead of invoke_props_dialog to avoid OK/Cancel buttons
-        result = context.window_manager.invoke_popup(self, width=700)
+        result = context.window_manager.invoke_props_dialog(self, width=700)
         if prefs_instance.debug: debug(f"OT_BackupManagerWindow.invoke() EXIT. Result: {result}.")
         return result
 
