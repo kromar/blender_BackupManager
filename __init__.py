@@ -16,52 +16,25 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-# Standard library imports
-import importlib
-
-# Third-party imports (Blender API)
 import bpy
 from bpy.types import Context
+import os
+import time
 from datetime import datetime # Added for debug timestamps
 
-# --- Module Reloading ---
-# These will be populated by reload_addon_modules or initial import
-preferences = None
-core = None
-
-def _reload_addon_submodules():
-    """Force reload of addon submodules for development."""
-    global preferences, core
-    # print("Backup Manager: Reloading submodules...") # Optional debug print
-
-    # Import or re-import the modules using their full path from the package
-    # This ensures that 'preferences' and 'core' are module objects.
-    _preferences_module = importlib.import_module(".preferences", __package__)
-    _core_module = importlib.import_module(".core", __package__)
-
-    importlib.reload(_preferences_module)
-    importlib.reload(_core_module)
-    
-    preferences = _preferences_module
-    core = _core_module
-    # print("Backup Manager: Submodules reloaded.") # Optional debug print
-
-# Check if running in Blender's UI and not in background mode before reloading submodules.
-if "bpy" in locals() and getattr(bpy.app, 'background_mode', False) is False:
-    _reload_addon_submodules()
-else:
-    from . import preferences as initial_preferences
-    from . import core as initial_core
-    preferences = initial_preferences
-    core = initial_core
-# --- End Module Reloading ---
-
+# --- Module Imports ---
+from . import preferences
+from . import core
+from . import ui
+from .preferences_utils import get_addon_preferences
+from .debug_utils import get_prefs_and_debug
+from .logger import debug
 
 bl_info = {
     "name": "Backup Manager",
     "description": "Backup and Restore your Blender configuration files",
     "author": "Daniel Grauer",
-    "version": (1, 3, 1), # Consider incrementing version after changes
+    "version": (1, 4, 0),
     "blender": (3, 0, 0),
     "location": "Preferences",
     "category": "!System",
@@ -72,152 +45,206 @@ bl_info = {
 # Module-level list to keep track of classes registered by this addon instance.
 _registered_classes = []
 
-def prefs_func(): # Renamed from prefs to avoid conflict with 'preferences' module
+def get_prefs_for_init():
     """
     Directly retrieves the addon's preferences.
-    Assumes bpy.context and addon preferences are always accessible.
+    Uses the centralized utility function.
     """
-    user_preferences = bpy.context.preferences
-    return user_preferences.addons[__package__].preferences
+    return get_addon_preferences()
 
 
-def menus_draw_fn(self, context: Context) -> None:
-    """Callback to add main menu entry."""
+def _get_latest_backup_mtime(prefs):
+    """
+    Returns the latest backup modification time (as a timestamp) for the current system/version, or None if not found.
+    """
+    backup_path = prefs.backup_path
+    system_id = prefs.system_id
+    version_name = str(prefs.active_blender_version)
+    system_path = os.path.join(backup_path, system_id, version_name) if system_id else None
+    shared_path = os.path.join(backup_path, 'SharedConfigs', version_name)
+    latest_mtime = None
+    for path in [system_path, shared_path]:
+        if path and os.path.isdir(path):
+            for dp, _, filenames in os.walk(path):
+                for f in filenames:
+                    try:
+                        mtime = os.path.getmtime(os.path.join(dp, f))
+                        if latest_mtime is None or mtime > latest_mtime:
+                            latest_mtime = mtime
+                    except Exception:
+                        continue
+    return latest_mtime
+
+def topbar_warning_draw_fn(self, context: Context) -> None:
+    """Draws the Backup Manager button in the TOPBAR header if needed."""
     layout = self.layout
-    # --- Debug flag retrieval (early, for use in this function) ---
-    _local_debug_active = False
-    _addon_prefs_for_debug_check = None # Renamed to avoid conflict if it remains None
-    try:
-        # Try to get prefs once for debug flag and potential reuse
-        _addon_prefs_for_debug_check = prefs_func()
-        if _addon_prefs_for_debug_check and hasattr(_addon_prefs_for_debug_check, 'debug'):
-            _local_debug_active = _addon_prefs_for_debug_check.debug
-    except Exception:
-        # If prefs_func() fails here, _local_debug_active remains False.
-        # This is acceptable as we can't log debug messages without prefs.
-        pass
+    addon_prefs, _local_debug_active = get_prefs_and_debug()
 
-    if _local_debug_active:
-        print(f"DEBUG __init__.menus_draw_fn: Entered. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
-
-    # Ensure the core module and the operator class are loaded
-    if not core or not hasattr(core, 'OT_BackupManagerWindow'):
-        layout.label(text="Backup Manager (Operator Error)", icon='ERROR')
-        if _local_debug_active: print("DEBUG __init__.menus_draw_fn: core or OT_BackupManagerWindow missing.")
+    if addon_prefs is None:
+        debug("ERROR: Backup Manager: topbar_warning_draw_fn: Addon preferences object is None. Cannot proceed.")
         return
 
-    op_idname = core.OT_BackupManagerWindow.bl_idname
+    debug(f"DEBUG __init__.topbar_warning_draw_fn: Entered. Prefs {'obtained' if addon_prefs else 'NOT obtained'}. Debug: {_local_debug_active}. Time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
+
+    # Ensure the ui module and the operator class are loaded
+    if not hasattr(ui, 'OT_BackupManagerWindow'):
+        debug("DEBUG __init__.topbar_warning_draw_fn: ui.OT_BackupManagerWindow missing. Skipping draw.")
+        return
+    op_idname = ui.OT_BackupManagerWindow.bl_idname
     # Check if the operator is actually registered and available in bpy.ops.bm
-    # op_idname.split('.')[-1] would be 'open_backup_manager_window'
     if not hasattr(bpy.ops.bm, op_idname.split('.')[-1]):
-        layout.label(text="Backup Manager: Operator not found in bpy.ops.bm", icon='ERROR')
-        if _local_debug_active: print(f"DEBUG __init__.menus_draw_fn: Operator {op_idname} missing in bpy.ops.bm.")
+        debug(f"DEBUG __init__.topbar_warning_draw_fn: Operator {op_idname} missing in bpy.ops.bm. Skipping draw.")
         return
 
-    # Try to get preferences to check operation status
-    # Reuse _addon_prefs_for_debug_check if it was successfully retrieved
-    addon_prefs = _addon_prefs_for_debug_check
-    if addon_prefs is None: # If it failed to fetch earlier or was None from the start
-        try:
-            addon_prefs = prefs_func()
-        except Exception as e_prefs_get:
-            if _local_debug_active:
-                print(f"ERROR __init__.menus_draw_fn: Exception getting addon_prefs: {e_prefs_get}")
-            # Fallback: draw default button if prefs are inaccessible
-            layout.operator(op_idname, text="Backup Manager", icon='DISK_DRIVE')
-            if _local_debug_active: print(f"DEBUG __init__.menus_draw_fn: Drew default operator due to prefs error. Exiting. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
-            return
+    # --- Operation in Progress Indicator (PRIORITY) ---
+    if addon_prefs and hasattr(addon_prefs, 'show_operation_progress') and addon_prefs.show_operation_progress:
+        layout.operator(op_idname, text="Backup in Progress...", icon='COLORSET_09_VEC')
+        layout.separator(factor=0.5)
+        debug(f"DEBUG __init__.topbar_warning_draw_fn: Drawing 'Backup in Progress...' indicator.")
+        return # If an operation is in progress, don't show other warnings from this function.
+    else:
+        debug(f"DEBUG __init__.topbar_warning_draw_fn: Condition for 'Backup in Progress...' NOT met. Proceeding to age warning.")
 
-    button_text = "Backup Manager"
-    button_icon = 'DISK_DRIVE' # Default icon
+    # --- Backup Age Warning Button Logic ---
+    show_backup_now = False
+    backup_age_days = None
+    backup_missing = False
+    if addon_prefs and hasattr(addon_prefs, 'backup_reminder_duration') and addon_prefs.backup_reminder:
+        backup_path = addon_prefs.backup_path
+        system_id = addon_prefs.system_id
+        version_name = str(addon_prefs.active_blender_version)
 
-    if _local_debug_active:
-        sop_value = 'N/A (prefs None or attr missing)'
-        if addon_prefs and hasattr(addon_prefs, 'show_operation_progress'):
-            sop_value = addon_prefs.show_operation_progress
-        print(f"DEBUG __init__.menus_draw_fn: addon_prefs {'IS valid' if addon_prefs else 'IS NONE'}. show_operation_progress = {sop_value}")
+        if backup_path: # Ensure backup_path is set
+            system_path = os.path.join(backup_path, system_id, version_name) if system_id else None
+            shared_path = os.path.join(backup_path, 'SharedConfigs', version_name)
+
+            system_exists = system_path and os.path.isdir(system_path)
+            shared_exists = shared_path and os.path.isdir(shared_path)
+
+            # Show missing if system-specific backup is missing, regardless of shared
+            if not system_exists:
+                backup_missing = True
+                show_backup_now = True
+            else:
+                latest_mtime = _get_latest_backup_mtime(addon_prefs)
+                if latest_mtime is not None:
+                    age_seconds = time.time() - latest_mtime
+                    backup_age_days = age_seconds / 86400.0 # Seconds in a day
+                    if backup_age_days > addon_prefs.backup_reminder_duration:
+                        show_backup_now = True
+        else:
+            debug("DEBUG __init__.topbar_warning_draw_fn: backup_path is not set, skipping backup age check.")
+
+    if show_backup_now:
+        label = "Backup Now!"
+        if backup_missing:
+            label += f" (v{version_name} Missing)" # Shorter for header, with version
+        elif backup_age_days is not None:
+            label += f" (v{version_name} - {int(backup_age_days)}d old)"
+        # Use the core.OT_BackupManager for the "Backup Now!" action
+        layout.operator(core.OT_BackupManager.bl_idname, text=label, icon='ERROR').button_input = core.OPERATION_BACKUP
+        layout.separator(factor=0.5) # Smaller separator for header
+
+    debug(f"DEBUG __init__.topbar_warning_draw_fn: Exiting. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
+
+
+def file_menu_draw_fn(self, context: Context) -> None:
+    """Draws the main Backup Manager button in the File menu."""
+    layout = self.layout
+    addon_prefs, _local_debug_active = get_prefs_and_debug()
+
+    if addon_prefs is None:
+        debug("ERROR: Backup Manager: file_menu_draw_fn: Addon preferences object is None. Cannot proceed.")
+        layout.operator(ui.OT_BackupManagerWindow.bl_idname if hasattr(ui, 'OT_BackupManagerWindow') else "bm.backup_manager_window", text="Backup Manager (Prefs Error)", icon='DISK_DRIVE')
+        return
+
+    debug(f"DEBUG __init__.file_menu_draw_fn: Entered. Prefs {'obtained' if addon_prefs else 'NOT obtained'}. Debug: {_local_debug_active}. Time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
+
+    if not hasattr(ui, 'OT_BackupManagerWindow'):
+        debug("DEBUG __init__.file_menu_draw_fn: ui.OT_BackupManagerWindow missing. Skipping draw.")
+        return
+    op_idname = ui.OT_BackupManagerWindow.bl_idname
+    if not hasattr(bpy.ops.bm, op_idname.split('.')[-1]):
+        debug(f"DEBUG __init__.file_menu_draw_fn: Operator {op_idname} missing in bpy.ops.bm. Skipping draw.")
+        return
+        
+    # --- Main Backup Manager Button ---
+    button_text = "Backup Manager" # Default text
+    button_icon = 'DISK_DRIVE'   # Default icon
 
     if addon_prefs and hasattr(addon_prefs, 'show_operation_progress') and addon_prefs.show_operation_progress:
-        if _local_debug_active:
-            print(f"DEBUG __init__.menus_draw_fn: Condition MET. Setting text/icon to 'Running...'.")
-        button_text = "Backup Manager (Running...)"
-        button_icon = 'COLORSET_09_VEC' # Icon indicating activity/warning
-    elif _local_debug_active: # Only print if debug is on and condition was false
-        print(f"DEBUG __init__.menus_draw_fn: Condition NOT MET for 'Running...' state.")
+        debug("DEBUG __init__.file_menu_draw_fn: Operation in progress. Changing text/icon for File Menu operator.")
+        button_text = "Backup in Progress..."
+        button_icon = 'COLORSET_09_VEC' 
+    else:
+        debug("DEBUG __init__.file_menu_draw_fn: No operation in progress. Standard File Menu operator.")
 
     try:
         layout.operator(op_idname, text=button_text, icon=button_icon)
-        if _local_debug_active:
-            print(f"DEBUG __init__.menus_draw_fn: Operator drawn with text='{button_text}', icon='{button_icon}'.")
-        layout.separator() # Add this line to draw a separator after your operator
     except Exception as e:
-        # Log the error if layout.operator fails, to help diagnose
-        print(f"ERROR: Backup Manager: menus_draw_fn failed to draw operator '{op_idname}'. Exception: {type(e).__name__}: {e}")
-        # If drawing the operator fails, we log the error but do not display a fallback UI error label in the menu.
-        # The menu item for the addon will simply be absent if this occurs.
-        pass
-    
-    if _local_debug_active:
-        print(f"DEBUG __init__.menus_draw_fn: Exiting. Current time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
+        debug(f"ERROR: Backup Manager: file_menu_draw_fn failed to draw operator '{op_idname}'. Exception: {type(e).__name__}: {e}")
+    layout.separator() # Common separator after the label or operator
+
+    debug(f"DEBUG __init__.file_menu_draw_fn: Exiting.")
 
 # Register and unregister functions
 def register():
     global _registered_classes
     _registered_classes.clear() # Clear from any previous registration attempt in this session
 
-    # Ensure submodules are loaded (important if register is called standalone after an error)
-    if not core or not preferences:
-        _reload_addon_submodules() # Attempt to load/reload them
-        if not core or not preferences:
-            print("ERROR: Backup Manager: Core modules (core, preferences) could not be loaded. Registration cannot proceed.")
-            return
-
     # Define the classes to register, AddonPreferences first
     classes_to_register_dynamically = (
+        # PropertyGroups first, as they might be used by AddonPreferences or Operators
+        preferences.BM_BackupItem,
+        
+        # AddonPreferences class, which might define CollectionProperties of the above
         preferences.BM_Preferences,
-        preferences.OT_OpenPathInExplorer,
-        core.OT_BackupManager,
-        core.OT_AbortOperation,
-        core.OT_ShowFinalReport,
-        core.OT_QuitBlenderNoSave,
-        core.OT_CloseReportDialog,
-        core.OT_BackupManagerWindow,
-    )
+        
+        # UIList classes
+        ui.BM_UL_BackupItemsList, 
 
+        # Operator classes
+        ui.OT_OpenPathInExplorer, 
+        ui.OT_AbortOperation,     
+        ui.OT_ShowFinalReport,   
+        ui.OT_QuitBlenderNoSave,  
+        ui.OT_CloseReportDialog,  
+        ui.OT_BackupManagerWindow,
+        core.OT_BackupManager,
+    )
     _debug_active = False # Default to False for safety
     try:
         try:
-            addon_prefs_instance = prefs_func()
+            addon_prefs_instance = get_prefs_for_init()
         except KeyError:
             addon_prefs_instance = None
-            print("WARNING: prefs_func() failed. Addon might be unregistered or context unavailable.")
+            debug("WARNING: prefs_func() failed. Addon might be unregistered or context unavailable.")
         if addon_prefs_instance and hasattr(addon_prefs_instance, 'debug'):
             _debug_active = addon_prefs_instance.debug
+        from .logger import set_debug
+        set_debug(_debug_active)
     except Exception as e_prefs:
-        # This might happen if prefs are not yet available or __package__ is not set during a very early call
-        print(f"WARNING: Backup Manager register(): Could not access preferences for debug flag: {e_prefs}")
+        debug(f"WARNING: Backup Manager register(): Could not access preferences for debug flag: {e_prefs}")
 
-    if _debug_active: print("DEBUG: Backup Manager register() CALLED")
-    
     for cls_to_reg in classes_to_register_dynamically:
         try:
             bpy.utils.register_class(cls_to_reg)
             _registered_classes.append(cls_to_reg) # Add to our list *after* successful registration
-            if _debug_active: print(f"DEBUG: register(): Successfully registered {cls_to_reg.__name__}")
+            debug(f"DEBUG: register(): Successfully registered {cls_to_reg.__name__}")
         except ValueError as e:
             if "already registered" in str(e).lower():
-                if _debug_active: print(f"INFO: Class {cls_to_reg.__name__} reported as already registered. Attempting to unregister and re-register.")
+                debug(f"INFO: Class {cls_to_reg.__name__} reported as already registered. Attempting to unregister and re-register.")
                 try:
                     bpy.utils.unregister_class(cls_to_reg) # Try to unregister it first
                     bpy.utils.register_class(cls_to_reg)   # Then re-register
                     _registered_classes.append(cls_to_reg) # Assume success if no exception
-                    if _debug_active: print(f"DEBUG: register(): Re-registered {cls_to_reg.__name__} after 'already registered' error.")
+                    debug(f"DEBUG: register(): Re-registered {cls_to_reg.__name__} after 'already registered' error.")
                 except Exception as e_rereg:
-                    print(f"ERROR: Backup Manager: Failed to re-register class {cls_to_reg.__name__} after 'already registered' error: {e_rereg}")
+                    debug(f"ERROR: Backup Manager: Failed to re-register class {cls_to_reg.__name__} after 'already registered' error: {e_rereg}")
             else: # Other ValueError
-                print(f"ERROR: Backup Manager: Failed to register class {cls_to_reg.__name__} (ValueError): {e}")
+                debug(f"ERROR: Backup Manager: Failed to register class {cls_to_reg.__name__} (ValueError): {e}")
         except Exception as e: # Other exceptions
-            print(f"ERROR: Backup Manager: Failed to register class {cls_to_reg.__name__} (General Exception): {e}")
+            debug(f"ERROR: Backup Manager: Failed to register class {cls_to_reg.__name__} (General Exception): {e}")
     
     # Reset the initial scan flag on registration
     if hasattr(preferences, 'BM_Preferences'):
@@ -235,15 +262,17 @@ def register():
         prefs_instance.abort_operation_requested = False  # Default
 
         if prefs_instance.debug:
-            print(f"DEBUG: {__name__} registered. Transient preference properties explicitly reset to defaults.")
+            debug(f"DEBUG: {__name__} registered. Transient preference properties explicitly reset to defaults.")
     except Exception as e:
-        print(f"ERROR: {__name__}: Could not reset transient preferences during registration: {e}")
+        debug(f"ERROR: {__name__}: Could not reset transient preferences during registration: {e}")
 
     try:
-        bpy.types.TOPBAR_MT_file.prepend(menus_draw_fn)
+        # Append to the upper bar for header buttons
+        bpy.types.TOPBAR_HT_upper_bar.append(topbar_warning_draw_fn)
+        bpy.types.TOPBAR_MT_file.prepend(file_menu_draw_fn)
     except Exception as e: # Catch error if prepend fails (e.g. during headless run)
-        if _debug_active: print(f"DEBUG: register(): Could not prepend menu_draw_fn to TOPBAR_MT_file: {e}")
-    if _debug_active: print("DEBUG: Backup Manager register() FINISHED.")
+        debug(f"DEBUG: register(): Could not append topbar_header_draw_fn to TOPBAR_HT_upper_bar: {e}")
+    debug("DEBUG: Backup Manager register() FINISHED.")
 
 
 def unregister():
@@ -252,27 +281,29 @@ def unregister():
     Ensures proper cleanup when the addon is disabled or uninstalled.
     """
     global _registered_classes
-    _debug_active = False # Default to False for safety
+    from .debug_utils import get_prefs_and_debug
+    from .logger import set_debug
+    _debug_active = False
     try:
-        addon_prefs_instance = prefs_func()
-        if addon_prefs_instance and hasattr(addon_prefs_instance, 'debug'):
-            _debug_active = addon_prefs_instance.debug
+        addon_prefs_instance, _debug_active = get_prefs_and_debug()
+        set_debug(_debug_active)
     except Exception as e_prefs:
-        # Similar to register(), prefs might be gone during shutdown
-        if _debug_active: print(f"DEBUG: unregister(): Could not access preferences for debug flag: {e_prefs}")
+        debug(f"DEBUG: unregister(): Could not access preferences for debug flag: {e_prefs}")
 
     try:
-        bpy.types.TOPBAR_MT_file.remove(menus_draw_fn)
-    except Exception as e: # Can error if not found
-        if _debug_active: print(f"DEBUG: unregister(): Error removing menu_draw_fn (may have already been removed): {e}")
-
+        # Remove from the upper bar
+        bpy.types.TOPBAR_HT_upper_bar.remove(topbar_warning_draw_fn)
+        bpy.types.TOPBAR_MT_file.remove(file_menu_draw_fn)
+    except Exception as e: 
+        debug(f"DEBUG: unregister(): Error removing UI draw functions (may have already been removed): {e}")
+ 
     # Unregister classes that were successfully registered by this addon instance
     if _registered_classes:  # Check if the list is not empty
         for cls_to_unreg in reversed(_registered_classes):
             try:
                 bpy.utils.unregister_class(cls_to_unreg)
-                if _debug_active: print(f"DEBUG: unregister(): Successfully unregistered {cls_to_unreg.__name__}")
+                debug(f"DEBUG: unregister(): Successfully unregistered {cls_to_unreg.__name__}")
             except Exception as e:
-                print(f"ERROR: Backup Manager: Failed to unregister class {cls_to_unreg.__name__}: {e}")
+                debug(f"ERROR: Backup Manager: Failed to unregister class {cls_to_unreg.__name__}: {e}")
         # Clear the list after unregistering all classes
         _registered_classes.clear()

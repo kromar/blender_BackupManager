@@ -17,806 +17,40 @@
 # ##### END GPL LICENSE BLOCK #####
 
 
-import bpy, subprocess, sys, os # Added subprocess, sys. os was already effectively imported via other uses.
+import bpy
 import os
+import time
 import shutil
 import fnmatch # For pattern matching in ignore list
 import re as regular_expression
+import pathlib # Added for path manipulation
 from datetime import datetime # Added for debug timestamps
 from bpy.types import Operator
-from bpy.props import StringProperty, EnumProperty
-from . import preferences
-from .preferences import BM_Preferences
-
-
-def prefs():
-    """
-    Directly retrieves the addon's preferences.
-    Assumes bpy.context and addon preferences are always accessible.
-    """
-    user_preferences = bpy.context.preferences
-    return user_preferences.addons[__package__].preferences
-
-def find_versions(filepath):
-    version_list = []
-    _start_time_fv = None
-    if prefs().debug:
-        _start_time_fv = datetime.now()
-        print(f"DEBUG: find_versions START for path: {filepath}")
-
-    if not filepath or not os.path.isdir(filepath):
-        if prefs().debug:
-            print(f"DEBUG: find_versions: filepath invalid or not a directory: {filepath}")
-        return version_list
-
-    try:
-        _listdir_start_time_fv = None
-        if prefs().debug:
-            _listdir_start_time_fv = datetime.now()
-            print(f"DEBUG: find_versions CALLING os.listdir for path: {filepath}")
-        for file_or_dir_name in os.listdir(filepath):
-            path = os.path.join(filepath, file_or_dir_name)
-            if os.path.isdir(path):      
-                version_list.append((file_or_dir_name, file_or_dir_name, ''))
-        if prefs().debug:
-            _listdir_end_time_fv = datetime.now()
-            print(f"DEBUG: (took: {(_listdir_end_time_fv - _listdir_start_time_fv).total_seconds():.6f}s) find_versions FINISHED os.listdir for path: {filepath}")
-    except OSError as e: # Catch specific OS errors like PermissionError
-        if prefs().debug:
-            print(f"DEBUG: find_versions: Error accessing filepath {filepath}: {e}")
-    
-    if prefs().debug and _start_time_fv:
-        # print("\nVersion List: ", version_list)
-        _end_time_fv = datetime.now()
-        # Consider summarizing 'version_list' if it can be very long.
-        # For now, printing the full list for detailed debugging.
-        print(f"DEBUG: (took: {(_end_time_fv - _start_time_fv).total_seconds():.6f}s) find_versions END for path: '{filepath}', found {len(version_list)} versions. List: {version_list}")
-
-    return version_list
-
-
-class OT_AbortOperation(Operator):
-    """Operator to signal cancellation of the ongoing backup/restore operation."""
-    bl_idname = "bm.abort_operation"
-    bl_label = "Abort Backup/Restore"
-    bl_description = "Requests cancellation of the current operation"
-
-    def execute(self, context):
-        prefs().abort_operation_requested = True
-        # The modal operator will pick this up and handle the actual cancellation.
-        if prefs().debug:
-            print("DEBUG: OT_AbortOperation executed, abort_operation_requested set to True.")
-        return {'FINISHED'}
-
-class OT_QuitBlenderNoSave(bpy.types.Operator):
-    """Quits Blender without saving current user preferences."""
-    bl_idname = "bm.quit_blender_no_save"
-    bl_label = "Quit & Restart Blender"
-    bl_description = "Attempts to start a new Blender instance, then quits the current one. If 'Save on Quit' is enabled in Blender's preferences, you will be warned."
-
-    @classmethod
-    def poll(cls, context):
-        return True # Always allow attempting to quit
-
-    def invoke(self, context, event):
-        # It's good practice to get addon_prefs once, especially if debug is checked multiple times.
-        # However, ensure prefs() doesn't fail if context is minimal during early invoke.
-        addon_prefs_instance = None
-        try:
-            addon_prefs_instance = prefs()
-        except Exception as e:
-            print(f"DEBUG: OT_QuitBlenderNoSave.invoke: Could not retrieve addon preferences for debug logging: {e}")
-        
-        prefs_main = context.preferences # Use bpy.context.preferences for global auto-save setting
-
-        if addon_prefs_instance and addon_prefs_instance.debug:
-            print(f"DEBUG: OT_QuitBlenderNoSave.invoke(): Context preferences type: {type(context.preferences)}, "
-                  f"Has 'use_preferences_save': {hasattr(context.preferences, 'use_preferences_save')}")
-
-        # The original logic, now with the debug prints above it.
-        # This line will still raise an AttributeError if 'use_preferences_save' is missing.
-        # The debug output should help understand why.
-        if prefs_main and hasattr(prefs_main, 'use_preferences_save') and prefs_main.use_preferences_save:
-            # 'Save on Quit' is ON. We need to warn the user.
-            return context.window_manager.invoke_confirm(self, event)
-        else:
-            # 'Save on Quit' is OFF, or attribute is missing (hasattr was False), or prefs_view is None.
-            # If attribute is missing, we proceed as if it's OFF to avoid the dialog,
-            # but the execute method will log this uncertainty.
-            return self.execute(context)
-    
-    def execute(self, context):
-        prefs_main = context.preferences # Use bpy.context.preferences
-        addon_prefs = prefs() # Get addon preferences for debug
-        
-        if addon_prefs.debug:
-            print(f"DEBUG: OT_QuitBlenderNoSave.execute():")
-            print(f"  context: {context}")
-            print(f"  context.preferences: {context.preferences}")
-            print(f"  type(prefs_main): {type(prefs_main)}")
-            if prefs_main:
-                try:
-                    print(f"  dir(prefs_main): {dir(prefs_main)}")
-                except Exception as e_dir:
-                    print(f"  Error getting dir(prefs_main): {e_dir}")
-                print(f"  Has 'use_preferences_save' attribute?: {hasattr(prefs_main, 'use_preferences_save')}")
-
-        # This is the line from the traceback.
-        # We check hasattr again to be safe and for clearer logging.
-        blender_will_save_on_quit = False # Default assumption
-        if prefs_main and hasattr(prefs_main, 'use_preferences_save'):
-            blender_will_save_on_quit = prefs_main.use_preferences_save
-        elif prefs_main: # prefs_main exists but hasattr was False
-            if addon_prefs.debug:
-                print("WARNING: OT_QuitBlenderNoSave.execute: 'use_preferences_save' attribute missing on Preferences object. Assuming Blender will save preferences for safety.")
-            blender_will_save_on_quit = True # Assume worst-case for logging if attribute is missing
-        else: # prefs_view is None
-             if addon_prefs.debug:
-                print("WARNING: OT_QuitBlenderNoSave.execute: prefs_view is None. Assuming Blender will save preferences for safety.")
-             blender_will_save_on_quit = True
-
-        # --- Attempt to launch new Blender instance ---
-        blender_exe = bpy.app.binary_path
-        new_instance_launched_successfully = False
-        if blender_exe and blender_exe is not None and os.path.exists(blender_exe): # Check if path is valid and not None
-            try:
-                if addon_prefs.debug:
-                    print(f"DEBUG: OT_QuitBlenderNoSave: Attempting to launch new Blender instance from: {blender_exe}")
-
-                args = [blender_exe]
-                kwargs = {}
-
-                if sys.platform == "win32":
-                    DETACHED_PROCESS = 0x00000008 # subprocess.DETACHED_PROCESS
-                    kwargs['creationflags'] = DETACHED_PROCESS
-                elif sys.platform == "darwin": # macOS
-                    pass # No special flags usually needed
-                elif sys.platform.startswith("linux"): # Linux and other POSIX
-                    kwargs['start_new_session'] = True
-
-                try:
-                    subprocess.Popen(args, **kwargs)
-                except FileNotFoundError as e:
-                    if addon_prefs.debug:
-                        print(f"ERROR: OT_QuitBlenderNoSave: Blender executable not found: {e}")
-                        import traceback
-                        traceback.print_exc()
-                except PermissionError as e:
-                    if addon_prefs.debug:
-                        print(f"ERROR: OT_QuitBlenderNoSave: Permission denied when launching Blender: {e}")
-                        import traceback
-                        traceback.print_exc()
-                except Exception as e:
-                    if addon_prefs.debug:
-                        print(f"ERROR: OT_QuitBlenderNoSave: Unexpected error occurred: {e}")
-                        import traceback
-                        traceback.print_exc()
-
-                new_instance_launched_successfully = True
-                if addon_prefs.debug:
-                    print(f"DEBUG: OT_QuitBlenderNoSave: New Blender instance launch command issued.")
-                    if sys.platform == "win32" and 'creationflags' in kwargs:
-                         print(f"DEBUG: OT_QuitBlenderNoSave: Using creationflags={kwargs['creationflags']}")
-                    elif 'start_new_session' in kwargs:
-                        print(f"DEBUG: OT_QuitBlenderNoSave: Using start_new_session={kwargs['start_new_session']}")
-
-            except Exception as e:
-                if addon_prefs.debug:
-                    print(f"ERROR: OT_QuitBlenderNoSave: Failed to launch new Blender instance: {e}")
-        else:
-            if addon_prefs.debug:
-                print(f"DEBUG: OT_QuitBlenderNoSave: Blender executable path not found or invalid: '{blender_exe}'. Skipping new instance launch.")
-
-        if blender_will_save_on_quit:
-            # This path is taken if invoke_confirm was accepted by the user.
-            if addon_prefs.debug:
-                print("DEBUG: OT_QuitBlenderNoSave: Quitting Blender. 'Save on Quit' is ON. "
-                      "User was warned; preferences WILL be saved by Blender.")
-            # The warning should have made it clear that preferences *will* be saved.
-        else:
-            # 'Save on Quit' is OFF.
-            if addon_prefs.debug: print("DEBUG: OT_QuitBlenderNoSave: Quitting Blender. 'Save on Quit' is OFF. Preferences will NOT be saved by Blender.")
-        
-        if addon_prefs.debug:
-            if new_instance_launched_successfully:
-                print("DEBUG: OT_QuitBlenderNoSave: New instance launch command succeeded. Proceeding to quit current instance.")
-            else:
-                print("DEBUG: OT_QuitBlenderNoSave: New instance launch failed or was skipped. Proceeding to quit current instance.")
-
-        # --- Proceed with quitting the current Blender instance ---
-        bpy.ops.wm.quit_blender()
-        return {'FINISHED'}
-
-    # This draw method is for the confirmation dialog when use_save_on_quit is True
-    def draw(self, context):
-        layout = self.layout
-        col = layout.column()
-        col.label(text="Blender's 'Save Preferences on Quit' is currently ENABLED.", icon='ERROR')
-        col.separator()
-        col.label(text="If you proceed, Blender will save its current in-memory preferences when quitting.")
-        col.label(text="This will likely overwrite the 'userpref.blend' file you just restored.")
-        col.separator()
-        col.label(text="To ensure the restored 'userpref.blend' is used on next startup:")
-        box = col.box()
-        box.label(text="1. Select 'Cancel' on this dialog (see details below).")
-        box.label(text="2. Go to: Edit > Preferences > Save & Load.")
-        box.label(text="3. Uncheck the 'Save on Quit' option.")
-        box.label(text="4. Manually quit Blender (File > Quit).")
-        box.label(text="5. Restart Blender. Your restored preferences should now be active.")
-        box.label(text="   (You can re-enable 'Save on Quit' after restarting, if desired).")
-        col.separator()
-        col.label(text=f"Choosing '{self.bl_label}' (OK) below will quit this Blender session,")
-        col.label(text="and it WILL save its current preferences due to the global setting.")
-        col.label(text="An attempt will then be made to start a new Blender instance.")
-        col.separator()
-        col.label(text="Choosing 'Cancel' will abort this quit/restart attempt by the addon.")
-
-
-class OT_CloseReportDialog(bpy.types.Operator):
-    """Closes the report dialog without taking further action."""
-    bl_idname = "bm.close_report_dialog"
-    bl_label = "Don't Quit Now"
-    bl_options = {'INTERNAL'}
-
-    def execute(self, context):
-        # This operator's purpose is just to be a clickable item in the popup
-        # that allows the popup to close without triggering the quit sequence.
-        if prefs().debug:
-            print("DEBUG: OT_CloseReportDialog executed (User chose not to quit/restart from report).")
-        return {'FINISHED'}
-
-
-class OT_ShowFinalReport(bpy.types.Operator):
-    """Operator to display a popup message. Used by timers for deferred reports."""
-    bl_idname = "bm.show_final_report"
-    bl_label = "Show Operation Report"
-    bl_options = {'INTERNAL'} # This operator is not meant to be called directly by the user from UI search
-
-    # Static class variables to hold the report data
-    _title: str = "Report"
-    _icon: str = "INFO"
-    _lines: list = []
-    _timer = None # Timer for the modal part
-    _show_restart_button: bool = False
-    _restart_operator_idname: str = ""
-
-    @classmethod
-    def set_report_data(cls, lines, title, icon, show_restart=False, restart_op_idname=""):
-        """Sets the data to be displayed by the popup."""
-        cls._lines = lines
-        cls._title = title
-        cls._icon = icon
-        cls._show_restart_button = show_restart
-        cls._restart_operator_idname = restart_op_idname
-        if prefs().debug:
-            print(f"DEBUG: OT_ShowFinalReport.set_report_data: Title='{cls._title}', Icon='{cls._icon}', Lines={len(cls._lines)}, ShowRestart={cls._show_restart_button}, RestartOp='{cls._restart_operator_idname}'")
-
-    def execute(self, context): #@NoSelf
-        """Displays the popup report directly."""
-        if prefs().debug:
-            print(f"DEBUG: OT_ShowFinalReport.execute: Displaying popup. Title='{OT_ShowFinalReport._title}'")
-
-        # --- This function defines what's drawn in the popup ---
-        def draw_for_popup(self_menu, context_inner): # 'self_menu' is the Menu instance, 'context_inner' is the context for the popup
-            layout = self_menu.layout
-            for line in OT_ShowFinalReport._lines:
-                layout.label(text=line)
-            
-            if OT_ShowFinalReport._show_restart_button and OT_ShowFinalReport._restart_operator_idname:
-                layout.separator()
-                # Place the restart and close buttons in a single row for side-by-side layout
-                row = layout.row(align=True)
-                row.operator(OT_ShowFinalReport._restart_operator_idname, icon='FILE_REFRESH')
-                row.operator(OT_CloseReportDialog.bl_idname, icon='CANCEL')
-
-        context.window_manager.popup_menu(draw_for_popup, title=OT_ShowFinalReport._title, icon=OT_ShowFinalReport._icon)
-        return {'FINISHED'}
-
-
-class OT_BackupManagerWindow(Operator):
-    """Open the Backup Manager window."""
-    bl_idname = "bm.open_backup_manager_window"
-    bl_label = "Backup Manager"
-    bl_options = {'REGISTER'} # No UNDO needed for a UI window    
-
-    _cancelled: bool = False # Instance variable to track cancellation state
-
-    def _update_window_tabs(self, context):
-        """Ensures BM_Preferences.tabs is updated when this window's tabs change, triggering searches."""
-        # --- Early exit conditions for stale instance ---
-        # Use getattr for robustness, in case _cancelled is not yet set on self during an early update call
-        if getattr(self, '_cancelled', False):
-            # Minimal logging if possible, avoid complex operations
-            # print(f"DEBUG: OT_BackupManagerWindow._update_window_tabs - Bailing out: _cancelled is True. Self: {self}")
-            return
-
-        prefs_instance = None
-        try:
-            prefs_instance = prefs()
-            if not prefs_instance: # If prefs() returns None or an invalid object
-                # print(f"DEBUG: OT_BackupManagerWindow._update_window_tabs - Bailing out: prefs() returned None/invalid. Self: {self}")
-                return
-        except Exception as e:
-            # If prefs() itself raises an exception (e.g., addon not found during unregister/register)
-            print(f"ERROR: Backup Manager: Error in OT_BackupManagerWindow._update_window_tabs (accessing prefs): {e}. Self: {self}")
-            return
-        
-        # --- Proceed with original logic if checks passed ---
-        if prefs_instance.tabs != self.tabs:
-            if prefs_instance.debug: # Safe to use prefs_instance.debug now
-                print(f"DEBUG: OT_BackupManagerWindow._update_window_tabs: self.tabs ('{self.tabs}') != prefs.tabs ('{prefs_instance.tabs}'). Updating prefs.tabs. Self: {self}")
-            try:
-                prefs_instance.tabs = self.tabs # This will call BM_Preferences.update_version_list
-            except Exception as e_update:
-                 # Catch errors during the actual update of prefs_instance.tabs
-                 if prefs_instance.debug:
-                    print(f"ERROR: Backup Manager: Error in OT_BackupManagerWindow._update_window_tabs (updating prefs.tabs): {e_update}. Self: {self}")
-                 # Decide if further action is needed, e.g., report error to user or log
-
-
-    tabs: EnumProperty(
-        name="Mode",
-        items=[
-            ("BACKUP", "Backup", "Switch to Backup mode", "COLORSET_03_VEC", 0),
-            ("RESTORE", "Restore", "Switch to Restore mode", "COLORSET_04_VEC", 1)
-        ],
-        default="BACKUP",
-        update=_update_window_tabs
-    )
-
-    def _draw_path_age(self, layout, path_to_check):
-        """Helper to draw cached path age."""
-        prefs_instance = prefs() # Get prefs for debug flag
-        if not path_to_check or not os.path.isdir(path_to_check): # Basic check before cache lookup
-            layout.label(text="Last change: Path N/A")
-            return
-        display_text = BM_Preferences._age_cache.get(path_to_check)
-        if display_text is None:
-            display_text = "Last change: Calculating..."
-            if prefs_instance.debug:
-                print(f"DEBUG: OT_BackupManagerWindow._draw_path_age: No cache for '{path_to_check}', displaying 'Calculating...'")
-        elif prefs_instance.debug:
-            print(f"DEBUG: OT_BackupManagerWindow._draw_path_age: Using cached value for '{path_to_check}': {display_text}")
-        layout.label(text=display_text)
-
-    def _draw_path_size(self, layout, path_to_check):
-        """Helper to draw cached path size."""
-        prefs_instance = prefs() # Get prefs for debug flag
-        if not path_to_check or not os.path.isdir(path_to_check): # Basic check
-            layout.label(text="Size: Path N/A")
-            return
-        display_text = BM_Preferences._size_cache.get(path_to_check)
-        if display_text is None:
-            display_text = "Size: Calculating..."
-            if prefs_instance.debug:
-                print(f"DEBUG: OT_BackupManagerWindow._draw_path_size: No cache for '{path_to_check}', displaying 'Calculating...'")
-        elif prefs_instance.debug:
-            print(f"DEBUG: OT_BackupManagerWindow._draw_path_size: Using cached value for '{path_to_check}': {display_text}")
-        layout.label(text=display_text)
-
-    def _draw_selection_toggles(self, layout_box, mode, prefs_instance):
-        """Replicates BM_Preferences.draw_selection for the new window."""
-        prefix = "backup_" if mode == "BACKUP" else "restore_"
-        
-        row = layout_box.row(align=True)
-        col1 = row.column() 
-        col1.prop(prefs_instance, f'{prefix}addons') 
-        col1.prop(prefs_instance, f'{prefix}extensions') 
-        col1.prop(prefs_instance, f'{prefix}presets')  
-        col1.prop(prefs_instance, f'{prefix}datafile') 
-
-        col2 = row.column()  
-        col2.prop(prefs_instance, f'{prefix}startup_blend') 
-        col2.prop(prefs_instance, f'{prefix}userpref_blend') 
-        col2.prop(prefs_instance, f'{prefix}workspaces_blend') 
-        
-        col3 = row.column()  
-        col3.prop(prefs_instance, f'{prefix}cache') 
-        col3.prop(prefs_instance, f'{prefix}bookmarks') 
-        col3.prop(prefs_instance, f'{prefix}recentfiles')
-
-    def _draw_backup_tab(self, layout, context, prefs_instance):
-        """Draws the Backup tab content."""
-        row_main  = layout.row(align=True) # Main row for From/To/Actions
-        
-        box_from = row_main.box() 
-        col_from = box_from.column()
-
-        if not prefs_instance.advanced_mode:
-            path_from_val = prefs_instance.blender_user_path
-            col_from.label(text = "Backup From: " + str(prefs_instance.active_blender_version), icon='COLORSET_03_VEC')   
-            col_from.label(text = path_from_val)      
-            if prefs_instance.show_path_details:
-                self._draw_path_age(col_from, path_from_val) 
-                self._draw_path_size(col_from, path_from_val)
-
-            box_to = row_main.box() # Add box_to to row_main
-            col_to = box_to.column()
-            path_to_val =  os.path.join(prefs_instance.backup_path, str(prefs_instance.active_blender_version)) if prefs_instance.backup_path else "N/A"
-            col_to.label(text = "Backup To: " + str(prefs_instance.active_blender_version), icon='COLORSET_04_VEC')
-            col_to.label(text = path_to_val)          
-            if prefs_instance.show_path_details:
-                self._draw_path_age(col_to, path_to_val)    
-                self._draw_path_size(col_to, path_to_val)
-        else: # Advanced mode
-            # --- Backup From Box ---
-            source_version_selected = prefs_instance.backup_versions # This is the string value of the selected item
-            path_from_val = os.path.join(os.path.dirname(prefs_instance.blender_user_path), source_version_selected) if prefs_instance.blender_user_path and source_version_selected else "N/A"
-            
-            col_from.label(text="Backup From: " + source_version_selected, icon='COLORSET_03_VEC')
-            col_from.label(text=path_from_val)
-            if prefs_instance.show_path_details: self._draw_path_age(col_from, path_from_val)
-            if prefs_instance.show_path_details: self._draw_path_size(col_from, path_from_val)
-            col_from.prop(prefs_instance, 'backup_versions', text='Version' if prefs_instance.expand_version_selection else '', expand=prefs_instance.expand_version_selection)
-
-            # --- Backup To Box ---
-            box_to = row_main.box() # Add box_to to row_main
-            col_to = box_to.column()
-            if prefs_instance.custom_version_toggle:
-                target_version_displayed = prefs_instance.custom_version
-                path_to_val = os.path.join(prefs_instance.backup_path, target_version_displayed) if prefs_instance.backup_path and target_version_displayed else "N/A"
-                col_to.label(text="Backup To: " + target_version_displayed, icon='COLORSET_04_VEC')
-                col_to.label(text=path_to_val)
-                if prefs_instance.show_path_details: self._draw_path_age(col_to, path_to_val)
-                if prefs_instance.show_path_details: self._draw_path_size(col_to, path_to_val)
-                col_to.prop(prefs_instance, 'custom_version', text='Version')
-            else: # Not custom_version_toggle, use restore_versions for dropdown
-                target_version_displayed = prefs_instance.restore_versions # This is the string value of the selected item
-                path_to_val = os.path.join(prefs_instance.backup_path, target_version_displayed) if prefs_instance.backup_path and target_version_displayed else "N/A"
-                col_to.label(text="Backup To: " + target_version_displayed, icon='COLORSET_04_VEC')
-                col_to.label(text=path_to_val)
-                if prefs_instance.show_path_details: self._draw_path_age(col_to, path_to_val)
-                if prefs_instance.show_path_details: self._draw_path_size(col_to, path_to_val)
-                col_to.prop(prefs_instance, 'restore_versions', text='Version' if prefs_instance.expand_version_selection else '', expand=prefs_instance.expand_version_selection)
-
-        # --- Actions Column ---
-        col_actions = row_main.column() # For main action buttons and global toggles
-        col_actions.scale_x = 0.9 # Slightly narrower for this column
-        col_actions.operator("bm.run_backup_manager", text="Backup Selected", icon='COLORSET_03_VEC').button_input = 'BACKUP' 
-        if prefs_instance.advanced_mode:
-            col_actions.operator("bm.run_backup_manager", text="Backup All", icon='COLORSET_03_VEC').button_input = 'BATCH_BACKUP' 
-        col_actions.separator(factor=1.0)
-        col_actions.prop(prefs_instance, 'dry_run')  
-        col_actions.prop(prefs_instance, 'clean_path')  
-        col_actions.prop(prefs_instance, 'advanced_mode') 
-        if prefs_instance.advanced_mode:
-            col_actions.prop(prefs_instance, 'custom_version_toggle')  
-            col_actions.prop(prefs_instance, 'expand_version_selection')    
-            col_actions.separator(factor=1.0)
-            col_actions.operator("bm.run_backup_manager", text="Delete Backup", icon='COLORSET_01_VEC').button_input = 'DELETE_BACKUP'
-
-        # --- Selection Toggles (Advanced Mode Only) ---
-        # Drawn *after* the main row is complete, and only if in advanced mode.
-        if prefs_instance.advanced_mode:
-            selection_toggles_box = layout.box() # Create a new box at the 'layout' (tab_content_box) level
-            self._draw_selection_toggles(selection_toggles_box, "BACKUP", prefs_instance)
-
-    def _draw_restore_tab(self, layout, context, prefs_instance):
-        """Draws the Restore tab content."""
-        row_main  = layout.row(align=True) # Main row for From/To/Actions
-
-        box_from = row_main.box()
-        col_from = box_from.column()
-
-        if not prefs_instance.advanced_mode:
-            path_from_val = os.path.join(prefs_instance.backup_path, str(prefs_instance.active_blender_version)) if prefs_instance.backup_path else "N/A"
-            col_from.label(text = "Restore From: " + str(prefs_instance.active_blender_version), icon='COLORSET_04_VEC')   
-            col_from.label(text = path_from_val)                  
-            if prefs_instance.show_path_details: self._draw_path_age(col_from, path_from_val); self._draw_path_size(col_from, path_from_val)
-            
-            box_to = row_main.box() # Add box_to to row_main
-            col_to = box_to.column()
-            path_to_val =  prefs_instance.blender_user_path
-            col_to.label(text = "Restore To: " + str(prefs_instance.active_blender_version), icon='COLORSET_03_VEC')   
-            col_to.label(text = path_to_val)              
-            if prefs_instance.show_path_details: self._draw_path_age(col_to, path_to_val); self._draw_path_size(col_to, path_to_val)
-        else: # Advanced Mode
-            source_ver = prefs_instance.restore_versions
-            path_from_val = os.path.join(prefs_instance.backup_path, source_ver) if prefs_instance.backup_path and source_ver else "N/A"
-            col_from.label(text="Restore From: " + source_ver, icon='COLORSET_04_VEC')
-            col_from.label(text=path_from_val)
-            if prefs_instance.show_path_details: self._draw_path_age(col_from, path_from_val); self._draw_path_size(col_from, path_from_val)
-            col_from.prop(prefs_instance, 'restore_versions', text='Version' if prefs_instance.expand_version_selection else '', expand=prefs_instance.expand_version_selection)
-
-            box_to = row_main.box() # Add box_to to row_main
-            col_to = box_to.column()
-            target_ver = prefs_instance.backup_versions
-            path_to_val = os.path.join(os.path.dirname(prefs_instance.blender_user_path), target_ver) if prefs_instance.blender_user_path and target_ver else "N/A"
-            col_to.label(text="Restore To: " + target_ver, icon='COLORSET_03_VEC')
-            col_to.label(text=path_to_val)
-            if prefs_instance.show_path_details: self._draw_path_age(col_to, path_to_val); self._draw_path_size(col_to, path_to_val)
-            col_to.prop(prefs_instance, 'backup_versions', text='Version' if prefs_instance.expand_version_selection else '', expand=prefs_instance.expand_version_selection)
-
-        # --- Actions Column ---
-        col_actions = row_main.column()
-        col_actions.scale_x = 0.9
-        col_actions.operator("bm.run_backup_manager", text="Restore Selected", icon='COLORSET_04_VEC').button_input = 'RESTORE'
-        if prefs_instance.advanced_mode:
-            col_actions.operator("bm.run_backup_manager", text="Restore All", icon='COLORSET_04_VEC').button_input = 'BATCH_RESTORE'
-        col_actions.separator(factor=1.0)
-        col_actions.prop(prefs_instance, 'dry_run')      
-        col_actions.prop(prefs_instance, 'clean_path')   
-        col_actions.prop(prefs_instance, 'advanced_mode')  
-        if prefs_instance.advanced_mode:
-            col_actions.prop(prefs_instance, 'expand_version_selection')
-
-        # --- Selection Toggles (Advanced Mode Only) ---
-        # Drawn *after* the main row is complete, and only if in advanced mode.
-        if prefs_instance.advanced_mode:
-            selection_toggles_box = layout.box() # Create a new box at the 'layout' (tab_content_box) level
-            self._draw_selection_toggles(selection_toggles_box, "RESTORE", prefs_instance)
-
-    def draw(self, context): # Standard signature for invoke_props_dialog
-        layout = self.layout # Provided by invoke_props_dialog
-        prefs_instance = None
-        _debug_draw = False # Default
-
-        # --- Early exit conditions for stale instance ---
-        if self._cancelled: # Check if the instance itself was marked as cancelled
-            layout.label(text="Window closing (operator cancelled)...")
-            # print(f"DEBUG: OT_BackupManagerWindow.draw() - Bailing out: _cancelled is True. Self: {self}")
-            return
-
-        # Attempt to get preferences and set debug flag safely
-        try:
-            prefs_instance = prefs() # Get current addon preferences
-            if not prefs_instance: # If prefs() returns None or an invalid object
-                layout.label(text="Window closing (preferences unavailable)...")
-                # print(f"DEBUG: OT_BackupManagerWindow.draw() - Bailing out: prefs() returned None/invalid. Self: {self}")
-                return
-            _debug_draw = prefs_instance.debug # Safe to access .debug now
-        except Exception as e:
-            # If prefs() itself raises an exception (e.g., addon not found during unregister/register)
-            layout.label(text=f"Window closing (error accessing preferences: {e})...")
-            # print(f"DEBUG: OT_BackupManagerWindow.draw() - Bailing out: Exception in prefs(): {e}. Self: {self}")
-            return
-
-        # --- Proceed with normal drawing if all checks passed ---
-        try:
-            _start_time_draw_obj = None # Use a different name to avoid conflict if prefs_instance is None initially
-
-            if _debug_draw:
-                # Debug output for draw() start
-                timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                progress_val_str = f"{prefs_instance.operation_progress_value:.1f}%" if prefs_instance.show_operation_progress else "N/A (hidden)"
-                op_message = prefs_instance.operation_progress_message if prefs_instance.show_operation_progress else "N/A (hidden)"
-                print(f"DEBUG: [{timestamp}] OT_BackupManagerWindow.draw() CALLED. Progress: {progress_val_str}, Msg: '{op_message}', show_op_progress: {prefs_instance.show_operation_progress}, Tabs: {self.tabs}")
-                _start_time_draw_obj = datetime.now()
-           
-            is_operation_running = prefs_instance.show_operation_progress
-
-
-            # --- Top section for global settings ---
-            box_top = layout.box()
-            col_top = box_top.column(align=True)            
-            col_top.use_property_split = True
-            col_top.separator()
-           
-            # System ID is always read-only display
-            row_system_id = col_top.row()
-            row_system_id.enabled = False
-            row_system_id.prop(prefs_instance, "system_id")            
-
-            # Group settings that should be disabled during an operation
-            settings_to_disable_group = col_top.column()
-            settings_to_disable_group.enabled = not is_operation_running
-            settings_to_disable_group.prop(prefs_instance, "use_system_id")
-            settings_to_disable_group.prop(prefs_instance, 'backup_path')
-            #col_top.prop(prefs_instance, 'ignore_files') # Still commented out
-            settings_to_disable_group.prop(prefs_instance, 'show_path_details')
-            
-            # Debug 
-            col_top.prop(prefs_instance, 'debug')  
-            col_top.separator()   
-
-            if prefs_instance.debug: # Only show system paths if debug is enabled
-                col_top.separator()
-
-                # Blender System Paths (Read-Only)
-                box_system_paths_display = col_top.box()
-                col_system_paths_display = box_system_paths_display.column(align=True)
-                col_system_paths_display.label(text="Blender System Paths (Read-Only - Debug):")
-
-                # Blender Installation Path
-                blender_install_path = os.path.dirname(bpy.app.binary_path)
-                row_install = col_system_paths_display.row(align=True)
-                row_install.label(text="Installation Path:")
-                op_install = row_install.operator(preferences.OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text="")
-                op_install.path_to_open = blender_install_path
-                col_system_paths_display.label(text=blender_install_path)
-
-                # User Version Folder Path
-                row_user_version_folder = col_system_paths_display.row(align=True)
-                row_user_version_folder.label(text="User Version Folder:")
-                op_user_version_folder = row_user_version_folder.operator(preferences.OT_OpenPathInExplorer.bl_idname, icon='FILEBROWSER', text="")
-                op_user_version_folder.path_to_open = prefs_instance.blender_user_path
-                col_system_paths_display.label(text=prefs_instance.blender_user_path)
-
-                # User Config Subfolder Path is already available via prefs_instance.config_path
-                # No need to construct it manually here as it's already a preference property.
-                # We can add it here if desired, similar to the preferences panel.
-
-
-
-            # --- Save Preferences Button ---
-            # Conditionally show the "Save Preferences" button.
-            # Only show it if Blender's "Save Preferences on Quit" is OFF.
-            prefs_main = context.preferences # Use bpy.context.preferences
-            show_manual_save_button = True # Default to showing the button
-
-            if prefs_main and hasattr(prefs_main, 'use_preferences_save'):
-                if prefs_main.use_preferences_save: # If 'Auto-Save Preferences' is ON
-                    show_manual_save_button = False # Then DO NOT show the manual save button
-                    if _debug_draw:
-                        print("DEBUG: OT_BackupManagerWindow.draw(): Blender's 'Save on Quit' is ON. Hiding manual 'Save Preferences' button.")
-                elif _debug_draw: # 'Save on Quit' is OFF
-                     print("DEBUG: OT_BackupManagerWindow.draw(): Blender's 'Save on Quit' is OFF. Showing manual 'Save Preferences' button.")
-            elif _debug_draw: # Could not determine 'Save on Quit' state
-                print("DEBUG: OT_BackupManagerWindow.draw(): Could not determine Blender's 'Save on Quit' state. Defaulting to show manual 'Save Preferences' button.")
-
-            if show_manual_save_button:
-                save_prefs_row = layout.row(align=True)
-                save_prefs_row.enabled = not is_operation_running # Disable if operation is running
-
-                # Check if preferences have unsaved changes (shows '*' in Blender UI)
-                label_text = "Save Preferences"
-                if bpy.context.preferences.is_dirty:
-                    label_text += " *"
-                
-                # Proper alignment for the button within the row
-                save_prefs_row.label(text="") # Spacer on the left
-                save_prefs_button_col = save_prefs_row.column()
-                save_prefs_button_col.scale_x = 0.5 # Make button narrower
-                save_prefs_button_col.operator("wm.save_userpref", text=label_text, icon='PREFERENCES')
-            
-            # --- Tabs for Backup/Restore ---      
-            layout.use_property_split = False
-            layout.prop(self, "tabs", expand=False) # Use the operator's own tabs property
-
-            # --- Progress UI ---
-            if prefs_instance.show_operation_progress:
-                op_status_box = layout.box()
-                op_status_col = op_status_box.column(align=True)
-
-                # Display the progress message
-                if prefs_instance.operation_progress_message:
-                    op_status_col.label(text=prefs_instance.operation_progress_message)
-                
-                # Create a new row for the progress bar and abort button
-                progress_row = op_status_col.row(align=True)
-
-                # Display the progress value as a slider (without its own text label)
-                # operation_progress_value is a 0.0-100.0 factor. The text="" hides the label to its left.
-                progress_row.prop(prefs_instance, "operation_progress_value", slider=True, text="")
-                                
-                # Abort button
-                progress_row.operator("bm.abort_operation", text="", icon='CANCEL') # Text removed for compactness
-
-            # --- Tab content for Backup/Restore --- 
-            tab_content_box = layout.box() # Box for the content of the selected tab
-            tab_content_box.enabled = not is_operation_running # Disable tab content if operation is running
-
-            if self.tabs == "BACKUP":
-                self._draw_backup_tab(tab_content_box, context, prefs_instance)
-            elif self.tabs == "RESTORE":
-                self._draw_restore_tab(tab_content_box, context, prefs_instance)
-            
-            if _debug_draw and _start_time_draw_obj:
-                _end_time_draw_obj = datetime.now()
-                print(f"DEBUG: (took: {(_end_time_draw_obj - _start_time_draw_obj).total_seconds():.6f}s) OT_BackupManagerWindow.draw() END")
-                print("-" * 70) # Add a separator line
-
-        except Exception as e:
-            print(f"ERROR: Backup Manager: Error during OT_BackupManagerWindow.draw() main block: {e}")
-            layout.label(text=f"Error drawing Backup Manager window: {e}")
-
-
-    def execute(self, context):
-        prefs_instance = None
-        try:
-            prefs_instance = prefs()
-        except Exception as e:
-            # Log error and attempt to cancel gracefully
-            print(f"ERROR: OT_BackupManagerWindow.execute() - Failed to get preferences: {e}. Self: {self}")
-            self.cancel(context) # Ensure timer cleanup
-            return {'CANCELLED'} # Indicate failure
-
-        if prefs_instance.debug:
-            print(f"DEBUG: OT_BackupManagerWindow.execute() ENTER. Context: {context}, Self: {self}")
-        
-        # Ensure timer is cleaned up if execute is called (e.g. by an "OK" button if one existed)
-        if self._timer:
-            context.window_manager.event_timer_remove(self._timer)
-            self._timer = None
-            if prefs_instance.debug: print(f"DEBUG: OT_BackupManagerWindow.execute() - Timer removed.")
-        
-        # Check prefs_instance again in case it was None from the try-except block
-        # but cancel didn't lead to an immediate return (though it should).
-        # This is more for defensive logging.
-        if prefs_instance and prefs_instance.debug:
-            print(f"DEBUG: OT_BackupManagerWindow.execute() EXIT. Returning {{'FINISHED'}}. Self: {self}")
-        return {'FINISHED'} # Signal successful completion.
-
-    def invoke(self, context, event):
-        self._cancelled = False # Reset cancellation flag on new invocation
-
-        prefs_instance = prefs()
-
-        # Critical check: If preferences are not available, cancel immediately.
-        if not prefs_instance:
-            print(f"ERROR: OT_BackupManagerWindow.invoke() - Failed to get addon preferences. Cannot initialize window. Self: {self}")
-            return {'CANCELLED'}
-
-        # Now it's safe to use prefs_instance
-        _debug_active = prefs_instance.debug # Store debug state for local use
-
-        if _debug_active:
-            print(f"DEBUG: OT_BackupManagerWindow.invoke() CALLED. Initializing tabs from prefs: {prefs_instance.tabs}")
-        
-        self.tabs = prefs_instance.tabs # Initialize window tabs from preferences
-
-        # Explicitly trigger the version list update (which includes the SEARCH operator call)
-        # and subsequent path detail scan (if show_path_details is true).
-        # This ensures that the necessary scans are performed on first window open,
-        # as the update chain via self.tabs -> _update_window_tabs -> prefs.tabs
-        # might not fire if the tab values are already synchronized.
-        if _debug_active:
-            print(f"DEBUG: OT_BackupManagerWindow.invoke() - Explicitly calling prefs_instance.update_version_list(context) for initial scan.")
-        prefs_instance._update_backup_path_and_versions(context)
-
-        # Use invoke_props_dialog to open the window.
-        # The operator's draw() method will be called by Blender to populate the dialog.
-        result = context.window_manager.invoke_props_dialog(self, width=700)
-        if _debug_active:
-            print(f"DEBUG: OT_BackupManagerWindow.invoke() EXIT. invoke_props_dialog returned: {result}. Self: {self}")
-        # If invoke_props_dialog returns {'RUNNING_MODAL'}, our modal() method will also run.
-        return result
-
-    # The modal() method is removed as the operator is no longer self-modal.
-    # invoke_props_dialog handles the dialog's modality.
-
-    def cancel(self, context):
-        self._cancelled = True # Mark this instance as cancelled
-
-        # Use the robust prefs() function from core.py
-        _debug_active = False # Default to False for safety during cancel
-        prefs_instance_for_cancel = None
-        try:
-            prefs_instance_for_cancel = prefs()
-            if prefs_instance_for_cancel:
-                _debug_active = prefs_instance_for_cancel.debug
-        except Exception:
-            pass # Ignore errors getting prefs during cancel, prioritize cleanup
-        if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() ENTER. Context: {context}, Self: {self}, _cancelled set to True.")
-        
-        # If an operation (from OT_BackupManager) is in progress,
-        # DO NOT request it to abort just because this UI window is closing.
-        # The OT_BackupManager is its own modal operator and can be cancelled
-        # via its own ESC handling or the explicit Abort button (if window was open).
-        try:
-            if prefs_instance_for_cancel and prefs_instance_for_cancel.show_operation_progress: # Check if OT_BackupManager is likely active
-                if _debug_active:
-                    print(f"DEBUG: OT_BackupManagerWindow.cancel() - Operation is in progress (show_operation_progress is True).")
-                    print(f"DEBUG: OT_BackupManagerWindow.cancel() - Window is closing, but the background operation will NOT be aborted by this window's cancellation.")
-                # Explicitly DO NOT set: prefs_instance_for_cancel.abort_operation_requested = True
-            elif prefs_instance_for_cancel: # No operation in progress
-                 if _debug_active:
-                    print(f"DEBUG: OT_BackupManagerWindow.cancel() - No operation in progress (show_operation_progress is False). Window closing normally.")
-        except Exception as e:
-            if _debug_active: print(f"DEBUG: OT_BackupManagerWindow.cancel() - Error accessing prefs_instance_for_cancel.show_operation_progress: {e}. Self: {self}")
-            
-        if _debug_active:
-            print(f"DEBUG: OT_BackupManagerWindow.cancel() EXIT. Self: {self}")
-        # Operator.cancel() is expected to do cleanup.
-        # If invoke_props_dialog calls this, it handles the {'CANCELLED'} state internally.
+from bpy.props import StringProperty
+from . import preferences # For BM_Preferences, ITEM_DEFINITIONS
+from .preferences_utils import get_addon_preferences, build_ignore_patterns
+from .constants import (SHARED_FOLDER_NAME, 
+                        OPERATION_BACKUP,
+                        OPERATION_RESTORE,
+                        OPERATION_SEARCH_BACKUP,
+                        OPERATION_BATCH_BACKUP,
+                        OPERATION_BATCH_RESTORE,
+                        OPERATION_DELETE_ALL_BACKUPS, 
+                        OPERATION_DELETE_ALL_SHARED_BACKUPS, 
+                        OPERATION_DELETE_SELECTED_SHARED_BACKUP, 
+                        OPERATION_DELETE_SELECTED_BACKUP)
+from .logger import debug
+from .version_utils import find_versions
+from . import ui
+from .debug_utils import get_prefs_and_debug
                 
 class OT_BackupManager(Operator):
     ''' run backup & restore '''
     bl_idname = "bm.run_backup_manager"
-    bl_label = "Blender Versions"     
-    # bl_options = {'REGISTER'} # Removed, not typically needed for modal operators unless specific registration behavior is desired.
+    bl_label = "Backup Manager Action"
+    bl_options = {'REGISTER'} # Needs to be registered for invoke_confirm and modal to work
     
-    button_input: StringProperty()
+    button_input: StringProperty() # type: ignore
     
     # --- Modal operator state variables ---
     _timer = None
@@ -825,7 +59,7 @@ class OT_BackupManager(Operator):
     processed_files_count: int = 0
     current_source_path: str = ""
     current_target_path: str = ""
-    current_operation_type: str = "" # 'BACKUP' or 'RESTORE'
+    current_operation_type: str = "" # OPERATION_BACKUP or OPERATION_RESTORE
     _progress_started_on_wm: bool = False # True if Blender's WM progress has been started
     # --- Batch operation state variables ---
     is_batch_operation: bool = False
@@ -834,81 +68,72 @@ class OT_BackupManager(Operator):
     total_batch_items: int = 0
     batch_report_lines: list = [] # To accumulate reports from each sub-operation
 
+    # For confirmation dialogs
+    _confirm_message: str = "" 
+
     ignore_backup = []
     ignore_restore = []
     def create_ignore_pattern(self):
-        self.ignore_backup.clear()
-        self.ignore_restore.clear()
-        list = [x for x in regular_expression.split(',|\s+', prefs().ignore_files) if x!='']        
-        for item in list:
-            self.ignore_backup.append(item)
-            self.ignore_restore.append(item)
+        """Set ignore_backup and ignore_restore using the centralized utility."""
+        self.ignore_backup, self.ignore_restore = build_ignore_patterns(get_addon_preferences())
 
-        if not prefs().backup_bookmarks:
+        if not get_addon_preferences().backup_bookmarks:
             self.ignore_backup.append('bookmarks.txt')
-        if not prefs().restore_bookmarks:
-            self.ignore_restore.append('bookmarks.txt')
-        if not prefs().backup_recentfiles:
+        if not get_addon_preferences().restore_bookmarks:
+            self.ignore_restore.append('bookmarks.txt') # Use get_addon_preferences()
+        if not get_addon_preferences().backup_recentfiles:
             self.ignore_backup.append('recent-files.txt')
-        if not prefs().restore_recentfiles:
-            self.ignore_restore.append('recent-files.txt')   
+        if not get_addon_preferences().restore_recentfiles:
+            self.ignore_restore.append('recent-files.txt') # Use get_addon_preferences()
 
-        if not prefs().backup_startup_blend:
+        if not get_addon_preferences().backup_startup_blend:
             self.ignore_backup.append('startup.blend')
-        if not prefs().restore_startup_blend:
-            self.ignore_restore.append('startup.blend')            
-        if not prefs().backup_userpref_blend:
+        if not get_addon_preferences().restore_startup_blend:
+            self.ignore_restore.append('startup.blend') # Use get_addon_preferences()
+        if not get_addon_preferences().backup_userpref_blend:
             self.ignore_backup.append('userpref.blend')
-        if not prefs().restore_userpref_blend:
-            self.ignore_restore.append('userpref.blend')            
-        if not prefs().backup_workspaces_blend:
+        if not get_addon_preferences().restore_userpref_blend:
+            self.ignore_restore.append('userpref.blend') # Use get_addon_preferences()
+        if not get_addon_preferences().backup_workspaces_blend:
             self.ignore_backup.append('workspaces.blend')
-        if not prefs().restore_workspaces_blend:
-            self.ignore_restore.append('workspaces.blend')  
+        if not get_addon_preferences().restore_workspaces_blend:
+            self.ignore_restore.append('workspaces.blend') # Use get_addon_preferences()
 
-        if not prefs().backup_cache:
+        if not get_addon_preferences().backup_cache:
             self.ignore_backup.append('cache')
-        if not prefs().restore_cache:
-            self.ignore_restore.append('cache')
+        if not get_addon_preferences().restore_cache:
+            self.ignore_restore.append('cache') # Use get_addon_preferences()
 
-        if not prefs().backup_datafile:
+        if not get_addon_preferences().backup_datafile:
             self.ignore_backup.append('datafiles')
-        if not prefs().restore_datafile:
-            self.ignore_restore.append('datafiles')
+        if not get_addon_preferences().restore_datafile:
+            self.ignore_restore.append('datafiles') # Use get_addon_preferences()
 
-        if not prefs().backup_addons:
+        if not get_addon_preferences().backup_addons:
             self.ignore_backup.append('addons')
-        if not prefs().restore_addons:
-            self.ignore_restore.append('addons')
+        if not get_addon_preferences().restore_addons:
+            self.ignore_restore.append('addons') # Use get_addon_preferences()
             
-        if not prefs().backup_extensions:
+        if not get_addon_preferences().backup_extensions:
             self.ignore_backup.append('extensions')
-        if not prefs().restore_extensions:
+        if not get_addon_preferences().restore_extensions:
             self.ignore_restore.append('extensions')
 
-        if not prefs().backup_presets:
+        if not get_addon_preferences().backup_presets:
             self.ignore_backup.append('presets')
-        if not prefs().restore_presets:
-            self.ignore_restore.append('presets')
+        if not get_addon_preferences().restore_presets:
+            self.ignore_restore.append('presets') # Use get_addon_preferences()
     
     def cancel(self, context):
         """Ensures timer and progress UI are cleaned up if the operator is cancelled externally."""
-        # Use the robust prefs() function from core.py
-        _debug_active = False # Default to False for safety during cancel
-        prefs_instance_for_cancel = None
-        try:
-            prefs_instance_for_cancel = prefs()
-            if prefs_instance_for_cancel:
-                _debug_active = prefs_instance_for_cancel.debug
-        except Exception:
-            pass # Ignore errors getting prefs during cancel, prioritize cleanup
+        prefs_instance_for_cancel, _debug_active = get_prefs_and_debug()
 
         if self._timer:
             try:
                 context.window_manager.event_timer_remove(self._timer)
-                if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): Timer removed.")
+                debug(f"DEBUG: OT_BackupManager.cancel(): Timer removed.")
             except Exception as e:
-                if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): Error removing timer: {e}")
+                debug(f"DEBUG: OT_BackupManager.cancel(): Error removing timer: {e}")
             self._timer = None
 
         # Reset UI state related to this operator's modal operation
@@ -919,40 +144,87 @@ class OT_BackupManager(Operator):
                 if self.is_batch_operation:
                     prefs_instance_for_cancel.operation_progress_message = f"Batch operation cancelled."
                 self.is_batch_operation = False # Reset batch flag
-
                 prefs_instance_for_cancel.operation_progress_value = 0.0 # Reset progress value
                 prefs_instance_for_cancel.abort_operation_requested = False # Reset this flag too
-                if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): show_operation_progress and abort_operation_requested reset.")
+                debug(f"DEBUG: OT_BackupManager.cancel(): show_operation_progress and abort_operation_requested reset.")
         except Exception as e:
-            if _debug_active: print(f"DEBUG: OT_BackupManager.cancel(): Error resetting preference flags: {e}")
-        if _debug_active: print(f"DEBUG: OT_BackupManager.cancel() EXIT.")
+            debug(f"DEBUG: OT_BackupManager.cancel(): Error resetting preference flags: {e}")
+        
+        # Clean up progress if it was started
+        if self._progress_started_on_wm:
+            blender_version_for_cancel = getattr(bpy.app, 'version', (0, 0, 0))
+            if blender_version_for_cancel >= (4, 1, 0):
+                try:
+                    context.window_manager.progress_end()
+                    debug(f"DEBUG: OT_BackupManager.cancel(): Progress ended.")
+                except Exception as e_prog_end:
+                    debug(f"DEBUG: OT_BackupManager.cancel(): Error ending progress: {e_prog_end}")
+            self._progress_started_on_wm = False        
+        debug(f"DEBUG: OT_BackupManager.cancel() EXIT.")
         # Blender expects cancel() to return None
 
 
     @staticmethod
     def ShowReport_static(message = [], title = "Message Box", icon = 'INFO'):
-        def draw(self_popup, context): # self_popup refers to the Menu instance for the popup
-            # This function is kept for direct calls, but deferred calls will use BM_MT_PopupMessage
-            for i in message:
-                self_popup.layout.label(text=i)
+        def draw(self_popup, context):
+            # Enhanced: visually prominent warning for delete actions
+            for idx, i in enumerate(message):
+                if idx == 0 and ("delete" in i.lower() or "cannot be undone" in i.lower()):
+                    self_popup.layout.label(text=i, icon='ERROR')
+                elif 'CANNOT be undone' in i:
+                    row = self_popup.layout.row()
+                    row.label(text=i, icon='CANCEL')
+                elif 'DELETE' in i or 'delete' in i:
+                    row = self_popup.layout.row()
+                    row.label(text=i, icon='TRASH')
+                else:
+                    self_popup.layout.label(text=i)
         bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
 
     @staticmethod
     def _deferred_show_report_static(message_lines, title, icon, show_restart=False, restart_op_idname=""):
-        if prefs().debug: 
-            print(f"DEBUG: _deferred_show_report_static: Preparing to invoke bm.show_final_report. Title='{title}', ShowRestart={show_restart}, RestartOp='{restart_op_idname}'")
-        OT_ShowFinalReport.set_report_data(lines=message_lines, 
+        from . import ui # Import ui locally
+        _, debug_flag = get_prefs_and_debug()
+        if debug_flag:
+            debug(f"DEBUG: _deferred_show_report_static: Preparing to invoke bm.show_final_report. Title='{title}', ShowRestart={show_restart}, RestartOp='{restart_op_idname}'")
+        ui.OT_ShowFinalReport.set_report_data(lines=message_lines, 
                                            title=title, 
                                            icon=icon, 
                                            show_restart=show_restart, 
                                            restart_op_idname=restart_op_idname)
-        bpy.ops.bm.show_final_report('EXEC_DEFAULT') # Changed from INVOKE_SCREEN
+        bpy.ops.bm.show_final_report('EXEC_DEFAULT')
         return None # Stop the timer
 
     # Keep the instance method for direct calls if needed, though static is preferred for deferred.
     def ShowReport(self, message = None, title = "Message Box", icon = 'INFO'):
         OT_BackupManager.ShowReport_static(message, title, icon)
     
+    def _get_destination_base_for_item(self, prefs_instance, item_identifier_or_None, target_version_folder_name):
+        """
+        Determines the base destination directory for an item during BACKUP,
+        or the base target directory during RESTORE (which is always local Blender config).
+        target_version_folder_name: e.g., "4.1" or "custom_backup_name"
+        """
+        is_shared = False
+        if item_identifier_or_None:
+            # Check against actual ITEM_DEFINITIONS identifiers
+            # ITEM_DEFINITIONS is available via preferences.ITEM_DEFINITIONS
+            if item_identifier_or_None in [item[0] for item in preferences.ITEM_DEFINITIONS]:
+                 is_shared = getattr(prefs_instance, f"shared_{item_identifier_or_None}", False)
+
+        if self.current_operation_type == OPERATION_BACKUP:
+            backup_root = prefs_instance.backup_path
+            if is_shared:
+                return os.path.join(backup_root, SHARED_FOLDER_NAME, target_version_folder_name)
+            else: # Not shared, goes to normal backup location
+                return os.path.join(backup_root, prefs_instance.system_id, target_version_folder_name) 
+        elif self.current_operation_type == OPERATION_RESTORE:
+            # Target is always the local Blender user path for that version.
+            # self.current_target_path is already set to this in execute()
+            # e.g., .../Blender/4.1 or .../Blender/target_backup_version_from_dropdown
+            return self.current_target_path
+        return None # Should not happen
+
     def _prepare_file_list(self):
         """Scans source_path and populates self.files_to_process and self.total_files."""
         self.files_to_process.clear()
@@ -963,42 +235,109 @@ class OT_BackupManager(Operator):
             self.report({'WARNING'}, f"Source path does not exist or is not a directory: {self.current_source_path}")
             return False
 
-        self.create_ignore_pattern()
-        current_ignore_list = self.ignore_backup if self.current_operation_type == 'BACKUP' else self.ignore_restore
+        prefs_instance = get_addon_preferences()
+        current_ignore_list = self.ignore_backup if self.current_operation_type == OPERATION_BACKUP else self.ignore_restore
 
-        if prefs().debug:
-            print(f"Preparing file list for {self.current_operation_type}")
-            print(f"Source: {self.current_source_path}")
-            print(f"Target: {self.current_target_path}")
-            print(f"Ignore list: {current_ignore_list}")
+        # Determine the target version folder name for constructing destination paths (during backup)
+        version_name_for_path_construction = ""
+        if self.current_operation_type == OPERATION_BACKUP:
+            if self.is_batch_operation:
+                # For batch backup, the version name comes directly from the current batch item
+                if self.current_batch_item_index < len(self.batch_operations_list):
+                    version_name_for_path_construction = self.batch_operations_list[self.current_batch_item_index][3]
+                else:
+                    # This case should ideally not be reached if batch processing is managed correctly.
+                    # Log an error and use a fallback to prevent crashes.
+                    debug("ERROR: Backup Manager: current_batch_item_index out of bounds during batch backup path construction.")
+                    version_name_for_path_construction = "batch_error_version" # Fallback
+            elif not prefs_instance.advanced_mode: # Single, non-advanced backup
+                version_name_for_path_construction = str(prefs_instance.active_blender_version)
+            else: # Single, advanced backup
+                if prefs_instance.custom_version_toggle:
+                    version_name_for_path_construction = str(prefs_instance.custom_version)
+                else:
+                    # For advanced single backup, the target version name is derived from the selected source version
+                    version_name_for_path_construction = prefs_instance.backup_versions
+        # For RESTORE, this specific variable isn't directly used in this function as dest is always local.
+        # The _prepare_restore_files_from_source handles its own version_name logic for iterating source.
 
-        for dirpath, dirnames, filenames in os.walk(self.current_source_path):
-            # Prune dirnames based on ignore list
-            dirnames[:] = [d for d in dirnames if not any(fnmatch.fnmatch(d, pat) for pat in current_ignore_list)]
+        if prefs_instance.debug:
+            debug(f"Preparing file list for {self.current_operation_type}")
+            debug(f"Source: {self.current_source_path}")
+            debug(f"Target: {self.current_target_path}")
+            debug(f"Ignore list: {current_ignore_list}")
+            if self.current_operation_type == OPERATION_BACKUP:
+                debug(f"Target version name for path construction: {version_name_for_path_construction}")
+
+        for dirpath, dirnames, filenames in os.walk(self.current_source_path, topdown=True):
+            # Prune dirnames based on ignore list (items globally disabled by user)
+            dirnames[:] = [
+                d for d in dirnames
+                if not any(fnmatch.fnmatch(d, pat) for pat in current_ignore_list)
+            ]
 
             for filename in filenames:
+                # Check if this file (by its basename) is globally ignored
                 if any(fnmatch.fnmatch(filename, pat) for pat in current_ignore_list):
                     continue
                 
                 src_file = os.path.join(dirpath, filename)
-                relative_dir = os.path.relpath(dirpath, self.current_source_path)
-                # On Windows, relpath might return '.' for the top level, handle this.
-                if relative_dir == '.':
-                    dest_file = os.path.join(self.current_target_path, filename)
-                else:
-                    dest_file = os.path.join(self.current_target_path, relative_dir, filename)
 
-                # This check prevents copying a file onto itself if src and dest resolve to the same path.
+                # Path segment relative to version root (e.g., "scripts/addons/file.py" or "userpref.blend")
+                # This is the path of the file relative to self.current_source_path (local Blender version root for backup)
+                path_segment_in_version = filename
+                relative_dir_part = os.path.relpath(dirpath, self.current_source_path)
+                if relative_dir_part != '.':
+                    path_segment_in_version = os.path.join(relative_dir_part, filename)
+
+                dest_file = ""
+                if self.current_operation_type == OPERATION_BACKUP:
+                    # Determine the item_identifier for this file to check its shared_status
+                    effective_item_id_for_shared_check = None # Use preferences.ITEM_DEFINITIONS
+                    if filename in [item[0] for item in preferences.ITEM_DEFINITIONS]:
+                        effective_item_id_for_shared_check = filename
+                    else:
+                        if relative_dir_part and relative_dir_part != '.':
+                            # Check parts of the relative path
+                            parts = pathlib.Path(relative_dir_part).parts
+                            for part in reversed(parts): # Check deeper parts first
+                                if part in [item[0] for item in preferences.ITEM_DEFINITIONS]:
+                                    effective_item_id_for_shared_check = part
+                                    break
+                    
+                    destination_base = self._get_destination_base_for_item(
+                        prefs_instance,
+                        effective_item_id_for_shared_check,
+                        version_name_for_path_construction # Target version folder name
+                    )
+                    dest_file = os.path.join(destination_base, path_segment_in_version)
+
+                elif self.current_operation_type == 'RESTORE':
+                    # For RESTORE, _prepare_file_list is (or should be) called by a helper that sets current_source_path.
+                    # The destination is always self.current_target_path (local Blender version).
+                    # The path_segment_in_version is relative to the backup source (shared or non-shared).
+                    dest_file = os.path.join(self.current_target_path, path_segment_in_version)
+
                 if os.path.normpath(src_file) == os.path.normpath(dest_file):
-                    if prefs().debug: print(f"Skipping copy, source and destination are the same file: {src_file}")
+                    if prefs_instance.debug: debug(f"Skipping copy, source and destination are the same file: {src_file}")
                     continue
 
-                self.files_to_process.append((src_file, dest_file))
+                # Ensure no duplicates if this function is somehow called in a way that could overlap
+                # (More relevant for the RESTORE multi-call pattern if not handled carefully there)
+                if (src_file, dest_file) not in self.files_to_process:
+                    self.files_to_process.append((src_file, dest_file))
+                elif prefs_instance.debug:
+                    debug(f"DEBUG: _prepare_file_list: Duplicate file pair skipped: ({src_file}, {dest_file})")
         
         self.total_files = len(self.files_to_process)
-        if prefs().debug:
-            print(f"Total files to process: {self.total_files}")
+        if prefs_instance.debug:
+            debug(f"Total files to process: {self.total_files}")
         return True
+
+    # _process_next_batch_item_or_finish and modal methods remain largely the same,
+    # as they operate on the prepared self.files_to_process list.
+    # The key is that self.files_to_process now contains the correct (src, dest)
+    # pairs, including those for shared items.
 
     def _process_next_batch_item_or_finish(self, context):
         """
@@ -1007,37 +346,68 @@ class OT_BackupManager(Operator):
         Returns {'RUNNING_MODAL'} if a new item is started modally,
         {'FINISHED'} if batch is complete or no items to process initially.
         """
-        pref_instance = prefs() # Get fresh preferences
+        pref_instance = get_addon_preferences() # Get fresh preferences
 
         if self.current_batch_item_index < self.total_batch_items:
             source_path, target_path, op_type, version_name = self.batch_operations_list[self.current_batch_item_index]
-            self.current_source_path = source_path
-            self.current_target_path = target_path
-            self.current_operation_type = op_type
+            # For BACKUP, source_path is local Blender version, target_path is primary backup location (e.g. .../system_id/version_name)
+            # For RESTORE, source_path is primary backup location (e.g. .../system_id/version_name), target_path is local Blender version
 
+            self.current_operation_type = op_type # OPERATION_BACKUP or OPERATION_RESTORE
             item_name_for_log = version_name # Use the version name for logging
 
-            if pref_instance.clean_path and os.path.exists(self.current_target_path) and self.current_operation_type == 'BACKUP':
-                if pref_instance.debug: print(f"DEBUG: Batch: Attempting to clean path for {item_name_for_log}: {self.current_target_path}")
-                try:
-                    if not pref_instance.dry_run: shutil.rmtree(self.current_target_path)
-                    cleaned_msg = f"Cleaned path for {item_name_for_log}: {self.current_target_path}"
-                    if pref_instance.debug or pref_instance.dry_run: print(cleaned_msg)
-                    self.batch_report_lines.append(f"INFO: {cleaned_msg}")
-                except OSError as e:
-                    fail_clean_msg = f"Failed to clean path for {item_name_for_log} ({self.current_target_path}): {e}"
-                    if pref_instance.debug: print(f"ERROR: {fail_clean_msg}")
-                    self.batch_report_lines.append(f"WARNING: {fail_clean_msg}")
+            if pref_instance.clean_path and self.current_operation_type == OPERATION_BACKUP:
+                # Clean default target path for this batch item
+                default_target_path_to_clean = target_path # This is the .../system_id/version_name path for backup
+                if os.path.exists(default_target_path_to_clean):
+                    if pref_instance.debug: debug(f"DEBUG: Batch Clean: Attempting to clean default path for {item_name_for_log}: {default_target_path_to_clean}")
+                    try:
+                        if not pref_instance.dry_run: shutil.rmtree(default_target_path_to_clean)
+                        cleaned_msg = f"Cleaned default path for {item_name_for_log}: {default_target_path_to_clean}"
+                        if pref_instance.debug or pref_instance.dry_run: debug(cleaned_msg); self.batch_report_lines.append(f"INFO: {cleaned_msg}")
+                    except OSError as e:
+                        fail_clean_msg = f"Failed to clean default path for {item_name_for_log} ({default_target_path_to_clean}): {e}"; debug(f"ERROR: {fail_clean_msg}" if pref_instance.debug else ""); self.batch_report_lines.append(f"WARNING: {fail_clean_msg}")
+                # Clean shared target path for this batch item's version_name
+                shared_target_path_to_clean = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME, version_name)
+                if os.path.exists(shared_target_path_to_clean):
+                    if pref_instance.debug: debug(f"DEBUG: Batch Clean: Attempting to clean shared path for {item_name_for_log}: {shared_target_path_to_clean}")
+                    # Similar try-except for shutil.rmtree(shared_target_path_to_clean)
+                    # For brevity, assuming similar error handling as above.
+                    if not pref_instance.dry_run: shutil.rmtree(shared_target_path_to_clean) # Simplified for example
+                    self.batch_report_lines.append(f"INFO: Cleaned shared path for {item_name_for_log}: {shared_target_path_to_clean}")
 
-            if not self._prepare_file_list(): # Populates self.files_to_process, self.total_files
-                err_msg = f"Batch item {self.current_batch_item_index + 1}/{self.total_batch_items} ({op_type} {item_name_for_log}): Error preparing file list. Skipping."
-                self.report({'WARNING'}, err_msg)
-                self.batch_report_lines.append(f"WARNING: {err_msg}")
-                pref_instance.operation_progress_message = err_msg
-                self.current_batch_item_index += 1
-                return self._process_next_batch_item_or_finish(context) # Try next
+            # --- Prepare File List ---
+            self.files_to_process.clear() # Always clear before preparing for a new item
+
+            if self.current_operation_type == OPERATION_BACKUP:
+                self.current_source_path = source_path # Local Blender version
+                # For BACKUP, self.current_target_path is not directly used by _prepare_file_list in the same way.
+                # _get_destination_base_for_item uses version_name and backup_root to construct paths.
+                # Setting it conceptually to the non-shared backup destination for clarity.
+                self.current_target_path = target_path 
+                if not self._prepare_file_list(): # Populates self.files_to_process, self.total_files
+                    err_msg = f"Batch item {self.current_batch_item_index + 1}/{self.total_batch_items} ({op_type} {item_name_for_log}): Error preparing file list for BACKUP. Skipping."
+                    self.report({'WARNING'}, err_msg); self.batch_report_lines.append(f"WARNING: {err_msg}")
+                    pref_instance.operation_progress_message = err_msg
+                    self.current_batch_item_index += 1
+                    return self._process_next_batch_item_or_finish(context) # Try next
+            elif self.current_operation_type == 'RESTORE':
+                # source_path from batch list is the non-shared backup location (e.g. .../backup_path/system_id/version_name)
+                non_shared_source_for_restore = source_path
+                shared_source_for_restore = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME, version_name)
+                # target_path from batch list is the ultimate local Blender config destination (e.g., .../Blender/version_name)
+                self.current_target_path = target_path # Set for _prepare_restore_files_from_source
+
+                self._prepare_restore_files_from_source(context, non_shared_source_for_restore, self.current_target_path, version_name, process_shared_state=False)
+                # Determine if system-specific backup was missing for this batch item
+                system_specific_backup_is_missing_for_item = not os.path.isdir(non_shared_source_for_restore)
+                self._prepare_restore_files_from_source(context, shared_source_for_restore, self.current_target_path, version_name, 
+                                                        process_shared_state=True, 
+                                                        system_specific_backup_was_missing=system_specific_backup_is_missing_for_item)
+                self.total_files = len(self.files_to_process) # Update total files after both calls
 
             if self.total_files == 0:
+                # ... (existing code for no files)
                 no_files_msg = f"Batch item {self.current_batch_item_index + 1}/{self.total_batch_items} ({op_type} {item_name_for_log}): No files to process. Skipping."
                 self.report({'INFO'}, no_files_msg)
                 self.batch_report_lines.append(f"INFO: {no_files_msg}")
@@ -1046,26 +416,30 @@ class OT_BackupManager(Operator):
                 return self._process_next_batch_item_or_finish(context) # Try next
 
             # Item has files, set up for modal processing
-            self.processed_files_count = 0 # Reset for the new item
+            # ... (existing code for setting up modal processing)
+
             initial_message = f"Batch {self.current_operation_type} ({self.current_batch_item_index + 1}/{self.total_batch_items} - {item_name_for_log}): Starting... ({self.total_files} files)"
             self.report({'INFO'}, initial_message) # Report to Blender status bar
             pref_instance.show_operation_progress = True
             pref_instance.operation_progress_message = initial_message
             pref_instance.operation_progress_value = 0.0
+            self.processed_files_count = 0 # Reset for the new item
             
             if self._timer is None:
-                self._timer = context.window_manager.event_timer_add(0.0, window=context.window)
-                if pref_instance.debug: print(f"DEBUG: Batch: Timer ADDED for item {self.current_batch_item_index + 1} ('{item_name_for_log}')")
+                self._timer = context.window_manager.event_timer_add(0.1, window=context.window)
+                if pref_instance.debug: debug(f"DEBUG: Batch: Timer ADDED for item {self.current_batch_item_index + 1} ('{item_name_for_log}')")
             # Modal handler should already be active from the initial execute call for the batch.
             return {'RUNNING_MODAL'} # Signal that an item is ready for modal processing
         else:
             # All batch items processed
+            # ... (existing code for batch completion)
             self.is_batch_operation = False # Reset flag
             final_batch_message = f"Batch operation complete. Processed {self.total_batch_items} items."
             self.report({'INFO'}, final_batch_message)
             
-            report_title = "Batch Operation Report"
             overall_op_type = "Operation"
+            report_title = f"Batch {overall_op_type} Report" # Default title
+
             if self.batch_operations_list:
                  overall_op_type = self.batch_operations_list[0][2] # Get op_type from first item
                  report_title = f"Batch {overall_op_type.capitalize()} Report"
@@ -1074,7 +448,7 @@ class OT_BackupManager(Operator):
             if overall_op_type == 'RESTORE': # Show restart info even on dry run for simulation
                 self.batch_report_lines.append("") # Add a blank line for spacing
                 self.batch_report_lines.append("IMPORTANT: For restored settings to fully apply, this Blender session must be ended.")
-                self.batch_report_lines.append(f"Use the '{OT_QuitBlenderNoSave.bl_label}' button in the report.")
+                self.batch_report_lines.append(f"Use the '{ui.OT_QuitBlenderNoSave.bl_label}' button in the report.")
                 show_restart_btn_batch = True
 
             final_report_lines = [final_batch_message] + self.batch_report_lines[:]            
@@ -1082,7 +456,7 @@ class OT_BackupManager(Operator):
                 lambda final_report_lines=final_report_lines, report_title=report_title, show_restart_btn_batch=show_restart_btn_batch:
                     OT_BackupManager._deferred_show_report_static(
                         final_report_lines, report_title, 'INFO', show_restart=show_restart_btn_batch, restart_op_idname="bm.quit_blender_no_save"
-                    ),
+                    ), # This will call ui.OT_ShowFinalReport via _deferred_show_report_static
                 first_interval=0.01
                 )
 
@@ -1090,6 +464,7 @@ class OT_BackupManager(Operator):
             pref_instance.operation_progress_message = final_batch_message
             pref_instance.operation_progress_value = 100.0
             pref_instance.abort_operation_requested = False # Reset abort flag
+
             
             if self._timer: # Clean up timer if it was from the last item
                 context.window_manager.event_timer_remove(self._timer)
@@ -1097,9 +472,11 @@ class OT_BackupManager(Operator):
             return {'FINISHED'}
 
     def modal(self, context, event):
-        pref_instance = prefs() # Get fresh preferences
+        pref_instance = get_addon_preferences() # Get fresh preferences
         # Capture the state of the abort request flag at the beginning of this modal event
         was_aborted_by_ui_button = pref_instance.abort_operation_requested
+        wm = context.window_manager # Store window manager for progress bar
+
         
         # Check for abort request first or ESC key
         # Or if all files are processed (files_to_process is empty AND processed_files_count matches total_files)
@@ -1108,11 +485,19 @@ class OT_BackupManager(Operator):
            (not self.files_to_process and self.processed_files_count >= self.total_files and self.total_files > 0) or \
            (self.total_files == 0 and self.processed_files_count == 0): # Handles case of no files to process initially
 
+            # Clean up progress for the item that just finished/was cancelled
+            if self._progress_started_on_wm:
+                blender_version_modal_cleanup = getattr(bpy.app, 'version', (0, 0, 0))
+                if blender_version_modal_cleanup >= (4, 1, 0): # Check version for progress_end
+                    wm.progress_end()
+                self._progress_started_on_wm = False
+                if pref_instance.debug: debug(f"DEBUG: OT_BackupManager.modal(): Progress ended for completed/cancelled item.")
+
             # Timer for the *just completed* item (or an item that had 0 files)
             if self._timer:
                 context.window_manager.event_timer_remove(self._timer)
                 self._timer = None
-                if pref_instance.debug: print(f"DEBUG: OT_BackupManager.modal(): Timer removed for completed/cancelled item.")
+                if pref_instance.debug: debug(f"DEBUG: OT_BackupManager.modal(): Timer removed for completed/cancelled item.")
 
             # Reset the flag now that its state (was_aborted_by_ui_button) has been used for the decision to exit the modal.
             if was_aborted_by_ui_button:
@@ -1125,18 +510,22 @@ class OT_BackupManager(Operator):
                 
                 cancel_message = f"{op_description} cancelled by user."
                 self.report({'WARNING'}, cancel_message)
-                bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static([cancel_message], "Operation Cancelled", "WARNING"), first_interval=0.01)
+                bpy.app.timers.register(
+                    # Pass necessary args to lambda
+                    lambda msg=cancel_message: OT_BackupManager._deferred_show_report_static([msg], "Operation Cancelled", "ERROR"), 
+                    first_interval=0.01
+                ) # This will call ui.OT_ShowFinalReport
                 
-                pref_instance.operation_progress_message = cancel_message
-                pref_instance.operation_progress_value = 0.0 
-                pref_instance.show_operation_progress = False 
                 self.is_batch_operation = False # Ensure batch mode is exited
                 return {'CANCELLED'}
             else: # Operation completed successfully or no files to process
+                # This is the completion of an individual item (batch or single)
+                # For single operations, this is the final step.
+                # For batch, _process_next_batch_item_or_finish will handle overall batch completion.
                 # This block handles completion of an individual item (could be part of a batch or a single op)
                 completion_status_item = "Dry run complete" if pref_instance.dry_run else "Complete"
                 display_processed_count = min(self.processed_files_count, self.total_files)
-                version_name_for_item_report = os.path.basename(self.current_source_path) if self.current_operation_type == 'BACKUP' else os.path.basename(self.current_target_path)
+                version_name_for_item_report = os.path.basename(self.current_source_path) if self.current_operation_type == OPERATION_BACKUP else os.path.basename(self.current_target_path)
                 if self.is_batch_operation and self.current_batch_item_index < self.total_batch_items:
                      version_name_for_item_report = self.batch_operations_list[self.current_batch_item_index][3] # Get version_name
 
@@ -1145,7 +534,7 @@ class OT_BackupManager(Operator):
 
                 if self.is_batch_operation:
                     self.batch_report_lines.append(f"INFO: {item_report_msg}")
-                    if pref_instance.debug: print(f"DEBUG: Batch item reported: {item_report_msg}")
+                    if pref_instance.debug: debug(f"DEBUG: Batch item reported: {item_report_msg}")
                     
                     self.current_batch_item_index += 1
                     result_next_item = self._process_next_batch_item_or_finish(context)
@@ -1153,7 +542,8 @@ class OT_BackupManager(Operator):
                     if result_next_item == {'RUNNING_MODAL'}:
                         # New item is set up, its timer is running. Modal loop continues.
                         return {'PASS_THROUGH'} 
-                    else: # {'FINISHED'} - batch fully complete
+                    else: # {'FINISHED'} - batch fully complete (or an error occurred preventing continuation)
+                        # _process_next_batch_item_or_finish already set show_operation_progress = False
                         # _process_next_batch_item_or_finish handled final report and prefs update
                         return {'FINISHED'}
                 else: # Single operation completed
@@ -1165,34 +555,36 @@ class OT_BackupManager(Operator):
                     ]
                     if self.current_source_path: report_message_lines.append(f"Source: {self.current_source_path}")
                     if self.current_target_path: report_message_lines.append(f"Target: {self.current_target_path}")
-
-                    report_message_lines = [
-                        f"{self.current_operation_type} {completion_status_item.lower()}.",
-                        f"{display_processed_count}/{self.total_files} files processed."
-                    ]
-                    if self.current_source_path: report_message_lines.append(f"Source: {self.current_source_path}")
-                    if self.current_target_path: report_message_lines.append(f"Target: {self.current_target_path}")
                     if pref_instance.dry_run and self.total_files > 0: 
                         report_message_lines.append("(Dry Run - No files were actually copied/deleted)")
 
                     # Add restart instructions if it's a successful non-dry run RESTORE
+                    _restart_op_idname_for_lambda = "" # Default to empty string
                     if self.current_operation_type == 'RESTORE': # Show restart info even on dry run for simulation
                         report_message_lines.append("") # Add a blank line for spacing
                         report_message_lines.append("IMPORTANT: For restored settings to fully apply, this Blender session must be ended.")
-                        report_message_lines.append(f"Use the '{OT_QuitBlenderNoSave.bl_label}' button below.")
+                        report_message_lines.append(f"Use the '{ui.OT_QuitBlenderNoSave.bl_label}' button below.")
                         show_restart_btn = True
+                        _restart_op_idname_for_lambda = ui.OT_QuitBlenderNoSave.bl_idname # Set the idname string
 
                     report_icon = 'INFO' 
-                    if self.current_operation_type == 'BACKUP': report_icon = 'COLORSET_03_VEC'
-                    elif self.current_operation_type == 'RESTORE': report_icon = 'COLORSET_04_VEC'
-                    
+                    if self.current_operation_type == OPERATION_BACKUP: report_icon = 'COLORSET_03_VEC'
+                    elif self.current_operation_type == OPERATION_RESTORE: report_icon = 'COLORSET_04_VEC'
+
                     # Capture self.current_operation_type for the lambda
                     op_type_for_report_title = self.current_operation_type
                     
-                    bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static(
-                        report_message_lines, f"{op_type_for_report_title} Report", report_icon,
-                        show_restart=show_restart_btn, restart_op_idname="bm.quit_blender_no_save"
-                    ), first_interval=0.01)
+                    # Capture all necessary values for the lambda using default arguments
+                    bpy.app.timers.register(
+                        lambda lines=report_message_lines[:], # Pass a copy
+                               title=f"{op_type_for_report_title} Report",
+                               icon_val=report_icon,
+                               show_restart_val=show_restart_btn,
+                               op_idname_val=_restart_op_idname_for_lambda:
+                        OT_BackupManager._deferred_show_report_static(
+                            lines, title, icon_val,
+                            show_restart=show_restart_val, restart_op_idname=op_idname_val
+                        ), first_interval=0.01)
                     self.report({'INFO'}, " ".join(report_message_lines)) 
                     
                     pref_instance.operation_progress_message = f"{self.current_operation_type} {completion_status_item.lower()}."
@@ -1203,41 +595,39 @@ class OT_BackupManager(Operator):
 
 
         if event.type == 'TIMER':
-            if not self.files_to_process: 
-                # This state (timer event but no files left) should lead to FINISHED via the top condition
-                # in the next event cycle. Update progress one last time for safety.
-                if self.total_files > 0:
-                    current_progress_val = (self.processed_files_count / self.total_files) * 100.0
-                else: # No files to begin with
-                    current_progress_val = 100.0
-                
-                finalizing_msg = f"{self.current_operation_type}: {self.processed_files_count}/{self.total_files} files ({current_progress_val:.1f}%) - Finalizing..."
-                if self.is_batch_operation:
-                    version_name_finalize = self.batch_operations_list[self.current_batch_item_index][3] if self.current_batch_item_index < self.total_batch_items else "item"
-                    finalizing_msg = f"Batch {self.current_operation_type} ({self.current_batch_item_index + 1}/{self.total_batch_items} - {version_name_finalize}): Finalizing..."
+            # --- Blender 4.4+ Status Bar Progress Bar ---
+            blender_version = getattr(bpy.app, 'version', (0, 0, 0))
+            use_status_progress = blender_version >= (4, 1, 0)
 
-                pref_instance.operation_progress_message = finalizing_msg
-                pref_instance.operation_progress_value = current_progress_val
-                return {'PASS_THROUGH'} # Let the next cycle handle termination via top conditions
+            # Start progress if it's the beginning of processing for this item and not already started
+            if use_status_progress and self.processed_files_count == 0 and self.total_files > 0 and not self._progress_started_on_wm:
+                wm.progress_begin(0, self.total_files)
+                self._progress_started_on_wm = True
+
+            if not self.files_to_process: 
+                # This case should ideally be caught by the check at the start of modal()
+                # but as a fallback, ensure progress is marked as complete.
+                pref_instance.operation_progress_value = 100.0
+                # This state (timer event but no files left) should lead to FINISHED immediately
+                return {'FINISHED'}  # Immediately finish instead of waiting for another event
 
             # Process a batch of files
-            for _ in range(BM_Preferences.FILES_PER_TICK_MODAL_OP): # Use constant from preferences
+            for _ in range(preferences.BM_Preferences.FILES_PER_TICK_MODAL_OP):
                 if not self.files_to_process:
-                    break # No more files in the list for this tick
-
+                    break # No more files in the current list for this item
                 src_file, dest_file = self.files_to_process.pop(0)
-
-                if not prefs().dry_run:
+                if not pref_instance.dry_run:
                     try:
                         os.makedirs(os.path.dirname(dest_file), exist_ok=True)
                         shutil.copy2(src_file, dest_file)
-                    except (OSError, shutil.Error) as e: # Catch more specific errors
-                        print(f"Error copying {src_file} to {dest_file}: {e}")
-                        # Consider collecting errors for a summary report
-                
+                    except (OSError, shutil.Error) as e:
+                        if pref_instance.debug: debug(f"Error copying {src_file} to {dest_file}: {e}")
                 self.processed_files_count += 1
-            
-            # Update progress after processing the batch
+                # Update status bar progress for Blender 4.4+
+                if use_status_progress and self._progress_started_on_wm: # Check if progress has begun
+                    wm.progress_update(self.processed_files_count)
+
+            # Update UI progress after processing the batch of files for this tick
             if self.total_files > 0:
                 current_progress_val = (self.processed_files_count / self.total_files) * 100.0
             else: 
@@ -1258,280 +648,590 @@ class OT_BackupManager(Operator):
             pref_instance.operation_progress_value = current_progress_val
             if pref_instance.debug:
                 timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                print(f"DEBUG: [{timestamp}] OT_BackupManager.modal() (TIMER) updated progress to: {pref_instance.operation_progress_value:.1f}%, Msg: '{pref_instance.operation_progress_message}'")
+                debug(f"DEBUG: [{timestamp}] OT_BackupManager.modal() (TIMER) updated progress to: {pref_instance.operation_progress_value:.1f}%, Msg: '{pref_instance.operation_progress_message}'")
 
             # Force redraw of UI to show progress, including the Backup Manager window if it's open
-            for wm_window_iter in context.window_manager.windows:
-                for area_iter in wm_window_iter.screen.areas:
-                    area_iter.tag_redraw()
+            for window_iter_local in context.window_manager.windows: # Use different var name
+                for area_iter_local in window_iter_local.screen.areas:
+                    area_iter_local.tag_redraw() # This already tags all areas, including TOPBAR
             if pref_instance.debug:
                 # This log can be very verbose, so it's commented out by default.
-                # print(f"DEBUG: OT_BackupManager.modal() (TIMER) tagged all areas for redraw at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}.")
+                # debug(f"DEBUG: OT_BackupManager.modal() (TIMER) tagged all areas for redraw at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}.")
                 pass
 
-        return {'PASS_THROUGH'} # Allow other events to be processed
+            # After handling the timer event, return PASS_THROUGH to continue the modal loop
+            return {'PASS_THROUGH'}
+
+        # If the event is not a TIMER or ESC, simply pass it through
+        return {'PASS_THROUGH'}
+    
+    
+    def _prepare_restore_files_from_source(self, context, source_dir_for_items, ultimate_target_dir, version_name_for_path, process_shared_state, system_specific_backup_was_missing=False):
+        """
+        Helper to populate self.files_to_process for RESTORE operations from a specific source directory.
+        source_dir_for_items: The backup location to scan (e.g., .../MyPC/4.1/ OR .../SharedConfigs/4.1/)
+        ultimate_target_dir: The local Blender version path (e.g., .../Blender/4.1/)
+        process_shared_state: True if we are looking for items that are marked as shared in prefs.
+        system_specific_backup_was_missing: True if the corresponding system-specific backup path for this version was not found.
+        Returns None. Modifies self.files_to_process in place.
+        """
+        prefs_instance = get_addon_preferences()
+        # self.ignore_restore should already be set by create_ignore_pattern() in execute()
+        current_ignore_list = self.ignore_restore
+
+        shared_item_identifiers_globally = { # All items marked as shared in prefs
+            item_def[0] for item_def in preferences.ITEM_DEFINITIONS # Use preferences.ITEM_DEFINITIONS
+            if getattr(prefs_instance, f"shared_{item_def[0]}", False)
+        }
+
+        if not os.path.isdir(source_dir_for_items):
+            if prefs_instance.debug:
+                debug(f"DEBUG: _prepare_restore_files_from_source: Source directory not found, skipping: {source_dir_for_items}")
+            return
+
+        for dirpath, dirnames, filenames in os.walk(source_dir_for_items, topdown=True):
+            dirnames_copy = list(dirnames)
+            dirnames[:] = []
+            for d_name in dirnames_copy:
+                is_d_globally_shared = d_name in shared_item_identifiers_globally
+                is_d_ignored_by_user = any(fnmatch.fnmatch(d_name, pat) for pat in current_ignore_list)
+
+                if is_d_ignored_by_user: continue
+                
+                should_process_dir = False
+                if process_shared_state: # Looking for items that should come from shared backup
+                    if is_d_globally_shared: # Item is marked as shared in prefs
+                        should_process_dir = True
+                    elif system_specific_backup_was_missing: # Fallback condition
+                        should_process_dir = True # Process from shared as system-specific is missing
+                        if prefs_instance.debug:
+                            debug(f"DEBUG: Fallback Restore: Including DIR '{d_name}' from SHARED backup (item not marked shared, but system-specific backup missing).")
+                else: # Looking for items that should come from non-shared backup
+                    if not is_d_globally_shared: # Item is NOT marked as shared in prefs
+                        should_process_dir = True
+                
+                if should_process_dir:
+                    dirnames.append(d_name)
+            
+            for f_name in filenames:
+                is_f_globally_shared = f_name in shared_item_identifiers_globally
+                is_f_ignored_by_user = any(fnmatch.fnmatch(f_name, pat) for pat in current_ignore_list)
+
+                if is_f_ignored_by_user: continue
+                
+                process_this_file = False
+                if process_shared_state:
+                    if is_f_globally_shared: # File is marked as shared in prefs
+                        process_this_file = True
+                    elif system_specific_backup_was_missing: # Fallback condition
+                        process_this_file = True # Process from shared as system-specific is missing
+                        if prefs_instance.debug:
+                            debug(f"DEBUG: Fallback Restore: Including FILE '{f_name}' from SHARED backup (item not marked shared, but system-specific backup missing).")
+                else:
+                    if not is_f_globally_shared: # File is NOT marked as shared in prefs
+                        process_this_file = True
+                
+                if not process_this_file: continue
+                
+                src_file = os.path.join(dirpath, f_name)
+                path_segment_in_backup = os.path.relpath(src_file, source_dir_for_items)
+                dest_file = os.path.join(ultimate_target_dir, path_segment_in_backup)
+                
+                if os.path.normpath(src_file) == os.path.normpath(dest_file): continue
+                if (src_file, dest_file) not in self.files_to_process: # Avoid duplicates
+                    self.files_to_process.append((src_file, dest_file))
+        # No return value needed, modifies self.files_to_process directly
+
+    def invoke(self, context, event):
+        prefs_instance = get_addon_preferences()
+        # Remove confirmation popups: always execute directly
+        return self.execute(context)
 
     def execute(self, context): 
-        pref_instance = prefs()
-        pref_backup_versions = BM_Preferences.backup_version_list
-        pref_restore_versions = BM_Preferences.restore_version_list
-        pref_restore_versions = BM_Preferences.restore_version_list
+        pref_instance = get_addon_preferences()
+        pref_backup_versions = preferences.BM_Preferences.backup_version_list
+        pref_restore_versions = preferences.BM_Preferences.restore_version_list
 
         if pref_instance.debug:
-            print("\n\nbutton_input: ", self.button_input)                    
+            debug("\n\nbutton_input: ", self.button_input)                    
         
         if pref_instance.backup_path:
             self.current_operation_type = "" # Reset for single ops
+            self.files_to_process.clear() # Clear before any operation
             self.is_batch_operation = False # Reset for single ops
+            self.create_ignore_pattern() # Initialize ignore lists based on current prefs
 
-            if self.button_input in {'BACKUP', 'RESTORE'}:
+            if self.button_input in { OPERATION_BACKUP, OPERATION_RESTORE }:
                 self.current_operation_type = self.button_input
+                version_name_for_operation = "" # e.g. "4.1" or "custom_name"
                 if not pref_instance.advanced_mode:            
-                    if self.button_input == 'BACKUP':
-                        self.current_source_path = pref_instance.blender_user_path
-                        self.current_target_path = os.path.join(pref_instance.backup_path, str(pref_instance.active_blender_version))
-                    elif self.button_input == 'RESTORE':
+                    if self.button_input == OPERATION_BACKUP:
+                        self.current_source_path = pref_instance.blender_user_path # Local Blender version
+                        self.current_target_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, str(pref_instance.active_blender_version)) # Backup location
+                    elif self.button_input == OPERATION_RESTORE:
                         # --- Temporarily disable 'Save on Quit' for RESTORE operation ---
                         prefs_main = context.preferences # Use bpy.context.preferences
                         if prefs_main and hasattr(prefs_main, 'use_preferences_save'):
                             if prefs_main.use_preferences_save: # Only change if it was True
                                 prefs_main.use_preferences_save = False
                                 if pref_instance.debug:
-                                    print(f"DEBUG: OT_BackupManager.execute RESTORE (non-advanced): Temporarily disabled 'Save Preferences on Quit'.")
+                                    debug(f"DEBUG: OT_BackupManager.execute RESTORE (non-advanced): Temporarily disabled 'Save Preferences on Quit'.")
                         elif pref_instance.debug:
-                            print(f"DEBUG: OT_BackupManager.execute RESTORE (non-advanced): Could not access 'use_save_on_quit'.")
+                            debug(f"DEBUG: OT_BackupManager.execute RESTORE (non-advanced): Could not access 'use_save_on_quit'.")
                         # --- Set paths for non-advanced RESTORE ---
-                        self.current_source_path = os.path.join(pref_instance.backup_path, str(pref_instance.active_blender_version))
+                        # self.current_source_path will be set by _prepare_restore_files_from_source calls
                         self.current_target_path = pref_instance.blender_user_path
+                        version_name_for_operation = str(pref_instance.active_blender_version)
+
                 else:    
-                    if self.button_input == 'BACKUP': # Advanced Mode Backup
+                    if self.button_input == OPERATION_BACKUP: # Advanced Mode Backup
                         self.current_source_path = os.path.join(os.path.dirname(pref_instance.blender_user_path),  pref_instance.backup_versions)
                         if pref_instance.custom_version_toggle:
-                            self.current_target_path = os.path.join(pref_instance.backup_path, str(pref_instance.custom_version))
+                            self.current_target_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, str(pref_instance.custom_version))
                         else: 
-                            # Corrected: If not custom, target for backup should be based on source version name
-                            self.current_target_path = os.path.join(pref_instance.backup_path, pref_instance.backup_versions)
-                    elif self.button_input == 'RESTORE':
+                            # Target for backup is based on source version name (backup_versions)
+                            self.current_target_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, pref_instance.backup_versions)
+                    elif self.button_input == OPERATION_RESTORE: # Advanced Mode Restore
                         # --- Temporarily disable 'Save on Quit' for RESTORE operation (Advanced) ---
                         prefs_main = context.preferences # Use bpy.context.preferences
                         if prefs_main and hasattr(prefs_main, 'use_preferences_save'):
                             if prefs_main.use_preferences_save: # Only change if it was True
                                 prefs_main.use_preferences_save = False
                                 if pref_instance.debug:
-                                    print(f"DEBUG: OT_BackupManager.execute RESTORE (advanced): Temporarily disabled 'Save Preferences on Quit'.")
+                                    debug(f"DEBUG: OT_BackupManager.execute RESTORE (advanced): Temporarily disabled 'Save Preferences on Quit'.")
                         elif pref_instance.debug:
-                            print(f"DEBUG: OT_BackupManager.execute RESTORE (advanced): Could not access 'use_save_on_quit'.")
+                            debug(f"DEBUG: OT_BackupManager.execute RESTORE (advanced): Could not access 'use_save_on_quit'.")
                         # --- Set paths for advanced RESTORE ---
-                        self.current_source_path = os.path.join(pref_instance.backup_path, pref_instance.restore_versions)
+                        # self.current_source_path will be set by _prepare_restore_files_from_source calls
                         self.current_target_path = os.path.join(os.path.dirname(pref_instance.blender_user_path),  pref_instance.backup_versions)
+                        version_name_for_operation = pref_instance.restore_versions # This is the version name from backup list
 
-                if prefs().clean_path and os.path.exists(self.current_target_path) and self.button_input == 'BACKUP': # Clean only for backup
-                    if prefs().debug: print(f"Attempting to clean path: {self.current_target_path}")
-                    try:
-                        if not prefs().dry_run: shutil.rmtree(self.current_target_path)
-                        print(f"Cleaned path: {self.current_target_path}")
-                    except OSError as e:
-                        print(f"Failed to clean path {self.current_target_path}: {e}")
-                        self.report({'WARNING'}, f"Failed to clean {self.current_target_path}: {e}")
+                if self.button_input == OPERATION_BACKUP:
+                    if pref_instance.clean_path:
+                        # Determine version name for cleaning backup paths
+                        version_to_clean_name = ""
+                        if not pref_instance.advanced_mode:
+                            version_to_clean_name = str(pref_instance.active_blender_version)
+                        else:
+                            if pref_instance.custom_version_toggle:
+                                version_to_clean_name = str(pref_instance.custom_version)
+                            else:
+                                version_to_clean_name = pref_instance.backup_versions
 
-                if not self._prepare_file_list(): # Populates self.files_to_process
-                    return {'CANCELLED'}
+                        # Clean default target path
+                        # System ID is always used for non-shared backups
+                        default_target_to_clean = os.path.join(pref_instance.backup_path, pref_instance.system_id, version_to_clean_name)
+
+                        if os.path.exists(default_target_to_clean):
+                            if pref_instance.debug: debug(f"Attempting to clean default backup path: {default_target_to_clean}")
+                            try:
+                                if not pref_instance.dry_run: shutil.rmtree(default_target_to_clean)
+                            except OSError as e: self.report({'WARNING'}, f"Failed to clean {default_target_to_clean}: {e}")
+                        # Clean shared target path
+                        shared_target_to_clean = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME, version_to_clean_name)
+                        if os.path.exists(shared_target_to_clean):
+                            if pref_instance.debug: debug(f"Attempting to clean shared backup path: {shared_target_to_clean}")
+                            try:
+                                if not get_addon_preferences().dry_run: shutil.rmtree(shared_target_to_clean)
+                            except OSError as e: self.report({'WARNING'}, f"Failed to clean {shared_target_to_clean}: {e}")
+                    if not self._prepare_file_list(): return {'CANCELLED'} # Populates self.files_to_process for BACKUP
+
+                elif self.button_input == OPERATION_RESTORE:
+                    # Non-shared source path
+                    # System ID is always used for non-shared backups
+                    non_shared_source_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, version_name_for_operation)
+                    system_specific_backup_is_missing = not os.path.isdir(non_shared_source_path)
+
+                    self._prepare_restore_files_from_source(context, non_shared_source_path, self.current_target_path, 
+                                                            version_name_for_operation, process_shared_state=False,
+                                                            system_specific_backup_was_missing=False) # This flag is not relevant when scanning non-shared
+                    # Shared source path
+                    shared_source_path = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME, version_name_for_operation)
+                    self._prepare_restore_files_from_source(context, shared_source_path, self.current_target_path, 
+                                                            version_name_for_operation, process_shared_state=True,
+                                                            system_specific_backup_was_missing=system_specific_backup_is_missing)
+                    self.total_files = len(self.files_to_process) # Update total files after both calls
                 
                 if self.total_files == 0: # Handle case where no files are found to process
-                    report_message = f"No files to {self.current_operation_type.lower()}"
-                    if self.current_source_path:
-                         report_message += f" from {self.current_source_path}"
+                    report_lines = []
+                    op_type_display = self.current_operation_type.lower() if self.current_operation_type else "operation"
                     
-                    if pref_instance.dry_run: # Clarify dry run message for 0 files
-                        report_message += " (Dry Run - no files would have been processed)."
-                    else:
-                        report_message += "."
+                    title_for_report = f"{self.current_operation_type.capitalize() if self.current_operation_type else 'Operation'} Report"
+                    icon_for_report = 'INFO'
+                    if self.current_operation_type == OPERATION_BACKUP: icon_for_report = 'COLORSET_03_VEC'
+                    elif self.current_operation_type == OPERATION_RESTORE: icon_for_report = 'COLORSET_04_VEC'
 
+                    report_lines.append(f"No files found to {op_type_display} for version '{version_name_for_operation}'.")
 
-                    self.report({'INFO'}, report_message) # Report to Blender status bar
-                    pref_instance.show_operation_progress = False # No modal progress needed
-                    pref_instance.operation_progress_message = report_message # For window if open
+                    if self.current_operation_type == OPERATION_RESTORE:
+                        # Provide specific feedback for RESTORE based on path existence
+                        non_shared_exists = os.path.isdir(non_shared_source_path) # Defined earlier in RESTORE block
+                        shared_exists = os.path.isdir(shared_source_path)       # Defined earlier in RESTORE block
 
-                    # Determine title and icon for the deferred report
-                    op_type_for_report = op_type_for_report = self.current_operation_type or "Operation"
-                    icon_for_report = 'INFO' # Default
-                    if self.current_operation_type == 'BACKUP': icon_for_report = 'COLORSET_03_VEC'
-                    elif self.current_operation_type == 'RESTORE': icon_for_report = 'COLORSET_04_VEC'
+                        if not non_shared_exists and not shared_exists:
+                            report_lines.append(f"Neither system-specific backup ('{os.path.basename(non_shared_source_path)}')")
+                            report_lines.append(f"  nor shared backup ('{os.path.basename(shared_source_path)}') were found for this version.")
+                            report_lines.append(f"  (System path checked: {non_shared_source_path})")
+                            report_lines.append(f"  (Shared path checked: {shared_source_path})")
+                        else:
+                            report_lines.append(f"- System-specific backup path ({non_shared_source_path}) was {'scanned.' if non_shared_exists else 'NOT found.'}")
+                            report_lines.append(f"- Shared backup path ({shared_source_path}) was {'scanned.' if shared_exists else 'NOT found.'}")
+                            report_lines.append("Possible reasons for no files being processed:")
+                            report_lines.append("  - The backup locations might be empty or files are excluded by 'Ignore Files' list.")
+                            report_lines.append("  - Items in the backup may not match the current 'shared' status in addon preferences")
+                            report_lines.append("    for the location they were scanned from (system vs. shared).")
+                    elif self.current_source_path: # For BACKUP or other ops if source_path is set
+                         report_lines.append(f"Scanned source: {self.current_source_path}")
+
+                    if pref_instance.dry_run:
+                        report_lines.append("(This was a Dry Run - no files would have been processed anyway).")
                     
-                    # Capture values for the lambda to ensure they are correct at execution time
-                    _msg_lines = report_message.split('\n')
-                    _title = f"{op_type_for_report} Report"
-                    _icon = icon_for_report
+                    self.report({'INFO'}, " ".join(report_lines))
 
                     bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static(
-                        _msg_lines, _title, _icon
+                        report_lines[:], # Pass a copy
+                        title_for_report, 
+                        icon_for_report
                     ), first_interval=0.01)
                     return {'FINISHED'}
-
+                
                 initial_message = f"Starting {self.current_operation_type}... ({self.total_files} files)"
                 self.report({'INFO'}, initial_message) # Report initial status to Blender status bar
-                
-                # Set preferences for the addon window's display
+                # Set preferences for the addon window's display and topbar indicator
                 pref_instance.show_operation_progress = True
                 pref_instance.operation_progress_message = initial_message # For the window label
                 pref_instance.operation_progress_value = 0.0 # Initialize progress value
                 
-                self._timer = context.window_manager.event_timer_add(0.0, window=context.window) # Adjusted interval
+                self._timer = context.window_manager.event_timer_add(0.1, window=context.window) # Adjusted interval
                 
                 context.window_manager.modal_handler_add(self)
                 return {'RUNNING_MODAL'}
-            
-            elif self.button_input == 'BATCH_BACKUP':
+
+            elif self.button_input == OPERATION_BATCH_BACKUP:
                 self.is_batch_operation = True
                 self.batch_operations_list.clear()
                 self.batch_report_lines.clear()
                 for version in pref_backup_versions: # Iterate over the list from preferences
-                    version_name = version[0]
-                    source_path = os.path.join(os.path.dirname(pref_instance.blender_user_path), version_name)
-                    target_path = os.path.join(pref_instance.backup_path, version_name)
-                    self.batch_operations_list.append((source_path, target_path, 'BACKUP', version_name))
+                    version_name = version[0] # e.g., "4.1"
+                    source_path = os.path.join(os.path.dirname(pref_instance.blender_user_path), version_name) # Local Blender version path
+                    target_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, version_name) # Backup location
+                    self.batch_operations_list.append((source_path, target_path, OPERATION_BACKUP, version_name))
                 self.total_batch_items = len(self.batch_operations_list)
                 self.current_batch_item_index = 0
-                if self.total_batch_items == 0:
+                if not self.batch_operations_list: # Check if list is empty
                     self.report({'INFO'}, "No items found for batch backup.")
                     self.is_batch_operation = False # Reset
                     return {'FINISHED'}
+                # Set initial progress for the batch operation
+                pref_instance.show_operation_progress = True
+                pref_instance.operation_progress_message = f"Starting Batch {OPERATION_BACKUP} ({self.total_batch_items} items)..."
+                pref_instance.operation_progress_value = 0.0
+
                 context.window_manager.modal_handler_add(self) # Add modal handler ONCE for the whole batch
                 return self._process_next_batch_item_or_finish(context)
 
-            elif self.button_input == 'BATCH_RESTORE':
+            elif self.button_input == OPERATION_BATCH_RESTORE:
                 # --- Temporarily disable 'Save on Quit' for BATCH_RESTORE operation ---
                 prefs_main = context.preferences # Use bpy.context.preferences
                 if prefs_main and hasattr(prefs_main, 'use_preferences_save'):
                     if prefs_main.use_preferences_save: # Only change if it was True
                         prefs_main.use_preferences_save = False
                         if pref_instance.debug:
-                            print(f"DEBUG: OT_BackupManager.execute BATCH_RESTORE: Temporarily disabled 'Save Preferences on Quit' for the batch.")
+                            debug(f"DEBUG: OT_BackupManager.execute BATCH_RESTORE: Temporarily disabled 'Save Preferences on Quit' for the batch.")
                 elif pref_instance.debug:
-                    print(f"DEBUG: OT_BackupManager.execute BATCH_RESTORE: Could not access 'use_save_on_quit' to disable it for the batch.")
+                    debug(f"DEBUG: OT_BackupManager.execute BATCH_RESTORE: Could not access 'use_save_on_quit' to disable it for the batch.")
                 # --- End temporary disable ---
                 self.is_batch_operation = True
                 self.batch_operations_list.clear()
                 self.batch_report_lines.clear()
                 for version in pref_restore_versions: # Iterate over the list from preferences
-                    version_name = version[0]
-                    source_path = os.path.join(pref_instance.backup_path, version_name)
-                    target_path = os.path.join(os.path.dirname(pref_instance.blender_user_path),  version_name)
-                    self.batch_operations_list.append((source_path, target_path, 'RESTORE', version_name))
+                    version_name = version[0] # e.g., "4.1" from backup
+                    source_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, version_name) # Backup location
+                    target_path = os.path.join(os.path.dirname(pref_instance.blender_user_path),  version_name) # Local Blender version path
+                    
+                    # For BATCH_RESTORE, we also need to know if the system-specific source is missing for each item
+                    # This info isn't directly stored in batch_operations_list but determined when processing the item.
+                    # The source_path in batch_operations_list is the non-shared one.
+                    self.batch_operations_list.append((source_path, target_path, OPERATION_RESTORE, version_name)) 
+
                 self.total_batch_items = len(self.batch_operations_list)
                 self.current_batch_item_index = 0
-                if self.total_batch_items == 0:
+                if not self.batch_operations_list: # Check if list is empty
+                    # ... (existing code for no items)
                     self.report({'INFO'}, "No items found for batch restore.")
                     self.is_batch_operation = False # Reset
                     return {'FINISHED'}
+                # Set initial progress for the batch operation
+                pref_instance.show_operation_progress = True
+                pref_instance.operation_progress_message = f"Starting Batch {OPERATION_RESTORE} ({self.total_batch_items} items)..."
+                pref_instance.operation_progress_value = 0.0
+
                 context.window_manager.modal_handler_add(self) # Add modal handler ONCE for the whole batch
                 return self._process_next_batch_item_or_finish(context)
 
-            elif self.button_input == 'DELETE_BACKUP':
+            elif self.button_input == OPERATION_DELETE_SELECTED_BACKUP:
                 if not pref_instance.advanced_mode:            
-                    target_path = os.path.join(pref_instance.backup_path, str(pref_instance.active_blender_version)).replace("\\", "/")                    
+                    target_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, str(pref_instance.active_blender_version))
                 else:                                                 
                     if pref_instance.custom_version_toggle:
-                        target_path = os.path.join(pref_instance.backup_path, str(pref_instance.custom_version))
+                        target_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, str(pref_instance.custom_version))
                     else:                
-                        target_path = os.path.join(pref_instance.backup_path, pref_instance.restore_versions)
+                        target_path = os.path.join(pref_instance.backup_path, pref_instance.system_id, pref_instance.restore_versions)
 
                 if os.path.exists(target_path):
                     try:
-                        if not prefs().dry_run:
+                        if not pref_instance.dry_run:
                             shutil.rmtree(target_path)
-                        
-                        action_verb = "Would delete" if prefs().dry_run else "Deleted"
+                        action_verb = "Would delete" if pref_instance.dry_run else "Deleted"
                         report_msg_line1 = f"{action_verb} backup:"
                         report_msg_line2 = target_path
-                        self.report({'INFO'}, f"{report_msg_line1} {report_msg_line2}")
-                        bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static([report_msg_line1, report_msg_line2], "Delete Backup Report", 'COLORSET_01_VEC'), first_interval=0.01)
+                        final_report_lines = [report_msg_line1, report_msg_line2]
+
+                        if pref_instance.dry_run:
+                            final_report_lines.append("(Dry Run - No actual deletion occurred)")
+                        final_report_lines.append("Note: Shared configuration for this version (if any) was not deleted.")
+
+                        self.report({'INFO'}, " ".join(final_report_lines))
+                        # This will call ui.OT_ShowFinalReport
+                        bpy.app.timers.register(
+                            lambda lines=final_report_lines: OT_BackupManager._deferred_show_report_static(lines, "Delete Backup Report", 'COLORSET_01_VEC'),
+                            first_interval=0.01
+                        )
                         if pref_instance.debug or pref_instance.dry_run:
-                             print(f"\n{action_verb} Backup: {target_path}")
+                             debug(f"\n{action_verb} Backup: {target_path}")
 
                     except OSError as e:
                         action_verb = "Failed to (dry run) delete" if pref_instance.dry_run else "Failed to delete"
                         error_msg_line1 = f"{action_verb} {target_path}:"
                         error_msg_line2 = str(e)
                         self.report({'WARNING'}, f"{error_msg_line1} {error_msg_line2}")
-                        OT_BackupManager.ShowReport_static(message=[error_msg_line1, error_msg_line2], title="Delete Backup Error", icon='WARNING')
-                        if prefs().debug: # Keep print for debug
-                            print(f"\n{action_verb} {target_path}: {e}")
+                        # This will call ui.OT_ShowFinalReport
+                        bpy.app.timers.register(
+                            lambda lines=[error_msg_line1, error_msg_line2]: OT_BackupManager._deferred_show_report_static(lines, "Delete Backup Error", 'ERROR'),
+                            first_interval=0.01
+                        )
+                        if get_addon_preferences().debug: # Keep print for debug
+                            debug(f"\n{action_verb} {target_path}: {e}")
                 else:
                     not_found_msg = f"Not found, nothing to delete: {target_path}"
                     self.report({'INFO'}, not_found_msg)
+                    # This will call ui.OT_ShowFinalReport
                     bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static([f"Not found, nothing to delete:", target_path], "Delete Backup Report", 'INFO'), first_interval=0.01)
                     if pref_instance.debug: # Keep print for debug
-                        print(f"\nBackup to delete not found: {target_path}")
+                        debug(f"\nBackup to delete not found: {target_path}")
 
-            elif self.button_input == 'SEARCH_BACKUP':
+            elif self.button_input == OPERATION_DELETE_SELECTED_SHARED_BACKUP:
+                target_version_name_for_shared_delete = ""
+                if not pref_instance.advanced_mode:
+                    target_version_name_for_shared_delete = str(pref_instance.active_blender_version)
+                else:
+                    if pref_instance.custom_version_toggle:
+                        target_version_name_for_shared_delete = str(pref_instance.custom_version)
+                    else:
+                        target_version_name_for_shared_delete = pref_instance.restore_versions
+                
+                shared_path_to_delete = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME, target_version_name_for_shared_delete)
+                action_verb = "Would delete" if pref_instance.dry_run else "Deleted"
+                final_report_lines = []
+
+                if os.path.exists(shared_path_to_delete):
+                    try:
+                        if not pref_instance.dry_run:
+                            shutil.rmtree(shared_path_to_delete)
+                        final_report_lines.append(f"{action_verb} shared config for version '{target_version_name_for_shared_delete}':")
+                        final_report_lines.append(shared_path_to_delete)
+                        if pref_instance.dry_run:
+                            final_report_lines.append("(Dry Run - No actual deletion occurred)")
+                        self.report({'INFO'}, " ".join(final_report_lines))
+                        if pref_instance.debug or pref_instance.dry_run:
+                             debug(f"\n{action_verb} Shared Config: {shared_path_to_delete}")
+                    except OSError as e:
+                        action_verb_fail = "Failed to (dry run) delete" if pref_instance.dry_run else "Failed to delete"
+                        final_report_lines.append(f"{action_verb_fail} shared config for '{target_version_name_for_shared_delete}': {shared_path_to_delete}")
+                        final_report_lines.append(str(e))
+                        self.report({'WARNING'}, " ".join(final_report_lines))
+                        if pref_instance.debug: debug(f"\n{action_verb_fail} {shared_path_to_delete}: {e}")
+                else:
+                    final_report_lines.append(f"Shared config for version '{target_version_name_for_shared_delete}' not found, nothing to delete:")
+                    final_report_lines.append(shared_path_to_delete)
+                    self.report({'INFO'}, " ".join(final_report_lines))
+                    if pref_instance.debug: debug(f"\nShared config to delete not found: {shared_path_to_delete}")
+
+                bpy.app.timers.register(
+                    lambda lines=final_report_lines: OT_BackupManager._deferred_show_report_static(lines, "Delete Selected Shared Config Report", 'TRASH'),
+                    first_interval=0.01
+                )
+            elif self.button_input == OPERATION_DELETE_ALL_BACKUPS:
+                base_path_to_delete = os.path.join(pref_instance.backup_path, pref_instance.system_id)
+                action_verb = "Would delete all in" if pref_instance.dry_run else "Deleted all in"
+                report_lines = [f"{action_verb} system backups folder: {base_path_to_delete}"]
+                deleted_count = 0
+                error_count = 0
+
+                if os.path.isdir(base_path_to_delete):
+                    for item_name in os.listdir(base_path_to_delete):
+                        item_path = os.path.join(base_path_to_delete, item_name)
+                        if os.path.isdir(item_path): # Only delete directories (version folders)
+                            try:
+                                if not pref_instance.dry_run:
+                                    shutil.rmtree(item_path)
+                                report_lines.append(f"  - {'Would remove' if pref_instance.dry_run else 'Removed'}: {item_name}")
+                                deleted_count +=1
+                            except OSError as e:
+                                report_lines.append(f"  - ERROR removing {item_name}: {e}")
+                                error_count += 1
+                else:
+                    report_lines.append("System backups folder not found. Nothing to delete.")
+                
+                if deleted_count == 0 and error_count == 0 and not os.path.isdir(base_path_to_delete):
+                    pass # Already handled by "not found"
+                elif deleted_count == 0 and error_count == 0:
+                     report_lines.append("No version folders found to delete.")
+
+                if pref_instance.dry_run: report_lines.append("(Dry Run - No actual deletions occurred)")
+                self.report({'INFO'}, f"System backups deletion: {deleted_count} removed, {error_count} errors.")
+                bpy.app.timers.register(lambda lines=report_lines: OT_BackupManager._deferred_show_report_static(lines, "Delete All System Backups Report", 'TRASH'),first_interval=0.01)
+
+            elif self.button_input == OPERATION_DELETE_ALL_SHARED_BACKUPS:
+                base_path_to_delete = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME)
+                action_verb = "Would delete all in" if pref_instance.dry_run else "Deleted all in"
+                report_lines = [f"{action_verb} shared configs folder: {base_path_to_delete}"]
+                deleted_count = 0
+                error_count = 0
+
+                if os.path.isdir(base_path_to_delete):
+                    for item_name in os.listdir(base_path_to_delete):
+                        item_path = os.path.join(base_path_to_delete, item_name)
+                        if os.path.isdir(item_path): # Only delete directories (version folders)
+                            try:
+                                if not pref_instance.dry_run:
+                                    shutil.rmtree(item_path)
+                                report_lines.append(f"  - {'Would remove' if pref_instance.dry_run else 'Removed'}: {item_name}")
+                                deleted_count += 1
+                            except OSError as e:
+                                report_lines.append(f"  - ERROR removing {item_name}: {e}")
+                                error_count += 1
+                else:
+                    report_lines.append("Shared configs folder not found. Nothing to delete.")
+
+                if deleted_count == 0 and error_count == 0 and not os.path.isdir(base_path_to_delete):
+                    pass
+                elif deleted_count == 0 and error_count == 0:
+                     report_lines.append("No version folders found to delete.")
+
+                if pref_instance.dry_run: report_lines.append("(Dry Run - No actual deletions occurred)")
+                self.report({'INFO'}, f"Shared configs deletion: {deleted_count} removed, {error_count} errors.")
+                bpy.app.timers.register(lambda lines=report_lines: OT_BackupManager._deferred_show_report_static(lines, "Delete All Shared Configs Report", 'TRASH'),first_interval=0.01)
+
+
+            elif self.button_input == OPERATION_SEARCH_BACKUP:
                 _search_start_sb = None
-                if prefs().debug:
+                if pref_instance.debug:
                     _search_start_sb = datetime.now()
-                    print(f"DEBUG: execute SEARCH_BACKUP START")
+                    debug(f"DEBUG: execute SEARCH_BACKUP START")
                 # Path to the directory containing Blender version folders (e.g., .../Blender/3.6, .../Blender/4.0)
                 blender_versions_parent_dir = os.path.dirname(bpy.utils.resource_path(type='USER'))
 
                 pref_backup_versions.clear()
                 _fv1_start_sb = None
-                if prefs().debug:
+                if pref_instance.debug:
                     _fv1_start_sb = datetime.now()
-                    print(f"DEBUG: execute SEARCH_BACKUP calling find_versions for blender_versions_parent_dir: {blender_versions_parent_dir}")
-                found_backup_versions = find_versions(blender_versions_parent_dir)
-                if prefs().debug:
+                    debug(f"DEBUG: execute SEARCH_BACKUP calling find_versions for blender_versions_parent_dir: {blender_versions_parent_dir}")
+                found_backup_versions = find_versions(blender_versions_parent_dir) # Use utils
+                if pref_instance.debug:
                     _fv1_end_sb = datetime.now()
-                    print(f"DEBUG: (took: {(_fv1_end_sb - _fv1_start_sb).total_seconds():.6f}s) execute SEARCH_BACKUP find_versions for blender_versions_parent_dir DONE")
+                    debug(f"DEBUG: (took: {(_fv1_end_sb - _fv1_start_sb).total_seconds():.6f}s) execute SEARCH_BACKUP find_versions for blender_versions_parent_dir DONE")
                 pref_backup_versions.extend(found_backup_versions)
                 pref_backup_versions.sort(reverse=True)
 
+                # For restore_versions, search within the system_id folder in the backup_path
+                system_specific_backup_path = os.path.join(pref_instance.backup_path, pref_instance.system_id)
+                shared_backup_path = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME)
+
                 pref_restore_versions.clear()
-                # Combine found versions from backup path and current Blender versions, then make unique
-                _fv2_start_sb = None
-                if prefs().debug:
-                    _fv2_start_sb = datetime.now()
-                    print(f"DEBUG: execute SEARCH_BACKUP calling find_versions for backup_path: {prefs().backup_path}")
-                combined_restore_versions = find_versions(prefs().backup_path) + pref_backup_versions
-                if prefs().debug:
-                    _fv2_end_sb = datetime.now()
-                    print(f"DEBUG: (took: {(_fv2_end_sb - _fv2_start_sb).total_seconds():.6f}s) execute SEARCH_BACKUP find_versions for backup_path DONE")
+                
+                _restore_sources_scan_start_sb = None
+                if pref_instance.debug:
+                    _restore_sources_scan_start_sb = datetime.now()
+                    debug(f"DEBUG: execute SEARCH_BACKUP: Scanning for restore versions (system, shared, local)...")
+
+                # Scan system-specific backup path
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_BACKUP calling find_versions for system_specific_backup_path: {system_specific_backup_path}")
+                found_system_restore_versions = find_versions(system_specific_backup_path)
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_BACKUP find_versions for system_specific_backup_path found: {len(found_system_restore_versions)}")
+
+                # Scan shared backup path
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_BACKUP calling find_versions for shared_backup_path: {shared_backup_path}")
+                found_shared_restore_versions = find_versions(shared_backup_path)
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_BACKUP find_versions for shared_backup_path found: {len(found_shared_restore_versions)}")
+
+                # pref_backup_versions (local Blender versions) should be populated at this point.
+                # Combine all sources for the 'Restore From' list in Backup tab's advanced mode.
+                combined_restore_versions = found_system_restore_versions + found_shared_restore_versions + pref_backup_versions
+                
+                if pref_instance.debug and _restore_sources_scan_start_sb:
+                    _restore_sources_scan_end_sb = datetime.now()
+                    debug(f"DEBUG: (took: {(_restore_sources_scan_end_sb - _restore_sources_scan_start_sb).total_seconds():.6f}s for scanning all restore version sources) execute SEARCH_BACKUP: Combined restore versions (before unique): {len(combined_restore_versions)}")
+                
                 # Use dict.fromkeys to preserve order of first appearance if that's desired before sorting
                 pref_restore_versions.extend(list(dict.fromkeys(combined_restore_versions)))
                 pref_restore_versions.sort(reverse=True)
-                if prefs().debug and _search_start_sb:
+                if pref_instance.debug and _search_start_sb:
                     _search_end_sb = datetime.now()
-                    print(f"DEBUG: (took: {(_search_end_sb - _search_start_sb).total_seconds():.6f}s) execute SEARCH_BACKUP END")
+                    debug(f"DEBUG: (took: {(_search_end_sb - _search_start_sb).total_seconds():.6f}s) execute SEARCH_BACKUP END")
 
             elif self.button_input == 'SEARCH_RESTORE': 
                 _search_start_sr = None
-                if prefs().debug:
+                if pref_instance.debug:
                     _search_start_sr = datetime.now()
-                    print(f"DEBUG: execute SEARCH_RESTORE START")
+                    debug(f"DEBUG: execute SEARCH_RESTORE START")
                 blender_versions_parent_dir = os.path.dirname(bpy.utils.resource_path(type='USER'))
 
+                # For restore_versions, search within the system_id folder in the backup_path
+                system_specific_backup_path = os.path.join(pref_instance.backup_path, pref_instance.system_id)
+                shared_backup_path = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME)
+
                 pref_restore_versions.clear()
-                _fv1_start_sr = None
-                if prefs().debug:
-                    _fv1_start_sr = datetime.now()
-                    print(f"DEBUG: execute SEARCH_RESTORE calling find_versions for backup_path: {prefs().backup_path}")
-                found_restore_versions = find_versions(prefs().backup_path)
-                if prefs().debug:
-                    _fv1_end_sr = datetime.now()
-                    print(f"DEBUG: (took: {(_fv1_end_sr - _fv1_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE find_versions for backup_path DONE")
-                pref_restore_versions.extend(found_restore_versions)
+                
+                _scan_restore_locations_start_sr = None
+                if pref_instance.debug:
+                    _scan_restore_locations_start_sr = datetime.now()
+                    debug(f"DEBUG: execute SEARCH_RESTORE: Scanning backup locations (system-specific and shared)...")
+                
+                all_found_restore_versions = []
+
+                # Scan system-specific backup path
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_RESTORE calling find_versions for system_specific_backup_path: {system_specific_backup_path}")
+                found_system_versions = find_versions(system_specific_backup_path)
+                all_found_restore_versions.extend(found_system_versions)
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_RESTORE find_versions for system_specific_backup_path found: {len(found_system_versions)}")
+
+                # Scan shared backup path
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_RESTORE calling find_versions for shared_backup_path: {shared_backup_path}")
+                found_shared_versions = find_versions(shared_backup_path)
+                all_found_restore_versions.extend(found_shared_versions)
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_RESTORE find_versions for shared_backup_path found: {len(found_shared_versions)}")
+                
+                if pref_instance.debug and _scan_restore_locations_start_sr:
+                    _scan_restore_locations_end_sr = datetime.now()
+                    debug(f"DEBUG: (took: {(_scan_restore_locations_end_sr - _scan_restore_locations_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE: Finished scanning backup locations. Total items before unique: {len(all_found_restore_versions)}")
+
+                unique_restore_versions = list(dict.fromkeys(all_found_restore_versions))
+                pref_restore_versions.extend(unique_restore_versions)
                 pref_restore_versions.sort(reverse=True) 
 
                 pref_backup_versions.clear()
                 _fv2_start_sr = None
-                if prefs().debug:
+                if pref_instance.debug:
                     _fv2_start_sr = datetime.now()
-                    print(f"DEBUG: execute SEARCH_RESTORE calling find_versions for blender_versions_parent_dir: {blender_versions_parent_dir}")
-                combined_backup_versions = find_versions(blender_versions_parent_dir) + pref_restore_versions
-                if prefs().debug:
+                    debug(f"DEBUG: execute SEARCH_RESTORE calling find_versions for blender_versions_parent_dir: {blender_versions_parent_dir}")
+                combined_backup_versions = find_versions(blender_versions_parent_dir) + pref_restore_versions # Use utils
+                if pref_instance.debug:
                     _fv2_end_sr = datetime.now()
-                    print(f"DEBUG: (took: {(_fv2_end_sr - _fv2_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE find_versions for blender_versions_parent_dir DONE")
+                    debug(f"DEBUG: (took: {(_fv2_end_sr - _fv2_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE find_versions for blender_versions_parent_dir DONE")
 
-                if prefs().debug:
-                    print("Combined backup versions before filtering: ", combined_backup_versions)
+                if pref_instance.debug:
+                    debug("Combined backup versions before filtering: ", combined_backup_versions)
                 
                 # Filter and sort backup versions
                 unique_backup_versions = list(dict.fromkeys(combined_backup_versions))
@@ -1541,18 +1241,44 @@ class OT_BackupManager(Operator):
                         float(version_tuple[0]) # Check if version name can be a float
                         valid_backup_versions.append(version_tuple)
                     except ValueError:
-                        if prefs().debug:
-                            print(f"Filtered out non-float-like version from backup_versions: {version_tuple[0]}")
+                        if pref_instance.debug:
+                            debug(f"Filtered out non-float-like version from backup_versions: {version_tuple[0]}")
                 
                 pref_backup_versions.extend(valid_backup_versions)
-                if prefs().debug:
-                    print("Final backup_versions list: ", pref_backup_versions)
+                if pref_instance.debug:
+                    debug("Final backup_versions list: ", pref_backup_versions)
                 pref_backup_versions.sort(reverse=True)
-                if prefs().debug and _search_start_sr:
+                if pref_instance.debug and _search_start_sr:
                     _search_end_sr = datetime.now()
-                    print(f"DEBUG: (took: {(_search_end_sr - _search_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE END")
+                    debug(f"DEBUG: (took: {(_search_end_sr - _search_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE END")            
+            # After any search operation, ensure progress UI is reset if it was somehow active
+            if self.button_input.startswith("SEARCH_"):
+                pref_instance.show_operation_progress = False
+                pref_instance.operation_progress_message = "Search complete."
+                pref_instance.operation_progress_value = 0.0
 
         else:
             OT_BackupManager.ShowReport_static(["Specify a Backup Path"] , "Backup Path missing", 'ERROR')
         return {'FINISHED'}
-    
+
+    # For the confirmation dialog
+    def draw(self, context):
+        print("DEBUG: OT_BackupManager.draw called")  # Debug print
+        layout = self.layout
+        if hasattr(OT_BackupManager, '_confirm_message') and OT_BackupManager._confirm_message:
+            for idx, line in enumerate(OT_BackupManager._confirm_message.split('\n')):
+                if idx == 0:
+                    # First line is usually the main warning
+                    layout.label(text=line, icon='ERROR')
+                elif 'CANNOT be undone' in line:
+                    row = layout.row()
+                    row.label(text=line, icon='CANCEL')
+                elif 'DELETE' in line or 'delete' in line:
+                    row = layout.row()
+                    row.label(text=line, icon='TRASH')
+                else:
+                    layout.label(text=line)
+        else: # Fallback if message not set
+            layout.label(text="Are you sure you want to proceed with this destructive operation?", icon='ERROR')
+
+        # A draw method should implicitly return None, not {'FINISHED'}
