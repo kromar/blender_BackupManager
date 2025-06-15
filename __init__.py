@@ -124,10 +124,14 @@ def update_backup_warning_cache(force=False):
                             # Next check: when the duration will be exceeded
                             seconds_until_due = (prefs_instance.backup_reminder_duration * 86400) - age_seconds
                             next_check_in = max(60, seconds_until_due)  # At least 1 minute
+                    else: # System folder exists, but no backup files found (mtime is None for both system and shared)
+                        backup_missing = True # Treat as missing if no actual backup files
+                        show_backup_now = True
+                        next_check_in = 3600 # Check again in 1 hour if effectively missing
     except Exception as e:
         debug(f"ERROR: Could not update backup warning cache: {e}")
 
-    _backup_warning_cache = {
+    _backup_warning_cache = { # This assignment happens regardless of exception
         "show_backup_now": show_backup_now,
         "backup_missing": backup_missing,
         "backup_age_days": backup_age_days,

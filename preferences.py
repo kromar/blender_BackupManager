@@ -112,7 +112,13 @@ class BM_Preferences(AddonPreferences):
         if self.debug and _start_time_main_update:
             _end_time_main_update = datetime.now()
             debug(f"DEBUG: (Total took: {(_end_time_main_update - _start_time_main_update).total_seconds():.6f}s) _update_backup_path_and_versions END")
-    
+        # --- Update backup warning cache after backup path change ---
+        try:
+            from . import update_backup_warning_cache
+            update_backup_warning_cache(force=True)
+        except Exception as e:
+            debug(f"DEBUG: Failed to update backup warning cache after backup path change: {e}")
+
     # Calculate the initial default backup path safely ONCE when the class is defined.
     # This function call happens during module import / class definition.
     _initial_default_backup_path = os.path.join(get_default_base_temp_dir(), '!backupmanager')
