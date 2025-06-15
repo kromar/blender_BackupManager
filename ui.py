@@ -430,6 +430,12 @@ class OT_BackupManagerWindow(Operator):
         if self._cancelled or not prefs_instance:
             layout.label(text="Window closing..."); return
 
+        # --- Prominent Header ---
+        header_row = layout.row(align=True)
+        header_row.scale_y = 1.4
+        header_row.label(text=self.bl_label, icon='DISK_DRIVE')
+        layout.separator()
+
         _debug_draw = prefs_instance.debug
         is_operation_running = prefs_instance.show_operation_progress
 
@@ -487,7 +493,7 @@ class OT_BackupManagerWindow(Operator):
         tab_content_box = layout.box(); tab_content_box.enabled = not is_operation_running
         if self.tabs == "BACKUP": self._draw_backup_tab(tab_content_box, context, prefs_instance)
         elif self.tabs == "RESTORE": self._draw_restore_tab(tab_content_box, context, prefs_instance)
-            
+
         # --- Item Configuration Section ---
         layout.separator()
         item_config_box = layout.box()
@@ -502,6 +508,12 @@ class OT_BackupManagerWindow(Operator):
         # Disable the item configuration box if an operation is running
         item_config_box.enabled = not is_operation_running
 
+        # --- Close Button ---
+        layout.separator()
+        row = layout.row()
+        row.alignment = 'RIGHT'
+        row.operator("wm.cancel_modal", text="Close", icon='CHECKMARK')
+
     def execute(self, context):
         prefs_instance = get_addon_preferences()
         if prefs_instance and prefs_instance.debug: debug(f"OT_BackupManagerWindow.execute() EXIT.")
@@ -513,15 +525,18 @@ class OT_BackupManagerWindow(Operator):
         if not prefs_instance: return {'CANCELLED'}
         if prefs_instance.debug: debug(f"OT_BackupManagerWindow.invoke() CALLED. Initializing tabs from prefs: {prefs_instance.tabs}")
         self.tabs = prefs_instance.tabs
-        # Only update/scan for versions if no operation is currently running
-        # to prevent interrupting an active backup/restore modal.
         if not prefs_instance.show_operation_progress:
-            prefs_instance._update_backup_path_and_versions(context) 
+            prefs_instance._update_backup_path_and_versions(context)
         elif prefs_instance.debug:
             debug(f"OT_BackupManagerWindow.invoke(): Operation in progress, SKIPPING _update_backup_path_and_versions.")
-        result = context.window_manager.invoke_props_dialog(self, width=700)
+        # Use invoke_popup instead of invoke_props_dialog to avoid OK/Cancel buttons
+        result = context.window_manager.invoke_popup(self, width=700)
         if prefs_instance.debug: debug(f"OT_BackupManagerWindow.invoke() EXIT. Result: {result}.")
         return result
+
+    def draw_buttons(self, context):
+        layout = self.layout
+        layout.operator("wm.cancel_modal", text="Close", icon='CHECKMARK')
 
     def cancel(self, context):
         self._cancelled = True
