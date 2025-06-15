@@ -18,8 +18,6 @@
 
 import bpy
 import os
-import subprocess
-import sys
 from bpy.types import Operator, UIList
 from bpy.props import StringProperty, EnumProperty, BoolProperty
 
@@ -31,7 +29,6 @@ from .path_stats import _calculate_path_age_str_combined, _calculate_path_size_s
 from .debug_utils import get_prefs_and_debug
 from .logger import debug
 import addon_utils
-import inspect
 
 # --- Utility function for path normalization (for OT_OpenPathInExplorer and future use) ---
 def normalize_and_validate_path(path):
@@ -181,6 +178,8 @@ class OT_QuitBlenderNoSave(Operator):
             return self.execute(context)
     
     def execute(self, context):
+        import sys
+        import subprocess
         addon_prefs = get_addon_preferences()
         blender_exe = bpy.app.binary_path
         new_instance_launched_successfully = False
@@ -253,7 +252,8 @@ class OT_BackupManagerWindow(Operator):
     """Main window for the Backup Manager UI."""
     bl_idname = "bm.backup_manager_window"
     bl_info = None
-    this_file = os.path.abspath(inspect.getfile(inspect.currentframe()))
+    this_file = os.path.abspath(__import__('inspect').getfile(__import__('inspect').currentframe()))
+    import addon_utils
     for mod in addon_utils.modules():
         mod_file = os.path.abspath(getattr(mod, "__file__", ""))
         if os.path.dirname(mod_file) == os.path.dirname(this_file) and hasattr(mod, "bl_info"):

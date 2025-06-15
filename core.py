@@ -74,6 +74,7 @@ class OT_BackupManager(Operator):
     ignore_backup = []
     ignore_restore = []
     def create_ignore_pattern(self):
+        """Set ignore_backup and ignore_restore using the centralized utility."""
         self.ignore_backup, self.ignore_restore = build_ignore_patterns(get_addon_preferences())
 
         if not get_addon_preferences().backup_bookmarks:
@@ -247,7 +248,7 @@ class OT_BackupManager(Operator):
                 else:
                     # This case should ideally not be reached if batch processing is managed correctly.
                     # Log an error and use a fallback to prevent crashes.
-                    print("ERROR: Backup Manager: current_batch_item_index out of bounds during batch backup path construction.")
+                    debug("ERROR: Backup Manager: current_batch_item_index out of bounds during batch backup path construction.")
                     version_name_for_path_construction = "batch_error_version" # Fallback
             elif not prefs_instance.advanced_mode: # Single, non-advanced backup
                 version_name_for_path_construction = str(prefs_instance.active_blender_version)
@@ -261,12 +262,12 @@ class OT_BackupManager(Operator):
         # The _prepare_restore_files_from_source handles its own version_name logic for iterating source.
 
         if prefs_instance.debug:
-            print(f"Preparing file list for {self.current_operation_type}")
-            print(f"Source: {self.current_source_path}")
-            print(f"Target: {self.current_target_path}")
-            print(f"Ignore list: {current_ignore_list}")
+            debug(f"Preparing file list for {self.current_operation_type}")
+            debug(f"Source: {self.current_source_path}")
+            debug(f"Target: {self.current_target_path}")
+            debug(f"Ignore list: {current_ignore_list}")
             if self.current_operation_type == OPERATION_BACKUP:
-                print(f"Target version name for path construction: {version_name_for_path_construction}")
+                debug(f"Target version name for path construction: {version_name_for_path_construction}")
 
         for dirpath, dirnames, filenames in os.walk(self.current_source_path, topdown=True):
             # Prune dirnames based on ignore list (items globally disabled by user)
@@ -318,7 +319,7 @@ class OT_BackupManager(Operator):
                     dest_file = os.path.join(self.current_target_path, path_segment_in_version)
 
                 if os.path.normpath(src_file) == os.path.normpath(dest_file):
-                    if prefs_instance.debug: print(f"Skipping copy, source and destination are the same file: {src_file}")
+                    if prefs_instance.debug: debug(f"Skipping copy, source and destination are the same file: {src_file}")
                     continue
 
                 # Ensure no duplicates if this function is somehow called in a way that could overlap
@@ -326,11 +327,11 @@ class OT_BackupManager(Operator):
                 if (src_file, dest_file) not in self.files_to_process:
                     self.files_to_process.append((src_file, dest_file))
                 elif prefs_instance.debug:
-                    print(f"DEBUG: _prepare_file_list: Duplicate file pair skipped: ({src_file}, {dest_file})")
+                    debug(f"DEBUG: _prepare_file_list: Duplicate file pair skipped: ({src_file}, {dest_file})")
         
         self.total_files = len(self.files_to_process)
         if prefs_instance.debug:
-            print(f"Total files to process: {self.total_files}")
+            debug(f"Total files to process: {self.total_files}")
         return True
 
     # _process_next_batch_item_or_finish and modal methods remain largely the same,
@@ -359,17 +360,17 @@ class OT_BackupManager(Operator):
                 # Clean default target path for this batch item
                 default_target_path_to_clean = target_path # This is the .../system_id/version_name path for backup
                 if os.path.exists(default_target_path_to_clean):
-                    if pref_instance.debug: print(f"DEBUG: Batch Clean: Attempting to clean default path for {item_name_for_log}: {default_target_path_to_clean}")
+                    if pref_instance.debug: debug(f"DEBUG: Batch Clean: Attempting to clean default path for {item_name_for_log}: {default_target_path_to_clean}")
                     try:
                         if not pref_instance.dry_run: shutil.rmtree(default_target_path_to_clean)
                         cleaned_msg = f"Cleaned default path for {item_name_for_log}: {default_target_path_to_clean}"
-                        if pref_instance.debug or pref_instance.dry_run: print(cleaned_msg); self.batch_report_lines.append(f"INFO: {cleaned_msg}")
+                        if pref_instance.debug or pref_instance.dry_run: debug(cleaned_msg); self.batch_report_lines.append(f"INFO: {cleaned_msg}")
                     except OSError as e:
-                        fail_clean_msg = f"Failed to clean default path for {item_name_for_log} ({default_target_path_to_clean}): {e}"; print(f"ERROR: {fail_clean_msg}" if pref_instance.debug else ""); self.batch_report_lines.append(f"WARNING: {fail_clean_msg}")
+                        fail_clean_msg = f"Failed to clean default path for {item_name_for_log} ({default_target_path_to_clean}): {e}"; debug(f"ERROR: {fail_clean_msg}" if pref_instance.debug else ""); self.batch_report_lines.append(f"WARNING: {fail_clean_msg}")
                 # Clean shared target path for this batch item's version_name
                 shared_target_path_to_clean = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME, version_name)
                 if os.path.exists(shared_target_path_to_clean):
-                    if pref_instance.debug: print(f"DEBUG: Batch Clean: Attempting to clean shared path for {item_name_for_log}: {shared_target_path_to_clean}")
+                    if pref_instance.debug: debug(f"DEBUG: Batch Clean: Attempting to clean shared path for {item_name_for_log}: {shared_target_path_to_clean}")
                     # Similar try-except for shutil.rmtree(shared_target_path_to_clean)
                     # For brevity, assuming similar error handling as above.
                     if not pref_instance.dry_run: shutil.rmtree(shared_target_path_to_clean) # Simplified for example
@@ -426,7 +427,7 @@ class OT_BackupManager(Operator):
             
             if self._timer is None:
                 self._timer = context.window_manager.event_timer_add(0.1, window=context.window)
-                if pref_instance.debug: print(f"DEBUG: Batch: Timer ADDED for item {self.current_batch_item_index + 1} ('{item_name_for_log}')")
+                if pref_instance.debug: debug(f"DEBUG: Batch: Timer ADDED for item {self.current_batch_item_index + 1} ('{item_name_for_log}')")
             # Modal handler should already be active from the initial execute call for the batch.
             return {'RUNNING_MODAL'} # Signal that an item is ready for modal processing
         else:
@@ -490,13 +491,13 @@ class OT_BackupManager(Operator):
                 if blender_version_modal_cleanup >= (4, 1, 0): # Check version for progress_end
                     wm.progress_end()
                 self._progress_started_on_wm = False
-                if pref_instance.debug: print(f"DEBUG: OT_BackupManager.modal(): Progress ended for completed/cancelled item.")
+                if pref_instance.debug: debug(f"DEBUG: OT_BackupManager.modal(): Progress ended for completed/cancelled item.")
 
             # Timer for the *just completed* item (or an item that had 0 files)
             if self._timer:
                 context.window_manager.event_timer_remove(self._timer)
                 self._timer = None
-                if pref_instance.debug: print(f"DEBUG: OT_BackupManager.modal(): Timer removed for completed/cancelled item.")
+                if pref_instance.debug: debug(f"DEBUG: OT_BackupManager.modal(): Timer removed for completed/cancelled item.")
 
             # Reset the flag now that its state (was_aborted_by_ui_button) has been used for the decision to exit the modal.
             if was_aborted_by_ui_button:
@@ -533,7 +534,7 @@ class OT_BackupManager(Operator):
 
                 if self.is_batch_operation:
                     self.batch_report_lines.append(f"INFO: {item_report_msg}")
-                    if pref_instance.debug: print(f"DEBUG: Batch item reported: {item_report_msg}")
+                    if pref_instance.debug: debug(f"DEBUG: Batch item reported: {item_report_msg}")
                     
                     self.current_batch_item_index += 1
                     result_next_item = self._process_next_batch_item_or_finish(context)
@@ -620,7 +621,7 @@ class OT_BackupManager(Operator):
                         os.makedirs(os.path.dirname(dest_file), exist_ok=True)
                         shutil.copy2(src_file, dest_file)
                     except (OSError, shutil.Error) as e:
-                        if pref_instance.debug: print(f"Error copying {src_file} to {dest_file}: {e}")
+                        if pref_instance.debug: debug(f"Error copying {src_file} to {dest_file}: {e}")
                 self.processed_files_count += 1
                 # Update status bar progress for Blender 4.4+
                 if use_status_progress and self._progress_started_on_wm: # Check if progress has begun
@@ -647,7 +648,7 @@ class OT_BackupManager(Operator):
             pref_instance.operation_progress_value = current_progress_val
             if pref_instance.debug:
                 timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                print(f"DEBUG: [{timestamp}] OT_BackupManager.modal() (TIMER) updated progress to: {pref_instance.operation_progress_value:.1f}%, Msg: '{pref_instance.operation_progress_message}'")
+                debug(f"DEBUG: [{timestamp}] OT_BackupManager.modal() (TIMER) updated progress to: {pref_instance.operation_progress_value:.1f}%, Msg: '{pref_instance.operation_progress_message}'")
 
             # Force redraw of UI to show progress, including the Backup Manager window if it's open
             for window_iter_local in context.window_manager.windows: # Use different var name
@@ -655,7 +656,7 @@ class OT_BackupManager(Operator):
                     area_iter_local.tag_redraw() # This already tags all areas, including TOPBAR
             if pref_instance.debug:
                 # This log can be very verbose, so it's commented out by default.
-                # print(f"DEBUG: OT_BackupManager.modal() (TIMER) tagged all areas for redraw at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}.")
+                # debug(f"DEBUG: OT_BackupManager.modal() (TIMER) tagged all areas for redraw at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}.")
                 pass
 
             # After handling the timer event, return PASS_THROUGH to continue the modal loop
@@ -685,7 +686,7 @@ class OT_BackupManager(Operator):
 
         if not os.path.isdir(source_dir_for_items):
             if prefs_instance.debug:
-                print(f"DEBUG: _prepare_restore_files_from_source: Source directory not found, skipping: {source_dir_for_items}")
+                debug(f"DEBUG: _prepare_restore_files_from_source: Source directory not found, skipping: {source_dir_for_items}")
             return
 
         for dirpath, dirnames, filenames in os.walk(source_dir_for_items, topdown=True):
@@ -704,7 +705,7 @@ class OT_BackupManager(Operator):
                     elif system_specific_backup_was_missing: # Fallback condition
                         should_process_dir = True # Process from shared as system-specific is missing
                         if prefs_instance.debug:
-                            print(f"DEBUG: Fallback Restore: Including DIR '{d_name}' from SHARED backup (item not marked shared, but system-specific backup missing).")
+                            debug(f"DEBUG: Fallback Restore: Including DIR '{d_name}' from SHARED backup (item not marked shared, but system-specific backup missing).")
                 else: # Looking for items that should come from non-shared backup
                     if not is_d_globally_shared: # Item is NOT marked as shared in prefs
                         should_process_dir = True
@@ -725,7 +726,7 @@ class OT_BackupManager(Operator):
                     elif system_specific_backup_was_missing: # Fallback condition
                         process_this_file = True # Process from shared as system-specific is missing
                         if prefs_instance.debug:
-                            print(f"DEBUG: Fallback Restore: Including FILE '{f_name}' from SHARED backup (item not marked shared, but system-specific backup missing).")
+                            debug(f"DEBUG: Fallback Restore: Including FILE '{f_name}' from SHARED backup (item not marked shared, but system-specific backup missing).")
                 else:
                     if not is_f_globally_shared: # File is NOT marked as shared in prefs
                         process_this_file = True
@@ -752,7 +753,7 @@ class OT_BackupManager(Operator):
         pref_restore_versions = preferences.BM_Preferences.restore_version_list
 
         if pref_instance.debug:
-            print("\n\nbutton_input: ", self.button_input)                    
+            debug("\n\nbutton_input: ", self.button_input)                    
         
         if pref_instance.backup_path:
             self.current_operation_type = "" # Reset for single ops
@@ -774,9 +775,9 @@ class OT_BackupManager(Operator):
                             if prefs_main.use_preferences_save: # Only change if it was True
                                 prefs_main.use_preferences_save = False
                                 if pref_instance.debug:
-                                    print(f"DEBUG: OT_BackupManager.execute RESTORE (non-advanced): Temporarily disabled 'Save Preferences on Quit'.")
+                                    debug(f"DEBUG: OT_BackupManager.execute RESTORE (non-advanced): Temporarily disabled 'Save Preferences on Quit'.")
                         elif pref_instance.debug:
-                            print(f"DEBUG: OT_BackupManager.execute RESTORE (non-advanced): Could not access 'use_save_on_quit'.")
+                            debug(f"DEBUG: OT_BackupManager.execute RESTORE (non-advanced): Could not access 'use_save_on_quit'.")
                         # --- Set paths for non-advanced RESTORE ---
                         # self.current_source_path will be set by _prepare_restore_files_from_source calls
                         self.current_target_path = pref_instance.blender_user_path
@@ -797,9 +798,9 @@ class OT_BackupManager(Operator):
                             if prefs_main.use_preferences_save: # Only change if it was True
                                 prefs_main.use_preferences_save = False
                                 if pref_instance.debug:
-                                    print(f"DEBUG: OT_BackupManager.execute RESTORE (advanced): Temporarily disabled 'Save Preferences on Quit'.")
+                                    debug(f"DEBUG: OT_BackupManager.execute RESTORE (advanced): Temporarily disabled 'Save Preferences on Quit'.")
                         elif pref_instance.debug:
-                            print(f"DEBUG: OT_BackupManager.execute RESTORE (advanced): Could not access 'use_save_on_quit'.")
+                            debug(f"DEBUG: OT_BackupManager.execute RESTORE (advanced): Could not access 'use_save_on_quit'.")
                         # --- Set paths for advanced RESTORE ---
                         # self.current_source_path will be set by _prepare_restore_files_from_source calls
                         self.current_target_path = os.path.join(os.path.dirname(pref_instance.blender_user_path),  pref_instance.backup_versions)
@@ -822,14 +823,14 @@ class OT_BackupManager(Operator):
                         default_target_to_clean = os.path.join(pref_instance.backup_path, pref_instance.system_id, version_to_clean_name)
 
                         if os.path.exists(default_target_to_clean):
-                            if pref_instance.debug: print(f"Attempting to clean default backup path: {default_target_to_clean}")
+                            if pref_instance.debug: debug(f"Attempting to clean default backup path: {default_target_to_clean}")
                             try:
                                 if not pref_instance.dry_run: shutil.rmtree(default_target_to_clean)
                             except OSError as e: self.report({'WARNING'}, f"Failed to clean {default_target_to_clean}: {e}")
                         # Clean shared target path
                         shared_target_to_clean = os.path.join(pref_instance.backup_path, SHARED_FOLDER_NAME, version_to_clean_name)
                         if os.path.exists(shared_target_to_clean):
-                            if pref_instance.debug: print(f"Attempting to clean shared backup path: {shared_target_to_clean}")
+                            if pref_instance.debug: debug(f"Attempting to clean shared backup path: {shared_target_to_clean}")
                             try:
                                 if not get_addon_preferences().dry_run: shutil.rmtree(shared_target_to_clean)
                             except OSError as e: self.report({'WARNING'}, f"Failed to clean {shared_target_to_clean}: {e}")
@@ -936,9 +937,9 @@ class OT_BackupManager(Operator):
                     if prefs_main.use_preferences_save: # Only change if it was True
                         prefs_main.use_preferences_save = False
                         if pref_instance.debug:
-                            print(f"DEBUG: OT_BackupManager.execute BATCH_RESTORE: Temporarily disabled 'Save Preferences on Quit' for the batch.")
+                            debug(f"DEBUG: OT_BackupManager.execute BATCH_RESTORE: Temporarily disabled 'Save Preferences on Quit' for the batch.")
                 elif pref_instance.debug:
-                    print(f"DEBUG: OT_BackupManager.execute BATCH_RESTORE: Could not access 'use_save_on_quit' to disable it for the batch.")
+                    debug(f"DEBUG: OT_BackupManager.execute BATCH_RESTORE: Could not access 'use_save_on_quit' to disable it for the batch.")
                 # --- End temporary disable ---
                 self.is_batch_operation = True
                 self.batch_operations_list.clear()
@@ -997,7 +998,7 @@ class OT_BackupManager(Operator):
                             first_interval=0.01
                         )
                         if pref_instance.debug or pref_instance.dry_run:
-                             print(f"\n{action_verb} Backup: {target_path}")
+                             debug(f"\n{action_verb} Backup: {target_path}")
 
                     except OSError as e:
                         action_verb = "Failed to (dry run) delete" if pref_instance.dry_run else "Failed to delete"
@@ -1010,14 +1011,14 @@ class OT_BackupManager(Operator):
                             first_interval=0.01
                         )
                         if get_addon_preferences().debug: # Keep print for debug
-                            print(f"\n{action_verb} {target_path}: {e}")
+                            debug(f"\n{action_verb} {target_path}: {e}")
                 else:
                     not_found_msg = f"Not found, nothing to delete: {target_path}"
                     self.report({'INFO'}, not_found_msg)
                     # This will call ui.OT_ShowFinalReport
                     bpy.app.timers.register(lambda: OT_BackupManager._deferred_show_report_static([f"Not found, nothing to delete:", target_path], "Delete Backup Report", 'INFO'), first_interval=0.01)
                     if pref_instance.debug: # Keep print for debug
-                        print(f"\nBackup to delete not found: {target_path}")
+                        debug(f"\nBackup to delete not found: {target_path}")
 
             elif self.button_input == OPERATION_DELETE_SELECTED_SHARED_BACKUP:
                 target_version_name_for_shared_delete = ""
@@ -1043,18 +1044,18 @@ class OT_BackupManager(Operator):
                             final_report_lines.append("(Dry Run - No actual deletion occurred)")
                         self.report({'INFO'}, " ".join(final_report_lines))
                         if pref_instance.debug or pref_instance.dry_run:
-                             print(f"\n{action_verb} Shared Config: {shared_path_to_delete}")
+                             debug(f"\n{action_verb} Shared Config: {shared_path_to_delete}")
                     except OSError as e:
                         action_verb_fail = "Failed to (dry run) delete" if pref_instance.dry_run else "Failed to delete"
                         final_report_lines.append(f"{action_verb_fail} shared config for '{target_version_name_for_shared_delete}': {shared_path_to_delete}")
                         final_report_lines.append(str(e))
                         self.report({'WARNING'}, " ".join(final_report_lines))
-                        if pref_instance.debug: print(f"\n{action_verb_fail} {shared_path_to_delete}: {e}")
+                        if pref_instance.debug: debug(f"\n{action_verb_fail} {shared_path_to_delete}: {e}")
                 else:
                     final_report_lines.append(f"Shared config for version '{target_version_name_for_shared_delete}' not found, nothing to delete:")
                     final_report_lines.append(shared_path_to_delete)
                     self.report({'INFO'}, " ".join(final_report_lines))
-                    if pref_instance.debug: print(f"\nShared config to delete not found: {shared_path_to_delete}")
+                    if pref_instance.debug: debug(f"\nShared config to delete not found: {shared_path_to_delete}")
 
                 bpy.app.timers.register(
                     lambda lines=final_report_lines: OT_BackupManager._deferred_show_report_static(lines, "Delete Selected Shared Config Report", 'TRASH'),
@@ -1127,7 +1128,7 @@ class OT_BackupManager(Operator):
                 _search_start_sb = None
                 if pref_instance.debug:
                     _search_start_sb = datetime.now()
-                    print(f"DEBUG: execute SEARCH_BACKUP START")
+                    debug(f"DEBUG: execute SEARCH_BACKUP START")
                 # Path to the directory containing Blender version folders (e.g., .../Blender/3.6, .../Blender/4.0)
                 blender_versions_parent_dir = os.path.dirname(bpy.utils.resource_path(type='USER'))
 
@@ -1135,11 +1136,11 @@ class OT_BackupManager(Operator):
                 _fv1_start_sb = None
                 if pref_instance.debug:
                     _fv1_start_sb = datetime.now()
-                    print(f"DEBUG: execute SEARCH_BACKUP calling find_versions for blender_versions_parent_dir: {blender_versions_parent_dir}")
+                    debug(f"DEBUG: execute SEARCH_BACKUP calling find_versions for blender_versions_parent_dir: {blender_versions_parent_dir}")
                 found_backup_versions = find_versions(blender_versions_parent_dir) # Use utils
                 if pref_instance.debug:
                     _fv1_end_sb = datetime.now()
-                    print(f"DEBUG: (took: {(_fv1_end_sb - _fv1_start_sb).total_seconds():.6f}s) execute SEARCH_BACKUP find_versions for blender_versions_parent_dir DONE")
+                    debug(f"DEBUG: (took: {(_fv1_end_sb - _fv1_start_sb).total_seconds():.6f}s) execute SEARCH_BACKUP find_versions for blender_versions_parent_dir DONE")
                 pref_backup_versions.extend(found_backup_versions)
                 pref_backup_versions.sort(reverse=True)
 
@@ -1152,17 +1153,17 @@ class OT_BackupManager(Operator):
                 _restore_sources_scan_start_sb = None
                 if pref_instance.debug:
                     _restore_sources_scan_start_sb = datetime.now()
-                    print(f"DEBUG: execute SEARCH_BACKUP: Scanning for restore versions (system, shared, local)...")
+                    debug(f"DEBUG: execute SEARCH_BACKUP: Scanning for restore versions (system, shared, local)...")
 
                 # Scan system-specific backup path
-                if pref_instance.debug: print(f"DEBUG: execute SEARCH_BACKUP calling find_versions for system_specific_backup_path: {system_specific_backup_path}")
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_BACKUP calling find_versions for system_specific_backup_path: {system_specific_backup_path}")
                 found_system_restore_versions = find_versions(system_specific_backup_path)
-                if pref_instance.debug: print(f"DEBUG: execute SEARCH_BACKUP find_versions for system_specific_backup_path found: {len(found_system_restore_versions)}")
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_BACKUP find_versions for system_specific_backup_path found: {len(found_system_restore_versions)}")
 
                 # Scan shared backup path
-                if pref_instance.debug: print(f"DEBUG: execute SEARCH_BACKUP calling find_versions for shared_backup_path: {shared_backup_path}")
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_BACKUP calling find_versions for shared_backup_path: {shared_backup_path}")
                 found_shared_restore_versions = find_versions(shared_backup_path)
-                if pref_instance.debug: print(f"DEBUG: execute SEARCH_BACKUP find_versions for shared_backup_path found: {len(found_shared_restore_versions)}")
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_BACKUP find_versions for shared_backup_path found: {len(found_shared_restore_versions)}")
 
                 # pref_backup_versions (local Blender versions) should be populated at this point.
                 # Combine all sources for the 'Restore From' list in Backup tab's advanced mode.
@@ -1170,20 +1171,20 @@ class OT_BackupManager(Operator):
                 
                 if pref_instance.debug and _restore_sources_scan_start_sb:
                     _restore_sources_scan_end_sb = datetime.now()
-                    print(f"DEBUG: (took: {(_restore_sources_scan_end_sb - _restore_sources_scan_start_sb).total_seconds():.6f}s for scanning all restore version sources) execute SEARCH_BACKUP: Combined restore versions (before unique): {len(combined_restore_versions)}")
+                    debug(f"DEBUG: (took: {(_restore_sources_scan_end_sb - _restore_sources_scan_start_sb).total_seconds():.6f}s for scanning all restore version sources) execute SEARCH_BACKUP: Combined restore versions (before unique): {len(combined_restore_versions)}")
                 
                 # Use dict.fromkeys to preserve order of first appearance if that's desired before sorting
                 pref_restore_versions.extend(list(dict.fromkeys(combined_restore_versions)))
                 pref_restore_versions.sort(reverse=True)
                 if pref_instance.debug and _search_start_sb:
                     _search_end_sb = datetime.now()
-                    print(f"DEBUG: (took: {(_search_end_sb - _search_start_sb).total_seconds():.6f}s) execute SEARCH_BACKUP END")
+                    debug(f"DEBUG: (took: {(_search_end_sb - _search_start_sb).total_seconds():.6f}s) execute SEARCH_BACKUP END")
 
             elif self.button_input == 'SEARCH_RESTORE': 
                 _search_start_sr = None
                 if pref_instance.debug:
                     _search_start_sr = datetime.now()
-                    print(f"DEBUG: execute SEARCH_RESTORE START")
+                    debug(f"DEBUG: execute SEARCH_RESTORE START")
                 blender_versions_parent_dir = os.path.dirname(bpy.utils.resource_path(type='USER'))
 
                 # For restore_versions, search within the system_id folder in the backup_path
@@ -1195,25 +1196,25 @@ class OT_BackupManager(Operator):
                 _scan_restore_locations_start_sr = None
                 if pref_instance.debug:
                     _scan_restore_locations_start_sr = datetime.now()
-                    print(f"DEBUG: execute SEARCH_RESTORE: Scanning backup locations (system-specific and shared)...")
+                    debug(f"DEBUG: execute SEARCH_RESTORE: Scanning backup locations (system-specific and shared)...")
                 
                 all_found_restore_versions = []
 
                 # Scan system-specific backup path
-                if pref_instance.debug: print(f"DEBUG: execute SEARCH_RESTORE calling find_versions for system_specific_backup_path: {system_specific_backup_path}")
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_RESTORE calling find_versions for system_specific_backup_path: {system_specific_backup_path}")
                 found_system_versions = find_versions(system_specific_backup_path)
                 all_found_restore_versions.extend(found_system_versions)
-                if pref_instance.debug: print(f"DEBUG: execute SEARCH_RESTORE find_versions for system_specific_backup_path found: {len(found_system_versions)}")
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_RESTORE find_versions for system_specific_backup_path found: {len(found_system_versions)}")
 
                 # Scan shared backup path
-                if pref_instance.debug: print(f"DEBUG: execute SEARCH_RESTORE calling find_versions for shared_backup_path: {shared_backup_path}")
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_RESTORE calling find_versions for shared_backup_path: {shared_backup_path}")
                 found_shared_versions = find_versions(shared_backup_path)
                 all_found_restore_versions.extend(found_shared_versions)
-                if pref_instance.debug: print(f"DEBUG: execute SEARCH_RESTORE find_versions for shared_backup_path found: {len(found_shared_versions)}")
+                if pref_instance.debug: debug(f"DEBUG: execute SEARCH_RESTORE find_versions for shared_backup_path found: {len(found_shared_versions)}")
                 
                 if pref_instance.debug and _scan_restore_locations_start_sr:
                     _scan_restore_locations_end_sr = datetime.now()
-                    print(f"DEBUG: (took: {(_scan_restore_locations_end_sr - _scan_restore_locations_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE: Finished scanning backup locations. Total items before unique: {len(all_found_restore_versions)}")
+                    debug(f"DEBUG: (took: {(_scan_restore_locations_end_sr - _scan_restore_locations_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE: Finished scanning backup locations. Total items before unique: {len(all_found_restore_versions)}")
 
                 unique_restore_versions = list(dict.fromkeys(all_found_restore_versions))
                 pref_restore_versions.extend(unique_restore_versions)
@@ -1223,14 +1224,14 @@ class OT_BackupManager(Operator):
                 _fv2_start_sr = None
                 if pref_instance.debug:
                     _fv2_start_sr = datetime.now()
-                    print(f"DEBUG: execute SEARCH_RESTORE calling find_versions for blender_versions_parent_dir: {blender_versions_parent_dir}")
+                    debug(f"DEBUG: execute SEARCH_RESTORE calling find_versions for blender_versions_parent_dir: {blender_versions_parent_dir}")
                 combined_backup_versions = find_versions(blender_versions_parent_dir) + pref_restore_versions # Use utils
                 if pref_instance.debug:
                     _fv2_end_sr = datetime.now()
-                    print(f"DEBUG: (took: {(_fv2_end_sr - _fv2_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE find_versions for blender_versions_parent_dir DONE")
+                    debug(f"DEBUG: (took: {(_fv2_end_sr - _fv2_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE find_versions for blender_versions_parent_dir DONE")
 
                 if pref_instance.debug:
-                    print("Combined backup versions before filtering: ", combined_backup_versions)
+                    debug("Combined backup versions before filtering: ", combined_backup_versions)
                 
                 # Filter and sort backup versions
                 unique_backup_versions = list(dict.fromkeys(combined_backup_versions))
@@ -1241,15 +1242,15 @@ class OT_BackupManager(Operator):
                         valid_backup_versions.append(version_tuple)
                     except ValueError:
                         if pref_instance.debug:
-                            print(f"Filtered out non-float-like version from backup_versions: {version_tuple[0]}")
+                            debug(f"Filtered out non-float-like version from backup_versions: {version_tuple[0]}")
                 
                 pref_backup_versions.extend(valid_backup_versions)
                 if pref_instance.debug:
-                    print("Final backup_versions list: ", pref_backup_versions)
+                    debug("Final backup_versions list: ", pref_backup_versions)
                 pref_backup_versions.sort(reverse=True)
                 if pref_instance.debug and _search_start_sr:
                     _search_end_sr = datetime.now()
-                    print(f"DEBUG: (took: {(_search_end_sr - _search_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE END")            
+                    debug(f"DEBUG: (took: {(_search_end_sr - _search_start_sr).total_seconds():.6f}s) execute SEARCH_RESTORE END")            
             # After any search operation, ensure progress UI is reset if it was somehow active
             if self.button_input.startswith("SEARCH_"):
                 pref_instance.show_operation_progress = False
