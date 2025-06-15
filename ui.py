@@ -54,13 +54,16 @@ class BM_UL_BackupItemsList(UIList):
         enabled_icon = 'CHECKBOX_HLT' if is_item_enabled_for_current_op else 'CHECKBOX_DEHLT'
         item_row.prop(prefs_instance, enabled_prop_name, text="", icon=enabled_icon, icon_only=True, emboss=False)
 
-        # 2. Draw Item Name
-        item_row.label(text=item.name)
-        # 3. Draw Path/Status Display (logic remains the same)
+        # Split the row after the enabled toggle.
+        # 'item_row' will contain the name.
+        # 'shared_icon_and_path_area' will contain the Shared Toggle icon and then the Path.
+        shared_icon_and_path_area = item_row.split(factor=0.20)
+
+        # 2. Draw Item Name in the first part of the split (which is 'item_row' after the split)
+        shared_icon_and_path_area.label(text=item.name)
+
+        # 3. Calculate Path/Status Display text
         display_info_text = "Disabled" # Default
-
-        is_item_enabled_for_current_op = getattr(prefs_instance, f"{prefs_instance.tabs.lower()}_{item.identifier}", False)
-
         if not prefs_instance.backup_path:
             display_info_text = "Backup Path Not Set"
         elif is_item_enabled_for_current_op:
@@ -74,7 +77,7 @@ class BM_UL_BackupItemsList(UIList):
                     else:
                         # For advanced backup, target folder name is based on the selected source version
                         version_name_for_display = prefs_instance.backup_versions
-            elif prefs_instance.tabs == core.OPERATION_RESTORE:
+            elif prefs_instance.tabs == "RESTORE": # Use "RESTORE" string directly or constants.OPERATION_RESTORE
                 if not prefs_instance.advanced_mode:
                     version_name_for_display = str(prefs_instance.active_blender_version)
                 else: # Advanced mode
@@ -85,7 +88,7 @@ class BM_UL_BackupItemsList(UIList):
             else:
                 is_item_shared = getattr(prefs_instance, f"shared_{item.identifier}", False)
                 
-                path_parts = [prefs_instance.backup_path]
+                path_parts = []
                 if is_item_shared:
                     path_parts.append(SHARED_FOLDER_NAME)
                 else:
@@ -100,18 +103,25 @@ class BM_UL_BackupItemsList(UIList):
                 else: # Should be caught by the initial check, but as a safeguard
                     display_info_text = "Path Incomplete"
         
-
-        item_row.separator(factor=0.1) # Separator before the path/status text
-        # Conditionally Draw "Shared" Toggle (if item is enabled for current op)
+        # 4. Conditionally Draw "Shared" Toggle and then Path/Status Label
         if is_item_enabled_for_current_op:
+            
+
+            # Split shared_icon_and_path_area:
+            path_label_area = shared_icon_and_path_area.split(factor=0.05) 
+
+            # Draw Shared Toggle in the first part of this new split (shared_icon_and_path_area)
             shared_prop_name = f"shared_{item.identifier}"
             is_shared = getattr(prefs_instance, shared_prop_name, False)
             shared_icon = 'NETWORK_DRIVE' if is_shared else 'RESTRICT_VIEW_OFF'
-            item_row.prop(prefs_instance, shared_prop_name, text="", icon=shared_icon, icon_only=True, emboss=True)
+            path_label_area.prop(prefs_instance, shared_prop_name, text="", icon=shared_icon)
 
-        item_row.label(text=display_info_text)
+            # Draw Path label in the second part of this new split (path_label_area)
+            path_label_area.label(text=display_info_text)
+        else:
+            # If item is not enabled (shared toggle hidden), path display takes all of path_and_shared_area.
+            shared_icon_and_path_area.label(text=display_info_text)
 
-        
 # --- UI Helper Operators ---
 class OT_OpenPathInExplorer(Operator):
     """Operator to open a given path in the system's file explorer."""
@@ -271,7 +281,7 @@ class OT_BackupManagerWindow(Operator):
         default="BACKUP",
         update=_update_window_tabs
     )
-    show_item_configuration: BoolProperty(name="Item Backup Selection & Sharing", default=False)
+    show_item_configuration: BoolProperty(name="Backup Item Selection & Sharing", default=False)
 
     def _draw_path_age(self, layout, path_to_check, backup_path=None, system_id=None, version_name=None):
         """Draws the age string for a path, using the cache or robust versioned-folder logic."""
