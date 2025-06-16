@@ -294,7 +294,7 @@ class BM_Preferences(AddonPreferences):
         description="Number of days after which the backup reminder will be shown",
         default=30,
         min=1,
-        soft_max=365,
+        soft_max=60,
         subtype='TIME'
     )
 

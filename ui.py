@@ -443,7 +443,7 @@ class OT_BackupManagerWindow(Operator):
 
         settings_to_disable_group.prop(prefs_instance, "backup_reminder")
         if prefs_instance.backup_reminder:
-            settings_to_disable_group.prop(prefs_instance, "backup_reminder_duration")
+            settings_to_disable_group.prop(prefs_instance, "backup_reminder_duration", slider=True)
         settings_to_disable_group.prop(prefs_instance, 'show_path_details')
         settings_to_disable_group.prop(prefs_instance, 'debug')
         col_top.separator()
