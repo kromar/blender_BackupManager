@@ -139,7 +139,12 @@ def update_backup_warning_cache(force=False):
     }
     _next_backup_check_time = now + next_check_in
 
-def topbar_warning_draw_fn(self, context: Context) -> None:
+def topbar_warning_draw_fn(self, context: Context) -> None:    
+    # Only draw if the region alignment is 'RIGHT'
+    # This keeps the buttons away from the Workspace tabs
+    if context.region.alignment != 'RIGHT':
+        return
+    
     """Draws the Backup Manager button in the TOPBAR header if needed."""
     layout = self.layout
     addon_prefs, _local_debug_active = get_prefs_and_debug()
